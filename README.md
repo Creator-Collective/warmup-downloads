@@ -6,6 +6,10 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.9 returns the website and extension panel to auto warm-up only. Account creation is shelved behind a disabled bundled flag; no signup form or signup UI script is loaded. Updating stops old signup jobs and clears their temporary passwords while retaining mailbox history and access keys. TikTok and signup-email host permissions are removed. Private Instagram tabs are excluded from the warm-up selector. Existing pacing, limits, settings and warm-up behavior are unchanged. 164 tests pass; the exact updated extension still needs a live warm-up session after reload.
+
+## Earlier signup releases
+
 0.6.8 replaces the first recovered-signup Retry signup click with one automatic attempt on a recognized form, using the same email and birthday. The used retry is saved with the mailbox before acting and survives stop/restart and extension reload. Further recovered retries require explicit review; security checks, unknown forms and attempts already made in the active job never loop. Older sessions paused on Retry signup can proceed only on their pinned form. Existing login isolation and exact-recipient verification remain unchanged. 158 tests pass; live automatic retry, code entry and completed signup remain unverified.
 
 0.6.7 recognizes Instagram's confirmation-code copy without requiring the literal word "email", while still requiring the exact visible saved recipient and a code-delivery prompt. A paused signup with details history can automatically resume once on that matching code screen; it never auto-resumes details or security checks. The final submission check reacquires the same form and waits up to three seconds for readiness without refilling or multiple clicks, and identifies a blocking field/button if it cannot continue. 151 tests pass. User screenshots confirm live details/birthday filling and reaching confirmation; the expected mailbox received a code. Automatic code entry and completed signup remain unverified.

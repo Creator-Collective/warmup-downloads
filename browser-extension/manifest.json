@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Creator Collective Warm-up",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Run a timed niche browsing session on Instagram, with limits and activity you control.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -11,11 +11,7 @@
   ],
   "host_permissions": [
     "https://www.instagram.com/*",
-    "https://instagram.com/*",
-    "https://www.tiktok.com/*",
-    "https://tiktok.com/*",
-    "https://trycreatorcollective.com/*",
-    "https://www.trycreatorcollective.com/*"
+    "https://instagram.com/*"
   ],
   "background": {
     "service_worker": "background.js"

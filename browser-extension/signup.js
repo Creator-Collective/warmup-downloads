@@ -283,6 +283,7 @@ const signupController = (() => {
     const revision = scheduledRevision;
     assertRevision(revision);
     if (message.type === 'signup-state') return state();
+    if (!productFeatures.accountSignup) throw new Error('account creation is paused. use auto warm-up with an existing instagram account.');
     if (message.type === 'signup-start') {
       const previous = await read(revision);
       if (isActive(previous)) throw new Error('finish or stop the current signup first.');
@@ -337,6 +338,7 @@ const signupController = (() => {
     const job = await read(revision);
     assertRevision(revision);
     if (!runnerSender(sender, job, message.token)) throw new Error('this signup session is no longer active.');
+    if (!productFeatures.accountSignup) return publicState(await suspendIfDisabled());
     if (message.type === 'signup-runner-stop') return publicState(await halt());
     if (message.type === 'signup-runner-show') { await chrome.tabs.update(job.tabId, { active: true }); assertRevision(revision); return publicState(job); }
     if (message.type === 'signup-runner-state') return publicState(job);
@@ -366,5 +368,11 @@ const signupController = (() => {
     assertRevision(revision);
     if (isActive(job) && invalid(job)) return halt('signup stopped because a signup tab changed or unloaded. your account email is saved.');
   }
-  return { command, runnerCommand, read, isActive, publicState, platformURL, username, tabRemoved, tabUpdated, revision: () => cancellationRevision };
+  async function suspendIfDisabled() {
+    if (productFeatures.accountSignup) return null;
+    const job = await read();
+    if (isActive(job) || job?.password) return halt('account creation is paused. your signup email is saved on this device.');
+    return job;
+  }
+  return { command, runnerCommand, read, isActive, publicState, platformURL, username, tabRemoved, tabUpdated, suspendIfDisabled, revision: () => cancellationRevision };
 })();

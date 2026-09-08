@@ -1,3 +1,9 @@
+2026-09-08 | 0.6.9 return to auto warm-up
+- user shelved account creation and phone-provider work. remove signup controls/scripts from the website and generated panel; keep the signup source and tests for later behind a disabled bundled feature flag.
+- reject signup start/continue commands and stop older active jobs on update or runner contact, clearing temporary passwords while preserving local mailbox history/access. no mailbox network requests, private-window creation or new signup actions. remove TikTok/email host permissions and exclude private Instagram tabs from the warm-up picker.
+- keep the warm-up engine, pacing and engagement defaults unchanged. update setup/privacy/store copy and release packages.
+- verification: 164 tests pass, covering stale signup shutdown, saved-data retention, disabled signup commands, runner shutdown, normal warm-up startup and private-tab filtering. no live engagement or completed warm-up session performed on this release; installed reload and live session verification remain open.
+
 2026-09-08 | 0.6.8 automatic signup recovery retry
 - user requested removing the Retry signup click. recognized recovered forms now retry once with the same mailbox, birthday and current document guards. save the used retry with mailbox history before injection; restart/reload cannot reset it. additional recovered retries still require explicit review, and same-job attempts are never replayed.
 - preserve private-window isolation, security/unknown-form pauses, cancellation and exact-recipient code handling. support older sessions already paused on a pinned Retry signup form without opening a new mailbox.

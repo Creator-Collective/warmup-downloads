@@ -16,7 +16,7 @@ const copy = value => value === undefined ? undefined : structuredClone(value);
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 
-function harness(initial = {}, initialLocal = {}) {
+function harness(initial = {}, initialLocal = {}, { signupEnabled = true } = {}) {
   let now = Date.parse('2026-09-08T17:00:00.000Z');
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
   const storage = copy(initial); const local = copy(initialLocal);
@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.8' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.9' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -81,7 +81,8 @@ function harness(initial = {}, initialLocal = {}) {
       return { status: server.status, ok: server.status === 200, json: async () => copy(data) };
     },
   });
-  context.importScripts = (...files) => files.forEach(file => vm.runInContext(fs.readFileSync(path.join(extension, file), 'utf8'), context, { filename: file }));
+  // Keep the shelved signup engine covered; release tests use the real flags.
+  context.importScripts = (...files) => files.forEach(file => vm.runInContext(file === 'features.js' && signupEnabled ? 'const productFeatures = Object.freeze({ accountSignup: true });' : fs.readFileSync(path.join(extension, file), 'utf8'), context, { filename: file }));
   vm.runInContext(fs.readFileSync(path.join(extension, 'background.js'), 'utf8'), context, { filename: 'background.js' });
   const message = (request, sender = panel) => new Promise(resolve => {
     const accepted = chrome.runtime.onMessage.listeners[0](request, sender, response => resolve(copy(response)));
@@ -950,4 +951,73 @@ test('a recovered mailbox mismatch fails before opening any platform tab', async
   assert.equal(result.ok, false);
   assert.equal(restarted.created.length, 0);
   assert.equal(restarted.local.nativeSignupRecovery.email, EMAIL);
+});
+
+test('warm-up release rejects signup starts and recovery commands without making requests', async () => {
+  const h = harness({}, {}, { signupEnabled: false });
+  for (const type of ['signup-start', 'signup-continue', 'signup-show']) {
+    const response = await h.message({ type, platform: 'instagram', username: 'test.creator', password: PASSWORD });
+    assert.equal(response.ok, false);
+    assert.match(response.error, /account creation is paused/);
+  }
+  assert.equal(h.apiRequests.length, 0);
+  assert.equal(h.injections.length, 0);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.storage.signupJob, undefined);
+  assert.equal((await h.message({ type: 'signup-state' })).data.phase, 'ready');
+});
+
+test('warm-up release stops old signups, clears their password and preserves saved mailbox access', async () => {
+  for (const phase of ['starting', 'running', 'paused']) {
+    const first = harness(); await first.start();
+    first.storage.signupJob.phase = phase;
+    const h = harness(first.storage, first.local, { signupEnabled: false });
+    await settle();
+    assert.equal(h.storage.signupJob.phase, 'stopped', phase);
+    assert.equal(h.storage.signupJob.password, '');
+    assert.equal(h.local.nativeSignupInstall, first.local.nativeSignupInstall);
+    assert.equal(h.local.nativeSignupAccounts.length, 1);
+    assert.equal(h.local.nativeSignupAccounts[0].email, EMAIL);
+    assert.equal(h.local.nativeSignupAccounts[0].requestId, first.storage.signupJob.requestId);
+    assert.equal(h.cancellations.length, 1);
+    assert.equal(h.apiRequests.length, 0);
+    assert.equal(h.injections.length, 0);
+    const started = await h.message({ type: 'start', tabId: 7, settings: { minutes: 1, niche: 'branding', customLimits: { like: 0, follow: 0 } } });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(h.created.length, 1);
+    assert.match(h.created[0].url, /\/runner\.html#/);
+  }
+});
+
+test('old signup runners cannot resume account creation after the warm-up update', async () => {
+  const first = harness(); await first.start(); await first.ready();
+  const h = harness(first.storage, first.local, { signupEnabled: false });
+  await settle();
+  for (const type of ['ready', 'tick', 'state', 'show']) {
+    const result = await h.runnerMessage(type);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.data.phase, 'stopped');
+    assert.equal(result.data.active, false);
+  }
+  assert.equal(h.apiRequests.length, 0);
+  assert.equal(h.injections.length, 0);
+  assert.equal(h.created.length, 0);
+});
+
+test('warm-up release leaves completed signup history and an existing warm-up session unchanged', async () => {
+  const first = harness(); await first.details();
+  first.storage.signupJob.phase = 'complete'; first.storage.signupJob.password = '';
+  first.storage.job = { phase: 'running', token: 'warm-up-token', tabId: 7 };
+  const h = harness(first.storage, first.local, { signupEnabled: false });
+  await settle();
+  assert.deepEqual(h.local, first.local);
+  assert.deepEqual(h.storage, first.storage);
+  assert.equal(h.cancellations.length, 0);
+});
+
+test('warm-up tab selection excludes private signup windows', async () => {
+  const h = harness({}, {}, { signupEnabled: false });
+  h.tabs.set(8, { id: 8, url: 'https://www.instagram.com/', incognito: true });
+  const response = await h.message({ type: 'tabs' });
+  assert.deepEqual(response.data.map(tab => tab.id), [7]);
 });

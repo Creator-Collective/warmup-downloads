@@ -1,0 +1,14 @@
+<details id="signup-section" class="signup-section"><summary>create an account</summary>
+<p id="signup-web-help" class="hint">open the extension side panel to create an account.</p>
+<div id="signup-panel" hidden>
+<div id="signup-progress" class="signup-progress" hidden><span class="signup-indicator" aria-hidden="true"></span><strong id="signup-status" role="status">ready</strong><time id="signup-timer" aria-label="active signup time">00:00</time></div><p id="signup-account" class="signup-account" hidden></p>
+<form id="signup-form" autocomplete="off"><fieldset id="signup-fields" disabled>
+<div class="signup-platform-row"><label for="signup-platform">platform</label><select id="signup-platform"><option value="instagram">instagram</option><option value="tiktok">tiktok</option></select></div>
+<label for="signup-username">username</label><input id="signup-username" name="signup-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" required placeholder="your.username">
+<label for="signup-password">password</label><input id="signup-password" name="signup-password" type="password" autocomplete="new-password" minlength="8" maxlength="64" required placeholder="8+ characters">
+<button id="signup-start" type="submit" class="primary">start</button>
+</fieldset></form>
+<p id="signup-message" class="signup-message" role="status" aria-live="polite">ready to start.</p><p id="signup-error" class="error" role="alert" hidden></p>
+<div id="signup-active-controls" hidden><div class="signup-buttons"><button id="signup-continue" type="button" class="primary" hidden>continue</button><button id="signup-show" type="button" class="secondary">view signup ↗</button><button id="signup-stop" type="button" class="text-button">stop</button></div></div>
+<details id="signup-email-row" class="signup-email-details" hidden><summary>signup email</summary><span id="signup-email"></span></details>
+</div></details>
