@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.5 uses the requested default birthday, May 30, 2006, on recognized Instagram Get started forms. Native selects, date inputs and uniquely identified listbox menus are supported. The selected date is verified before the existing guarded details submission; different dates already entered, security checks, unclear controls and uncertain prior submissions still pause. The birthday is retained with local mailbox recovery, not sent to the email service. 136 automated checks pass; live birthday selection and completed Instagram/TikTok signup remain unverified.
+
 0.6.4 recognizes Instagram's Get started form with inline birthday controls and a Submit button. It fills the known account details without choosing a birthday or submitting that form. The panel asks the user to choose their birthday and press Submit in Instagram, then continue. Manual submission can advance to exact-recipient email verification. Prefilled details persist as an uncertain submission for restart recovery, preventing automatic duplicate signup. 128 automated checks pass, including a screenshot-based form fixture; completed live signup remains unverified.
 
 0.6.3 automatically opens a private signup window after detecting an existing Instagram login when incognito access is allowed. Otherwise, it pauses with a visible permission action. The compact panel shows active elapsed time, freezes it during pauses, hides the inactive details form while running, and keeps the saved email behind an expandable row. Automated and isolated UI checks are not proof of live platform signup. Daily mailbox allocation limits remain unchanged.

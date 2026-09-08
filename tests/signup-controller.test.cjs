@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.4' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.5' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -154,6 +154,9 @@ test('normal steps submit once with recorded intent and a pinned Chrome document
   assert.equal(h.acts().length, 1);
   assert.equal(h.injections[0].input.password, undefined);
   assert.equal(h.acts()[0].input.password, PASSWORD);
+  assert.equal(h.acts()[0].input.birthDate, '2006-05-30');
+  assert.equal(h.local.nativeSignupRecovery.birthDate, '2006-05-30');
+  assert.equal(h.apiRequests.some(request => 'birthDate' in request.body), false);
   assert.deepEqual(h.acts()[0].target.documentIds, [`chrome-document-${h.storage.signupJob.tabId}`]);
   assert.equal(h.storage.signupJob.detailsSubmitted, true);
   h.time(26000); await h.tick();
@@ -163,6 +166,22 @@ test('normal steps submit once with recorded intent and a pinned Chrome document
   h.server.observation.documentId = 'reloaded-document';
   await h.message({ type: 'signup-continue' }); await h.tick();
   assert.equal(h.acts().length, 1, 'a new document cannot bypass the submitted step signature');
+});
+
+test('birthday stays bound to the recovered account through stop and private signup', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.storage.signupJob.birthDate = '2001-06-20';
+  await h.message({ type: 'signup-stop' });
+  const restored = harness({}, h.local); restored.incognito(true);
+  await restored.start(); await restored.ready();
+  restored.server.observation = { stage: 'signed-in', documentId: 'feed', canSubmit: false };
+  await restored.tick();
+  assert.equal(restored.storage.signupJob.privateSignup, true);
+  restored.server.observation = { stage: 'details', signature: 'details-with-birthday', documentId: 'signup', canSubmit: true };
+  await restored.tick();
+  assert.equal(restored.acts()[0].input.birthDate, '2001-06-20');
+  assert.equal(restored.local.nativeSignupRecovery.birthDate, '2001-06-20');
+  assert.equal(restored.storage.signupJob.email, EMAIL);
 });
 
 test('a new verified form step advances while unknown or blocked states pause', async () => {

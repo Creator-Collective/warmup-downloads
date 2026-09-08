@@ -4,6 +4,7 @@ const signupController = (() => {
   const activePhases = ['starting', 'running', 'paused'];
   const platforms = ['instagram', 'tiktok'];
   const MAX_SAVED_ACCOUNTS = 3000;
+  const DEFAULT_BIRTH_DATE = '2006-05-30';
   const signupURL = platform => platform === 'instagram' ? 'https://www.instagram.com/accounts/emailsignup/' : 'https://www.tiktok.com/signup/phone-or-email/email';
   let cancellationRevision = 0;
   let activeTabs = null;
@@ -25,7 +26,7 @@ const signupController = (() => {
   function track(job) { activeTabs = isActive(job) ? { tabId: job.tabId, runnerTabId: job.runnerTabId, token: job.token, platform: job.platform } : null; }
   function recovery(job) {
     const detailsState = job.detailsSubmitted ? 'sent' : job.detailsPrefilled || job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
-    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, phase: job.phase, since: job.since, detailsState, updatedAt: Date.now() };
+    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, phase: job.phase, since: job.since, detailsState, updatedAt: Date.now() };
   }
   function write(operation) {
     const result = writes.then(operation);
@@ -159,7 +160,7 @@ const signupController = (() => {
     if (tab.pendingUrl || tab.status !== 'complete') return null;
     if (!platformURL(tab.url, job.platform)) throw new Error('the signup tab changed. stop and open signup again.');
     if (tab.incognito && !job.privateSignup) throw new Error('this signup is in a private window. stop and open signup from the extension again.');
-    const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId, ...(browserDocument ? { documentIds: [browserDocument] } : {}) }, func: signupStep, args: [{ platform: job.platform, email: job.email, username: job.username, fullName: job.username, actionToken: job.token, ...input }] });
+    const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId, ...(browserDocument ? { documentIds: [browserDocument] } : {}) }, func: signupStep, args: [{ platform: job.platform, email: job.email, username: job.username, fullName: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, actionToken: job.token, ...input }] });
     assertRevision(revision);
     return result[0] ? { ...result[0].result, browserDocument: result[0].documentId } : null;
   }
@@ -273,6 +274,7 @@ const signupController = (() => {
       const pending = previous?.phase === 'error' && !previous.email ? previous : local.nativeSignupPending;
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
       let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
+      job.birthDate = saved?.birthDate || DEFAULT_BIRTH_DATE;
       if (saved) Object.assign(job, { email: saved.email, aliasId: saved.aliasId, detailsSubmitted: saved.detailsState === 'sent' });
       job = await save(job, revision);
       try {
