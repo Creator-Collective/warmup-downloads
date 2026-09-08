@@ -76,7 +76,7 @@ const signupController = (() => {
       assertRevision(revision);
       if (!job) return null;
       if (!tabs) await cancelPage(job);
-      return persist({ ...job, password: '', phase: 'stopped', message }, revision);
+        return persist({ ...job, password: '', phase: 'stopped', message, detailsRetry: null, continueLabel: null }, revision);
     });
     const [job] = await Promise.all([stopped, cancelled]);
     return job;
@@ -149,7 +149,7 @@ const signupController = (() => {
     return { id: alias.id, email: alias.email, accountUsername: alias.accountUsername || null };
   }
   async function patch(job, changes, revision) { return save({ ...job, ...changes }, revision); }
-  async function pause(job, message, revision, extra = {}) { return patch(job, { phase: 'paused', waitingForCode: false, message, ...extra }, revision); }
+  async function pause(job, message, revision, extra = {}) { return patch(job, { phase: 'paused', waitingForCode: false, message, detailsRetry: null, continueLabel: null, ...extra }, revision); }
   function runnerSender(sender, job, token) {
     return Boolean(job && sender.id === chrome.runtime.id && sender.tab?.id === job.runnerTabId && (sender.frameId === undefined || sender.frameId === 0) && sender.url === chrome.runtime.getURL(`signup-runner.html#${job.token}`) && token === job.token);
   }
@@ -189,6 +189,7 @@ const signupController = (() => {
       const observed = await inject(job, { mode: 'observe' }, revision);
       if (!observed) return publicState(job);
       if (!validObservation(observed)) return publicState(await pause(job, 'the signup page could not be identified. finish this step in its tab.', revision));
+      if (job.detailsRetry && observed.stage !== 'details') job = await patch(job, { detailsRetry: null, continueLabel: null }, revision);
       if (observed.stage === 'complete') {
         if (!job.detailsSubmitted || typeof observed.username !== 'string' || observed.username.toLowerCase() !== job.username.toLowerCase()) return publicState(await pause(job, 'check the account signed in to this tab before continuing.', revision));
         job = await patch(job, { password: '', message: 'account confirmed. saving your account email…' }, revision);
@@ -200,7 +201,15 @@ const signupController = (() => {
         if (job.privateSignup) return publicState(await pause(job, 'this private window is also signed in. use a separate chrome profile for a fresh signup, or deliberately sign out of that private account before continuing. your signup email is saved.', revision, { needsPrivateSignup: false, continueLabel: null }));
         return publicState(await openPrivateSignup(job, revision));
       }
-      if (['details', 'birthday'].includes(observed.stage) && job.recovered && job.detailsState !== 'not-sent') return publicState(await pause(job, 'your saved email is restored. this signup may already have been sent, so it will not be submitted again automatically. check the account first; if needed, finish this form with the saved email, then continue.', revision));
+      const needsDetailsReview = (job.recovered && job.detailsState !== 'not-sent') || job.detailsPrefilled;
+      if (['details', 'birthday'].includes(observed.stage) && needsDetailsReview) {
+        if (job.attempts.some(attempt => attempt.stage === 'details')) return publicState(await pause(job, 'this signup step was already attempted. check instagram before starting another attempt; your email is saved.', revision));
+        const identified = observed.stage === 'details' && observed.canSubmit && typeof observed.signature === 'string' && observed.signature.length > 0 && observed.signature.length < 1000 && typeof observed.browserDocument === 'string' && observed.browserDocument.length > 0;
+        if (!identified) return publicState(await pause(job, observed.message || 'check this step in the signup tab, then continue here. your email is saved.', revision));
+        const target = { tabId: job.tabId, documentId: observed.documentId, browserDocument: observed.browserDocument, signature: observed.signature };
+        const approved = job.detailsRetry?.approved === true && Object.entries(target).every(([key, value]) => job.detailsRetry[key] === value);
+        if (!approved) return publicState(await pause(job, 'your email is saved. the earlier attempt may have been sent. retry signup sends this form again once.', revision, { continueLabel: 'retry signup', detailsRetry: { ...target, approved: false } }));
+      }
       if (observed.stage === 'birthday' && observed.canFill && job.platform === 'instagram' && !job.detailsSubmitted) {
         if (job.detailsPrefilled) return publicState(await pause(job, 'check your details, choose your birthday and press submit in instagram, then continue here.', revision));
         if (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(await pause(job, 'this signup form could not be identified. finish the step in its tab.', revision));
@@ -212,7 +221,6 @@ const signupController = (() => {
         return publicState(await pause(job, filled ? 'details filled. choose your birthday and press submit in instagram, then continue here.' : outcome?.message || 'check your details in instagram before submitting, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
       }
       if (['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in'].includes(observed.stage)) return publicState(await pause(job, observed.message || 'finish this check in the signup tab, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
-      if (observed.stage === 'details' && job.detailsPrefilled) return publicState(await pause(job, 'your details were filled for manual signup. check the form in instagram and press submit there, then continue here.', revision));
       if (['details', 'email-code'].includes(observed.stage) && observed.canSubmit && (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000)) return publicState(await pause(job, 'this signup action could not be identified. finish the step in its tab.', revision));
       const previous = job.attempts.find(attempt => attempt.signature === observed.signature);
       if (previous) {
@@ -243,7 +251,7 @@ const signupController = (() => {
       const attempt = { signature: observed.signature, documentId: observed.documentId, stage: observed.stage, at: Date.now() };
       // Persist intent and code consumption before the click, including when the
       // page navigates or the extension disappears before its result returns.
-      job = await patch(job, { phase: 'running', pendingAction: attempt, attempts: [...job.attempts, attempt], usedCodeIds: codeId ? [...job.usedCodeIds, codeId].slice(-50) : job.usedCodeIds, waitingForCode: false, message: 'continuing account signup…' }, revision);
+      job = await patch(job, { phase: 'running', pendingAction: attempt, attempts: [...job.attempts, attempt], detailsRetry: null, usedCodeIds: codeId ? [...job.usedCodeIds, codeId].slice(-50) : job.usedCodeIds, waitingForCode: false, message: 'continuing account signup…' }, revision);
       const outcome = await inject(job, { mode: 'act', expectedSignature: observed.signature, expectedDocument: observed.documentId, ...(observed.stage === 'details' ? { password: job.password } : { code }) }, revision, observed.browserDocument);
       if (!outcome?.submitted || outcome.signature !== observed.signature || outcome.documentId !== observed.documentId) return publicState(await pause(job, outcome?.message || 'the signup step changed. check its tab before continuing.', revision));
       job = await patch(job, { detailsSubmitted: job.detailsSubmitted || observed.stage === 'details', message: 'signup step sent. waiting for the next screen…' }, revision);
@@ -300,6 +308,7 @@ const signupController = (() => {
     if (!isActive(job)) throw new Error('start an account signup first.');
     if (message.type === 'signup-show') { await chrome.tabs.update(job.tabId, { active: true }); assertRevision(revision); return publicState(job); }
     if (message.type === 'signup-continue' && job.needsPrivateSignup) return publicState(await openPrivateSignup(job, revision));
+    if (message.type === 'signup-continue' && job.phase === 'paused' && job.detailsRetry) return publicState(await patch(job, { phase: 'running', detailsRetry: { ...job.detailsRetry, approved: true }, continueLabel: null, waitingForCode: false, message: 'retrying signup with your saved email…' }, revision));
     if (message.type === 'signup-continue') return publicState(await patch(job, { phase: 'running', message: 'checking the signup tab…', waitingForCode: false, needsPrivateSignup: false, continueLabel: null }, revision));
     throw new Error('unknown signup action.');
   }

@@ -1,3 +1,9 @@
+2026-09-08 0.6.6: saved signup recovery retry
+- reproduced the 4:57 pm screenshot state: recovered uncertain/prefilled history always paused before filling, and Continue re-entered that same guard. the blank Instagram form did not prove whether an earlier document had submitted.
+- recognized forms offer Retry signup with an explicit resubmission warning. the user's click authorizes one attempt with the same email and birthday, pinned to tab, Chrome document and observed form. polling alone cannot authorize it, and attempts/approval consumption prevent automatic repeats.
+- security pauses, changed steps and stop revoke approval. unknown/birthday-only forms stay manual; no login, mailbox quota, API or password-persistence changes.
+- verification: 142 automated checks pass, including screenshot-state reproduction, retry/stop/navigation/unclear-form tests and the panel action. the enabled browser connector does not list the private signup tab; no extension-page restrictions bypassed. installed live recovery and full platform signup still require confirmation.
+
 2026-09-08 0.6.5: configured Instagram birthday automation
 - user requested May 30, 2006 with no separate birthday entry. persist that default with local signup recovery and fill only recognized inline Instagram birthday controls before submitting once.
 - support exact native option labels, a date input, and uniquely matched custom listbox options. verify all selected values; preserve existing different dates and cancellation, CAPTCHA, document and duplicate-submission guards. standalone birthday pages and TikTok birthday controls retain manual handling.
