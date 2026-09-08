@@ -183,12 +183,20 @@ const signupController = (() => {
     return patch(job, { tabId: tab.id, privateSignup: true, needsPrivateSignup: false, continueLabel: null, phase: 'running', waitingForCode: false, pendingAction: null, message: 'private signup opened. checking the form…' }, revision);
   }
   async function advance(job, revision) {
-    if (job.phase === 'paused') return publicState(job);
+    const watchingForCode = job.phase === 'paused';
+    const hasDetailsHistory = job.detailsSubmitted || job.detailsPrefilled || job.attempts.some(attempt => attempt.stage === 'details') || (job.recovered && job.detailsState === 'uncertain');
+    if (watchingForCode && (!hasDetailsHistory || job.codeScreenSeen)) return publicState(job);
     if (!isActive(job)) return publicState(job);
     try {
       const observed = await inject(job, { mode: 'observe' }, revision);
       if (!observed) return publicState(job);
       if (!validObservation(observed)) return publicState(await pause(job, 'the signup page could not be identified. finish this step in its tab.', revision));
+      if (watchingForCode) {
+        // A person can finish a paused form in Instagram. Only the observer's
+        // exact-recipient code screen may resume automatically, never details.
+        if (observed.stage !== 'email-code' || !observed.canSubmit || typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(job);
+        job = await patch(job, { phase: 'running', detailsSubmitted: true, detailsState: 'sent', codeScreenSeen: true, detailsRetry: null, continueLabel: null, message: 'confirmation screen found. checking your signup code…' }, revision);
+      }
       if (job.detailsRetry && observed.stage !== 'details') job = await patch(job, { detailsRetry: null, continueLabel: null }, revision);
       if (observed.stage === 'complete') {
         if (!job.detailsSubmitted || typeof observed.username !== 'string' || observed.username.toLowerCase() !== job.username.toLowerCase()) return publicState(await pause(job, 'check the account signed in to this tab before continuing.', revision));
@@ -235,9 +243,10 @@ const signupController = (() => {
       let code;
       let codeId;
       if (observed.stage === 'email-code') {
+        if (!job.codeScreenSeen) job = await patch(job, { codeScreenSeen: true }, revision);
         // The observer requires the exact saved recipient before exposing this
         // stage, so a manually resumed form can continue verification.
-        if (!job.detailsSubmitted && (job.detailsPrefilled || (job.recovered && job.detailsState === 'uncertain'))) job = await patch(job, { detailsSubmitted: true, detailsState: 'sent' }, revision);
+        if (!job.detailsSubmitted && hasDetailsHistory) job = await patch(job, { detailsSubmitted: true, detailsState: 'sent' }, revision);
         if (!job.detailsSubmitted) return publicState(await pause(job, 'this email check was opened before signup started. check the account in that tab.', revision));
         if (Date.now() < (job.nextCodeAt || 0)) return publicState(job);
         job = await patch(job, { nextCodeAt: Date.now() + 5000, waitingForCode: true, message: 'waiting for your signup email code…' }, revision);

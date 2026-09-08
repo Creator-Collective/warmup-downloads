@@ -265,6 +265,69 @@ test('email codes require an exact visible recipient and never replace an existi
   assert.equal((await form.act({ code: '654321' })).submitted, false); assert.equal(form.clicks(), 1);
 });
 
+test('Instagram confirmation copy without the word email still requires the exact saved recipient', async () => {
+  for (const recipient of [details.email, 'different@example.com', 'n***@example.com']) {
+    const form = fixture({ inputs: [{ placeholder: 'Confirmation code', attrs: { 'aria-label': 'Confirmation code' } }], text: `Enter the confirmation code\nTo confirm your account, enter the 6-digit code we sent to ${recipient}.`, buttons: [{ innerText: 'Continue' }, { innerText: "I didn't get the code" }] });
+    const observed = await form.run({ mode: 'observe' });
+    assert.equal(observed.stage, recipient === details.email ? 'email-code' : 'unknown');
+    assert.equal((await form.act({ code: '123456' })).submitted, recipient === details.email);
+  }
+});
+
+test('submission waits briefly for validation without refilling or repeatedly clicking', async () => {
+  let waits = 0, events = 0;
+  const form = fixture({ buttons: [{ innerText: 'Submit', disabled: true }], setTimeout: callback => { if (++waits === 4) form.buttons[0].disabled = false; callback(); }, onEvent: () => events++ });
+  const result = await form.act();
+  assert.equal(result.submitted, true);
+  assert.equal(events, 8, 'fill each field once');
+  assert.equal(form.clicks(), 1);
+});
+
+test('a replacement submit button is freshly checked after the form rerenders', async () => {
+  let oldClicks = 0, newClicks = 0, replaced = false;
+  const form = fixture({ buttons: [{ innerText: 'Submit' }], setTimeout: callback => {
+    if (!replaced) {
+      replaced = true;
+      const old = form.buttons[0]; old.click = () => oldClicks++;
+      const replacement = Object.assign(Object.create(Object.getPrototypeOf(old)), old, { click: () => newClicks++ });
+      old.isConnected = false; form.buttons[0] = replacement;
+    }
+    callback();
+  } });
+  assert.equal((await form.act()).submitted, true);
+  assert.equal(oldClicks, 0); assert.equal(newClicks, 1);
+});
+
+test('readiness waiting stops for cancellation, security checks, navigation and user edits', async () => {
+  for (const change of ['cancel', 'captcha', 'navigation', 'edit']) {
+    let waits = 0;
+    const form = fixture({ buttons: [{ innerText: 'Submit', disabled: true }], setTimeout: callback => {
+      if (++waits === 3) {
+        if (change === 'cancel') form.cancel();
+        if (change === 'captcha') form.document.body.innerText += '\nVerify you are human';
+        if (change === 'navigation') form.location.href = 'https://www.instagram.com/accounts/login/';
+        if (change === 'edit') form.inputs[0].value = 'changed@example.com';
+        form.buttons[0].disabled = false;
+      }
+      callback();
+    } });
+    assert.equal((await form.act()).submitted, false, change);
+    assert.equal(form.clicks(), 0);
+  }
+});
+
+test('readiness timeout names the blocking field or button without exposing its value', async () => {
+  for (const reason of ['password', 'button']) {
+    const form = fixture({ buttons: [{ innerText: 'Submit', disabled: reason === 'button' }] });
+    if (reason === 'password') form.inputs.at(-1).validity = { valid: false };
+    const result = await form.act();
+    assert.equal(result.submitted, false);
+    assert.match(result.message, new RegExp(reason));
+    assert.equal(result.message.includes(details.password), false);
+    assert.equal(form.clicks(), 0);
+  }
+});
+
 test('stop during controlled input settling prevents the pending submission', async () => {
   let settleInputs;
   const form = fixture({ setTimeout: callback => { settleInputs = callback; } });
