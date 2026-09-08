@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.5' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.6' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -63,7 +63,7 @@ function harness(initial = {}, initialLocal = {}) {
       if (input.mode === 'observe') result = server.onObserve ? await server.onObserve(input) : copy(server.observation);
       else if (input.mode === 'fill') result = server.onFill ? await server.onFill(input) : { filled: true, submitted: false, stage: 'birthday', signature: input.expectedSignature, documentId: input.expectedDocument };
       else result = server.onAct ? await server.onAct(input) : { submitted: true, stage: server.observation.stage, signature: input.expectedSignature, documentId: input.expectedDocument, message: 'submitted once' };
-      return [{ result, documentId: `chrome-document-${tab.id}` }];
+      return [{ result, documentId: server.browserDocument || `chrome-document-${tab.id}` }];
     } },
   };
   const context = vm.createContext({ chrome, console, URL, crypto: webcrypto, Date: Clock, structuredClone, setTimeout, clearTimeout, AbortController, Uint8Array,
@@ -252,7 +252,8 @@ test('restart preserves the prefilled email without risking a second signup', as
   restored.server.observation = copy(birthdayForm); await restored.tick();
   assert.equal(restored.storage.signupJob.phase, 'paused');
   assert.equal(restored.injections.filter(item => item.input.mode !== 'observe').length, 0);
-  assert.match(restored.storage.signupJob.message, /may already have been sent/);
+  assert.equal(restored.storage.signupJob.message, 'birthday required');
+  assert.equal(restored.storage.signupJob.detailsRetry, null);
 });
 
 test('invalid or changed birthday forms never report a successful fill or submit', async () => {
@@ -653,7 +654,7 @@ test('recovering submitted details never automatically sends the form again', as
   const restarted = harness({}, first.local); await restarted.start(); await restarted.ready();
   const state = await restarted.tick();
   assert.equal(state.data.phase, 'paused');
-  assert.match(state.data.message, /will not be submitted again/);
+  assert.equal(state.data.continueLabel, 'retry signup');
   assert.equal(restarted.acts().length, 0);
   assert.equal(restarted.storage.signupJob.email, EMAIL);
 });
@@ -665,13 +666,110 @@ test('legacy saved emails pause for review, then permit exact-recipient email ve
   delete saved.nativeSignupAccounts[0].detailsState;
   const restarted = harness({}, saved); await restarted.start(); await restarted.ready();
   const state = await restarted.tick();
-  assert.match(state.data.message, /may already have been sent/);
+  assert.equal(state.data.continueLabel, 'retry signup');
   assert.equal(restarted.acts().length, 0);
   restarted.server.observation = { stage: 'email-code', signature: 'manual-email-code', documentId: 'manual-page', canSubmit: true };
   await restarted.message({ type: 'signup-continue' });
   await restarted.tick();
   assert.equal(restarted.apiRequests.at(-1).body.action, 'code');
   assert.equal(restarted.storage.signupJob.detailsSubmitted, true);
+});
+
+async function recoveredSignup() {
+  const first = harness(); await first.start(); await first.ready();
+  first.server.observation = copy(birthdayForm); await first.tick();
+  const restored = harness({}, first.local);
+  await restored.start(); await restored.ready(); await restored.tick();
+  return restored;
+}
+
+test('recovered prefill has an actionable retry that sends the same email once', async () => {
+  const h = await recoveredSignup();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  assert.equal(h.storage.signupJob.continueLabel, 'retry signup');
+  assert.equal(h.acts().length, 0);
+  const identity = { email: h.storage.signupJob.email, requestId: h.storage.signupJob.requestId, tabId: h.storage.signupJob.tabId };
+  const offered = copy(h.storage.signupJob.detailsRetry);
+  assert.equal(offered.approved, false);
+  await h.tick(); assert.equal(h.acts().length, 0, 'polling is not consent');
+  await h.message({ type: 'signup-continue' });
+  h.server.onAct = input => {
+    assert.equal(h.storage.signupJob.detailsRetry, null, 'consume approval before injecting');
+    assert.equal(h.storage.signupJob.attempts.length, 1);
+    return { submitted: true, signature: input.expectedSignature, documentId: input.expectedDocument };
+  };
+  await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.acts()[0].input.email, identity.email);
+  assert.equal(h.acts()[0].input.birthDate, '2006-05-30');
+  assert.equal(h.storage.signupJob.requestId, identity.requestId);
+  assert.equal(h.storage.signupJob.tabId, identity.tabId);
+  assert.equal(h.apiRequests.filter(request => request.body.action === 'prepare').length, 1);
+  assert.equal(JSON.stringify(h.local).includes('detailsRetry'), false);
+  h.time(26000); await h.tick();
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1, 'consumed retry cannot replay even on continue');
+  h.server.observation.signature = 'changed-form';
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1, 'a new form signature cannot grant another retry');
+});
+
+test('retry approval is pinned to the observed tab, document and form', async () => {
+  for (const change of ['document', 'signature', 'tab', 'browser-document']) {
+    const h = await recoveredSignup();
+    await h.message({ type: 'signup-continue' });
+    if (change === 'document') h.server.observation.documentId = 'new-document';
+    if (change === 'signature') h.server.observation.signature = 'new-form';
+    if (change === 'tab') h.storage.signupJob.tabId = 7;
+    if (change === 'browser-document') h.server.browserDocument = 'changed-chrome-document';
+    await h.tick();
+    assert.equal(h.acts().length, 0, change);
+    assert.equal(h.storage.signupJob.phase, 'paused');
+    assert.equal(h.storage.signupJob.detailsRetry.approved, false);
+  }
+});
+
+test('security pauses and stop revoke an approved recovery retry', async () => {
+  const h = await recoveredSignup();
+  const original = copy(h.server.observation);
+  await h.message({ type: 'signup-continue' });
+  h.server.observation = { stage: 'captcha', documentId: 'page-1', message: 'security check', canSubmit: false };
+  await h.tick();
+  assert.equal(h.storage.signupJob.detailsRetry, null);
+  assert.equal(h.storage.signupJob.continueLabel, null);
+  h.server.observation = original;
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 0);
+  assert.equal(h.storage.signupJob.continueLabel, 'retry signup');
+  await h.message({ type: 'signup-continue' }); await h.message({ type: 'signup-stop' }); await h.tick();
+  assert.equal(h.acts().length, 0);
+  assert.equal(h.storage.signupJob.password, '');
+  assert.equal(h.storage.signupJob.detailsRetry, null);
+});
+
+test('a failed retry is not repeated automatically and restart asks again', async () => {
+  const h = await recoveredSignup();
+  await h.message({ type: 'signup-continue' });
+  h.server.onAct = () => ({ submitted: false, message: 'form changed' });
+  await h.tick();
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.storage.signupJob.detailsRetry, null);
+  const restarted = harness({}, h.local);
+  await restarted.start(); await restarted.ready(); await restarted.tick();
+  assert.equal(restarted.acts().length, 0);
+  assert.equal(restarted.storage.signupJob.detailsRetry.approved, false);
+});
+
+test('unknown forms never receive recovery retry approval', async () => {
+  for (const changes of [{ signature: '' }, { signature: 'x'.repeat(1000) }, { canSubmit: false }, { stage: 'unknown' }]) {
+    const h = await recoveredSignup();
+    h.server.observation = { ...h.server.observation, ...changes };
+    await h.message({ type: 'signup-continue' }); await h.tick();
+    assert.equal(h.acts().length, 0);
+    assert.equal(h.storage.signupJob.detailsRetry, null);
+    assert.equal(h.storage.signupJob.continueLabel, null);
+  }
 });
 
 test('a recovered mailbox mismatch fails before opening any platform tab', async () => {

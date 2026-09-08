@@ -157,6 +157,18 @@ test('continue is available only for a paused signup and resumes normal progress
   assert.equal(h.node('message').textContent, active.message);
 });
 
+test('saved signup retry has a clear action without starting a new mailbox request', async () => {
+  const retry = { ...paused, continueLabel: 'retry signup', message: 'your email is saved. retry signup sends this form again once.' };
+  const h = harness({ respond: message => message.type === 'signup-state' ? { ok: true, data: retry } : undefined });
+  await settle();
+  assert.equal(h.node('continue').textContent, 'retry signup');
+  assert.equal(h.node('continue').disabled, false);
+  await h.click('continue');
+  assert.equal(h.requests.filter(request => request.type === 'signup-continue').length, 1);
+  assert.equal(h.requests.filter(request => request.type === 'signup-start').length, 0);
+  assert.equal(h.node('continue').hidden, true);
+});
+
 test('failed start still clears the password and preserves its error through a poll', async () => {
   const h = harness({ respond: message => message.type === 'signup-start' ? Promise.resolve({ ok: false, error: 'signup tab closed' }) : undefined });
   await settle();
