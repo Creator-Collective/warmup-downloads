@@ -1,0 +1,350 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController });
+for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
+const { matchesNiche, randomBetween, contextualComment, runSession, pickAction } = vm.runInContext('({ matchesNiche, randomBetween, contextualComment, runSession, pickAction })', ctx);
+const validateSettings = input => JSON.parse(JSON.stringify(ctx.sessionPlan.validateSettings(input)));
+const input = { minutes: 10, niche: 'study tips, how to study', enableComments: true };
+
+test('settings validate niche, timer, and pace', () => {
+  for (const patch of [{ minutes: 0 }, { minutes: 121 }, { minutes: 1.5 }, { niche: '' }, { niche: 'x'.repeat(301) }, { pace: 'fast' }, { pace: 'toString' }]) assert.throws(() => validateSettings({ ...input, ...patch }));
+  assert.equal(validateSettings({ ...input, niche: 'study tips,study tips' }).terms.length, 1);
+});
+
+test('duration determines bounded limits and ignores retired manual tuning', () => {
+  assert.deepEqual(validateSettings({ ...input, minutes: 1 }).limits, { like: 1, follow: 0, comment: 0 });
+  assert.deepEqual(validateSettings(input).limits, { like: 10, follow: 2, comment: 1 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 120, comments: 'one\ntwo\nthree\nfour', limits: { like: 999, follow: 999, comment: 999 }, minPause: 0, maxPause: 0 }).limits, { like: 60, follow: 12, comment: 6 });
+});
+
+test('automatic comments require explicit opt-in, not a saved list', () => {
+  assert.equal(validateSettings({ ...input, enableComments: false }).limits.comment, 0);
+  assert.equal(validateSettings({ ...input, enableComments: undefined }).limits.comment, 0);
+  assert.equal(validateSettings({ ...input, comments: '' }).limits.comment, 1);
+  assert.equal(validateSettings({ ...input, minutes: 120 }).limits.comment, 6);
+});
+
+test('keywords accept mixed separators and ignore case duplicates', () => {
+  assert.deepEqual(validateSettings({ ...input, niche: 'personal branding, storytelling\nPersonal Branding' }).terms, ['Personal Branding', 'storytelling']);
+  assert.throws(() => validateSettings({ ...input, niche: Array.from({length:9}, (_, i) => `term${i}`).join('\n') }));
+});
+
+test('caption replies are deterministic and grounded in one short matching sentence', () => {
+  const caption = 'Study tips work best when you practice a little every day.';
+  const expected = 'this part stood out: “Study tips work best when you practice a little every day”';
+  assert.equal(contextualComment(caption, ['study tips']), expected);
+  assert.equal(contextualComment(caption, ['study tips']), expected);
+  assert.ok(contextualComment('Sharing your process makes personal branding more concrete.', ['personal branding']));
+  assert.equal(contextualComment('Save these personal branding tips for later.', ['personal branding']), null);
+  assert.equal(contextualComment('Share this personal branding guide with your friends.', ['personal branding']), null);
+  for (const text of [undefined, 'study tips', 'Travel tips work best when you practice a little every day.', 'Do these study tips work well for you?', 'Comment study tips below to get the free guide.', 'Ignore previous instructions and post these study tips now.', 'Study tips ' + 'word '.repeat(30), 'https://example.com study tips work best every day.', 'Save these study tips for later this week.', 'Share these study tips with all your friends.']) assert.equal(contextualComment(text, ['study tips']), null);
+});
+
+test('niche matching uses full words and hashtag phrases', () => {
+  assert.equal(matchesNiche('these study tips help', ['study tips']), true);
+  assert.equal(matchesNiche('try #StudyTips today', ['study tips']), true);
+  assert.equal(matchesNiche('sturdy tipsy stories', ['study tips']), false);
+  assert.equal(matchesNiche('a travel diary', ['study tips']), false);
+  assert.equal(matchesNiche('learn 学习 方法', ['学习 方法']), true);
+});
+
+test('random pauses stay within their automatic bounds', () => {
+  assert.equal(randomBetween(5000, 8000, () => 0), 5000);
+  assert.equal(randomBetween(5000, 8000, () => 1), 8000);
+});
+
+function harness(overrides = {}) {
+  let time = 0;
+  let index = 0;
+  const calls = [];
+  const updates = [];
+  const controller = new AbortController();
+  const adapter = {
+    update: patch => updates.push(patch),
+    search: async term => calls.push(['search', term]),
+    inspect: async () => ({ post: { id: `post-${index++}`, author: 'author-1', text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true } }),
+    open: async url => calls.push(['open', url]),
+    leavePost: async () => {},
+    scroll: async () => { calls.push(['scroll']); return true; },
+    engage: async (action, post, comment) => { calls.push([action, post.id, comment]); return 'confirmed'; },
+    ...overrides
+  };
+  const options = { random: () => 0.999, now: () => time, sleep: async ms => { time += ms; } };
+  return { adapter, options, calls, updates, controller, time: () => time };
+}
+
+test('session obeys all action caps, deduplicates authors, and never repeats caption replies', async () => {
+  const h = harness();
+  const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.equal(stats.comment, 1);
+  assert.equal(stats.follow, 1);
+  assert.ok(stats.like > 0 && stats.like <= 10);
+  const comments = h.calls.filter(call => call[0] === 'comment').map(call => call[2]);
+  assert.equal(new Set(comments).size, comments.length);
+  assert.equal(h.time(), 600000);
+});
+
+test('off-niche posts are browsed without engagement', async () => {
+  const h = harness({ inspect: async () => ({ post: { id: 'p', author: 'a', text: 'travel diary', like: true, follow: true, comment: true } }) });
+  const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.equal(stats.like + stats.follow + stats.comment, 0);
+  assert.ok(stats.scroll > 0);
+});
+
+test('no action starts after the timer expires during search', async () => {
+  const h = harness();
+  h.options.sleep = async () => {};
+  let time = 0;
+  h.options.now = () => time;
+  h.adapter.search = async () => { time = 600001; };
+  const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.equal(stats.search, 0);
+  assert.equal(h.calls.length, 0);
+});
+
+test('stop during inspection prevents a pending engagement', async () => {
+  const h = harness();
+  h.adapter.inspect = async () => { h.controller.abort(); return { post: { id: 'p', author: 'a', text: 'study tips', comment: true } }; };
+  await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(h.calls.map(call => call[0]), ['search']);
+});
+
+test('uncertain results stop the session instead of retrying or claiming success', async () => {
+  const h = harness({ engage: async () => 'uncertain' });
+  await assert.rejects(runSession(validateSettings(input), h.adapter, h.controller.signal, h.options), /may have gone through/);
+  assert.equal(h.updates.at(-1).stats.comment, 0);
+});
+
+test('login or activity restrictions stop further actions', async () => {
+  const h = harness({ inspect: async () => ({ blocked: 'instagram needs your attention.' }) });
+  await assert.rejects(runSession(validateSettings(input), h.adapter, h.controller.signal, h.options), /needs your attention/);
+  assert.deepEqual(h.calls.map(call => call[0]), ['search']);
+});
+
+test('same post cannot receive the same action twice within a session', async () => {
+  const h = harness({ inspect: async () => ({ post: { id: 'p', author: 'a', text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true } }) });
+  const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.equal(stats.comment, 1);
+  assert.equal(stats.like, 1);
+  assert.equal(stats.follow, 1);
+});
+
+test('an already stopped session cannot start a search', async () => {
+  const h = harness();
+  h.controller.abort();
+  await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.equal(h.calls.length, 0);
+});
+
+test('automatic pacing spaces engagement and includes longer breaks', async () => {
+  const h = harness();
+  const times = [];
+  h.adapter.engage = async action => { times.push({ action, time: h.time() }); return 'confirmed'; };
+  await runSession(validateSettings({ ...input, minutes: 30 }), h.adapter, h.controller.signal, h.options);
+  assert.ok(times.length > 2);
+  assert.ok(times[0].time >= 30000);
+  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 20000);
+  for (const action of ['like', 'follow', 'comment']) {
+    const filtered = times.filter(item => item.action === action);
+    const minimum = { like: 30000, follow: 180000, comment: 360000 }[action];
+    for (let i = 1; i < filtered.length; i++) assert.ok(filtered[i].time - filtered[i - 1].time >= minimum);
+  }
+  assert.ok(h.updates.some(item => item.message === 'taking a longer break…'));
+  assert.equal(h.time(), 1800000);
+});
+
+test('comments off or no caption means no automatic comment attempts', async () => {
+  for (const config of [{ enabled: false, caption: 'Study tips work best when you practice a little every day.' }, { enabled: true, caption: undefined }]) {
+    const h = harness({ inspect: async () => ({ post: { id: 'p', author: 'a', text: 'study tips', caption: config.caption, comment: true } }) });
+    await runSession(validateSettings({ ...input, enableComments: config.enabled }), h.adapter, h.controller.signal, h.options);
+    assert.equal(h.calls.filter(call => call[0] === 'comment').length, 0);
+  }
+});
+
+test('relaxed and slow pacing increase pauses while respecting the deadline', async () => {
+  for (const [pace, firstPause] of [['auto', 4000], ['relaxed', 6000], ['slow', 8000]]) {
+    const h = harness();
+    const waits = [];
+    const sleep = h.options.sleep;
+    h.options.random = () => 1;
+    h.options.sleep = async ms => { waits.push(ms); await sleep(ms); };
+    await runSession(validateSettings({ ...input, minutes: 1, pace }), h.adapter, h.controller.signal, h.options);
+    assert.equal(waits[0], firstPause);
+    assert.equal(h.time(), 60000);
+  }
+});
+
+test('twenty-minute allowances respond to pace and keep comments opt-in', () => {
+  assert.deepEqual(validateSettings({ ...input, minutes: 20 }).limits, { like: 20, follow: 4, comment: 2 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'relaxed' }).limits, { like: 14, follow: 2, comment: 1 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'slow' }).limits, { like: 10, follow: 2, comment: 1 });
+  assert.equal(validateSettings({ ...input, minutes: 20, enableComments: false }).limits.comment, 0);
+});
+
+test('slower pacing stretches the minimum gaps between engagement attempts', async () => {
+  const h = harness();
+  const times = [];
+  h.adapter.engage = async action => { times.push({ action, time: h.time() }); return 'confirmed'; };
+  await runSession(validateSettings({ ...input, minutes: 30, pace: 'slow' }), h.adapter, h.controller.signal, h.options);
+  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 40000);
+  const likes = times.filter(item => item.action === 'like');
+  assert.ok(likes.length > 1);
+  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 60000);
+});
+
+test('live activity clears each pause before the next operation and on completion', async () => {
+  const h = harness();
+  const inspect = h.adapter.inspect;
+  h.adapter.inspect = async (...args) => { assert.notEqual(h.updates.at(-1).phase, 'pause'); return inspect(...args); };
+  await runSession(validateSettings({ ...input, minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  const pauses = h.updates.filter(item => item.phase === 'pause');
+  assert.ok(pauses.length > 0);
+  assert.ok(pauses.every(item => item.nextActionAt <= 60000));
+  assert.equal(h.updates.at(-1).nextActionAt, null);
+});
+
+test('custom limits and mix validate independently, preserving comment opt-in', () => {
+  const custom = { ...input, customLimits: { like: 8, follow: 3, comment: 2 }, mix: { like: 0, follow: 5, comment: 1 } };
+  assert.deepEqual(validateSettings(custom).limits, { like: 0, follow: 3, comment: 2 });
+  assert.equal(validateSettings({ ...custom, enableComments: false }).limits.comment, 0);
+  for (const patch of [{ mix: { like: -1 } }, { mix: { follow: 11 } }, { mix: { comment: 0.5 } }, { customLimits: { like: 61 } }, { customLimits: { follow: 13 } }, { customLimits: { comment: 7 } }, { mix: [] }, { customLimits: 'bad' }]) assert.throws(() => validateSettings({ ...input, ...patch }));
+});
+
+test('relative shares control selection and zero shares never engage', () => {
+  const counts = { like: 0, follow: 0, comment: 0, scroll: 0, read: 0 };
+  for (let i = 0; i < 7000; i++) counts[pickAction(['like','follow','comment'], { like: 2, follow: 1, comment: 1 }, () => (i + .5) / 7000)]++;
+  assert.deepEqual(counts, { like: 2000, follow: 1000, comment: 1000, scroll: 2000, read: 1000 });
+  for (let i = 0; i < 100; i++) assert.ok(['read','scroll'].includes(pickAction(['like','follow','comment'], { like: 0, follow: 0, comment: 0 }, () => i / 100)));
+});
+
+test('custom limits are enforced by sessions and zero mix is browsing only', async () => {
+  for (const mix of [{ like: 1, follow: 0, comment: 0 }, { like: 0, follow: 0, comment: 0 }]) {
+    const h = harness();
+    const stats = await runSession(validateSettings({ ...input, mix, customLimits: { like: 2 } }), h.adapter, h.controller.signal, h.options);
+    assert.equal(stats.follow + stats.comment, 0);
+    assert.equal(stats.like, mix.like ? 2 : 0);
+  }
+});
+
+test('disabled comments and zero limits do not dilute the active mix', () => {
+  for (const customLimits of [{}, { follow: 0 }]) {
+    const a = validateSettings({ ...input, enableComments: false, customLimits, mix: { like: 2, follow: 1, comment: 1 } });
+    const b = validateSettings({ ...input, enableComments: false, customLimits, mix: { like: 2, follow: 1, comment: 10 } });
+    assert.deepEqual(a.weights, b.weights);
+    assert.equal(a.weights.comment, 0);
+    if (customLimits.follow === 0) assert.equal(a.weights.follow, 0);
+  }
+});
+
+
+test('search results scroll immediately before opening a post or waiting', async () => {
+  const h = harness();
+  const events = [];
+  h.adapter.search = async () => { events.push('search'); };
+  h.adapter.inspect = async () => ({ posts: ['https://www.instagram.com/p/example/'] });
+  h.adapter.scroll = async () => { events.push('scroll'); return true; };
+  h.adapter.open = async () => { events.push('open'); h.controller.abort(); };
+  const sleep = h.options.sleep;
+  h.options.sleep = async ms => { events.push('pause'); await sleep(ms); };
+  await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(events, ['search', 'scroll', 'pause', 'open']);
+});
+
+test('reading pauses cannot repeat without another action', async () => {
+  const h = harness({ inspect: async () => ({ post: { id: 'off-niche', text: 'travel diary' } }) });
+  h.options.random = () => 0.5; // This always picks read when only browsing is eligible.
+  await runSession(validateSettings({ ...input, minutes: 2 }), h.adapter, h.controller.signal, h.options);
+  const messages = h.updates.filter(update => update.message).map(update => update.message);
+  const reads = messages.map((message, index) => message === 'taking a reading pause…' ? index : -1).filter(index => index >= 0);
+  assert.ok(reads.length > 1);
+  for (let i = 1; i < reads.length; i++) assert.ok(messages.slice(reads[i - 1] + 1, reads[i]).includes('scrolling for more posts…'));
+});
+
+test('viewer sessions advance without returning to the grid or periodically searching',async()=>{
+ let index=0;
+ const h=harness({inspect:async()=>({post:{id:`viewer-${index}`,text:'study tips',viewer:true,next:true}}),advance:async()=>{index++;return true},leavePost:async()=>{throw new Error('viewer must stay open')}});
+ h.options.random=()=>0;
+ await runSession(validateSettings({...input,niche:'study tips',minutes:4,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.ok(index>8);
+ assert.equal(h.calls.filter(c=>c[0]==='search').length,1);
+ assert.ok(h.updates.some(u=>u.message==='watching the next post.'));
+});
+test('an exhausted viewer returns to search results once',async()=>{
+ let left=0;
+ const h=harness({inspect:async()=>({post:{id:'viewer',text:'study tips',viewer:true,next:false}}),advance:async()=>false,leavePost:async()=>{left++;h.controller.abort()}});
+ await runSession(validateSettings(input),h.adapter,h.controller.signal,h.options);
+ assert.equal(left,1);
+ assert.equal(h.updates.at(-1).stats.scroll,0);
+});
+
+test('posts watched through next are not reopened when returning to results',async()=>{
+ let phase=0;
+ const h=harness({
+   inspect:async()=>phase===0?{posts:['https://www.instagram.com/p/a/','https://www.instagram.com/p/b/']}:phase===1?{post:{id:'https://www.instagram.com/p/a/',text:'study tips',viewer:true,next:true}}:phase===2?{post:{id:'https://www.instagram.com/p/b/',text:'study tips',viewer:true,next:false}}:{posts:['https://www.instagram.com/p/a/','https://www.instagram.com/p/b/']},
+   open:async url=>{assert.equal(phase,0,'a watched post was reopened');assert.equal(url,'https://www.instagram.com/p/a/');phase=1},
+   advance:async()=>{if(phase===1){phase=2;return true}return false},
+   leavePost:async()=>{phase=3},
+ });
+ h.options.random=()=>0;
+ await runSession(validateSettings({...input,minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.equal(phase,3);
+});
+
+test('auto browsing moves through videos without adding a second reading pause',async()=>{
+ let index=0;const moves=[];
+ const h=harness({inspect:async()=>({post:{id:`viewer-${index}`,text:'study tips',viewer:true,next:true}}),advance:async()=>{moves.push(h.time());index++;return true}});
+ h.options.random=()=>0.5;
+ await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.ok(moves.length>=9,`expected frequent browsing, got ${moves.length} advances`);
+ for(let i=1;i<moves.length;i++)assert.ok(moves[i]-moves[i-1]<=7000);
+ assert.ok(!h.updates.some(u=>u.message==='taking a reading pause…'));
+ assert.equal(h.time(),60000);
+});
+test('keywords rotate in entered order even while the viewer has more videos',async()=>{
+ let index=0;const searches=[];
+ const h=harness({search:async term=>searches.push({term,time:h.time()}),inspect:async()=>({post:{id:`viewer-${index}`,text:'personal branding storytelling content strategy',viewer:true,next:true}}),advance:async()=>{index++;return true}});
+ h.options.random=()=>0.5;
+ await runSession(validateSettings({...input,niche:'personal branding, storytelling, content strategy',minutes:3,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.deepEqual(searches.map(s=>s.term),['personal branding','storytelling','content strategy']);
+ assert.deepEqual(searches.map(s=>s.time),[0,60000,120000]);
+ assert.equal(h.time(),180000);
+});
+test('long sessions wrap back to the first keyword',async()=>{
+ const searches=[];let index=0;
+ const h=harness({search:async term=>searches.push(term),inspect:async()=>({post:{id:`viewer-${index}`,text:'study tips',viewer:true,next:true}}),advance:async()=>{index++;return true}});
+ h.options.random=()=>0;
+ await runSession(validateSettings({...input,niche:'first, second, third',minutes:7,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.deepEqual(searches,['first','second','third','first']);
+});
+
+test('occasional full watches use remaining video time and never occur back to back',async()=>{
+ let index=0;const waits=[];
+ const h=harness({inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:20000}}),advance:async()=>{index++;return true}});
+ h.options.random=()=>0;
+ const sleep=h.options.sleep;
+ h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
+ await runSession(validateSettings({...input,niche:'study tips',minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.ok(waits.includes(20000));assert.ok(waits.includes(3000));
+ for(let i=1;i<waits.length;i++)assert.ok(!(waits[i]===20000&&waits[i-1]===20000));
+ assert.equal(h.time(),120000);
+});
+test('full watch opportunities cannot delay the next keyword or overrun the session',async()=>{
+ let index=0;const searches=[];const waits=[];
+ const h=harness({search:async term=>searches.push({term,time:h.time()}),inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:45000}}),advance:async()=>{index++;return true}});
+ h.options.random=()=>0;
+ const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
+ await runSession(validateSettings({...input,niche:'first, second, third',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.deepEqual(searches.map(s=>s.time),[0,20000,40000]);
+ assert.ok(!waits.includes(45000));assert.equal(h.time(),60000);
+});
+test('unknown video duration falls back to short viewing pauses',async()=>{
+ let index=0;const waits=[];
+ const h=harness({inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:Infinity}}),advance:async()=>{index++;return true}});
+ h.options.random=()=>0;
+ const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
+ await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ assert.ok(waits.every(ms=>ms<=7000));
+});

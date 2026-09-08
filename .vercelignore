@@ -1,6 +1,12 @@
 *
 !index.html
-!style.css
+!dashboard.css
+!dashboard.js
+!plan.js
+!setup.html
+!privacy.html
 !inter.woff2
 !INTER-LICENSE.txt
+!creator-collective-extension-0.5.0.zip
 !vercel.json
+!signup-ui.js
