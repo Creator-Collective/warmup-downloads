@@ -6,7 +6,13 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
-0.5.0 is an early-access browser extension. The website provides the ZIP and manual Chrome setup instructions. It has not been submitted to or approved by the Chrome Web Store. 86 automated checks pass, including signup, authorization, cancellation, planner and dashboard regressions. Version 0.3.1 passed one live browsing-only test. Version 0.4.2 side-panel installation and integrated next-post behavior still require a manual extension reload and live verification. The native Instagram search-result modal and Next button were verified through read-only browsing. Engagement remains unverified. Automated access to Chrome extension setup is blocked by the browser tool security policy; installation must be completed manually. Older 0.2.1 desktop binaries remain available in the GitHub release history, but the website no longer recommends the blocked Mac downloads.
+0.6.0 adds native account creation to the Chrome side panel: platform, username, password, start. No student dashboard tab or login is needed. The extension prepares its own private account email and submits recognized signup steps once, including fresh email verification. Birthday, phone, CAPTCHA, unavailable names, and unclear forms pause for the user. Completion requires matching signed-in profile navigation after a details submission; a home redirect alone never counts. Warm-up remains Instagram-only and is started separately.
+
+The website provides a ZIP and manual Chrome setup instructions. This beta has not been submitted to or approved by the Chrome Web Store. Automated fixtures cover the signup flow, cancellation, ownership, and existing warm-up behavior. Live account creation has not yet been verified on either platform. Do not describe fixture results as successful live signups.
+
+Passwords remain in temporary extension session storage. A generated 256-bit install capability and signup email history remain in extension-local storage for mailbox recovery; neither passwords nor the capability are shown to the public website. Update the existing unpacked folder and reload its Chrome card to preserve those records. New folders or removing the extension do not transfer local mailbox access.
+
+The email service is the separate native endpoint on the existing student backend; it does not read other student aliases. Deploy that backend and configure its server-only secret and explicit established team owner before distributing this extension. The existing authenticated dashboard endpoint remains unchanged. No database migration is included.
 
 ## Development
 
@@ -34,7 +40,7 @@ Auto viewing pauses are now 3–7 seconds, grid browsing pauses 2–4 seconds, a
 
 Most viewer pauses remain short. A 15% opportunity selects a remaining-duration watch only for one visible playing video with known duration up to120seconds, valid progress/rate, and sufficient session/keyword time. Full watches cannot be consecutive. Duration is based on observed playback progress and rate, not multiplied by pacing; buffering can affect actual completion. Unknown metadata and videos that do not fit retain short pauses. 57 automated tests pass; integrated live0.4.2 verification remains pending.
 
-## 0.5.0 account signup helper
+## Archived 0.5.0 account signup helper
 
 The existing warm-up side panel now connects a selected signed-in student dashboard tab to Instagram or TikTok signup. It lists unused account emails, generates one if needed, fills recognised signup fields, retrieves a fresh platform-matching email code on request, and saves the actual username only after the student explicitly confirms signup finished. Students submit platform forms and handle birthday, phone and CAPTCHA checks. Warm-up remains Instagram-only. Unknown or changed forms pause; signup form selectors have not yet been verified in a signed-out live browser.
 
@@ -42,6 +48,4 @@ The public warm-up website does not collect signup credentials. Passwords stay i
 
 This feature branch preserves the previous session’s uncommitted 0.4.2 source. Its canonical source checkout was left unchanged. Student API source is on `codex/warmup-signup-bridge-20260908` in `/Users/oliversung/Developer/cc-worktrees/warmup-signup-bridge-20260908`; no schema changes are required. Release the student `/api/account-setup` endpoint before distributing the extension. Publication was authorized on September 8, 2026. Both repositories use their existing feature-branch and PR release flow.
 
-Remaining release checks: release both changes through their existing repositories/projects, reload the extension and accept the added TikTok/student-dashboard permissions, verify signed-in dashboard requests in real Chrome, then perform a user-supervised signup for each platform. Use the existing warm-up Vercel project; do not create a new hosting project.
-
-Verification for this release: 86 extension/UI tests and 72 student bridge tests pass. Focused TypeScript compilation passes. Code, JavaScript/TypeScript and security reviews are complete, including delayed-stop/tab-close and code-recipient regressions. This does not replace the live Chrome/signup checks listed here.
+0.6.0 supersedes the dashboard connection described in this archived section. Its remaining live check is a user-supervised signup on each platform after the extension is reloaded. Automated results are recorded in work_log.txt.

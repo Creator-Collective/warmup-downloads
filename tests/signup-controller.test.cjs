@@ -4,12 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
-
 const extension = path.resolve(__dirname, '../browser-extension');
-const PROFILE_ID = '11111111-1111-4111-8111-111111111111';
 const ALIAS_ID = '22222222-2222-4222-8222-222222222222';
 const CODE_ID = '33333333-3333-4333-8333-333333333333';
 const PASSWORD = 'local-test-password-123';
+const EMAIL = 'test-creator@example.com';
 const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html', frameId: 0 };
 const web = { id: 'extension-id', url: 'https://creator-collective-warmup.vercel.app/', frameId: 0, tab: { id: 8 } };
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); }, emit(...args) { this.listeners.forEach(fn => fn(...args)); } });
@@ -17,34 +16,28 @@ const copy = value => value === undefined ? undefined : structuredClone(value);
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 
-function harness(initial = {}) {
+function harness(initial = {}, initialLocal = {}) {
   let now = Date.parse('2026-09-08T17:00:00.000Z');
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
-  const storage = copy(initial);
-  const tabs = new Map([
-    [2, { id: 2, url: 'https://www.trycreatorcollective.com/dashboard', status: 'complete', windowId: 1 }],
-    [7, { id: 7, url: 'https://www.instagram.com/', status: 'complete', windowId: 1 }],
-  ]);
-  const apiRequests = [];
-  const injections = [];
-  const created = [];
+  const storage = copy(initial); const local = copy(initialLocal);
+  const tabs = new Map([[7, { id: 7, url: 'https://www.instagram.com/', status: 'complete', windowId: 1 }]]);
+  const apiRequests = []; const injections = []; const cancellations = []; const created = []; const access = [];
   const server = {
-    profile: { id: PROFILE_ID, fullName: 'Test Creator' },
-    aliases: [{ id: ALIAS_ID, email: 'test-creator@example.com', platform: null, accountUsername: null }],
-    verification: null,
-    status: 200,
-    beforeFetch: null,
-    onFields: null,
+    alias: { id: ALIAS_ID, email: EMAIL, platform: 'instagram', accountUsername: null },
+    verification: null, status: 200, beforeFetch: null, onObserve: null, onAct: null,
+    observation: { stage: 'details', signature: 'details:email-password-username:signup', documentId: 'page-1', canSubmit: true, message: 'signup details' },
   };
   let nextTab = 90;
+  const area = data => ({
+    get: async keys => Object.fromEntries((typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(data)).map(key => [key, copy(data[key])])),
+    set: async values => { for (const [key, value] of Object.entries(values)) data[key] = copy(value); },
+    remove: async keys => { for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key]; },
+    setAccessLevel: async options => { access.push(copy(options)); },
+  });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.5.0' }), onMessage: event() },
-    storage: { session: {
-      get: async keys => Object.fromEntries((typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(storage)).map(key => [key, copy(storage[key])])),
-      set: async values => { for (const [key, value] of Object.entries(values)) storage[key] = copy(value); },
-      remove: async keys => { for (const key of Array.isArray(keys) ? keys : [keys]) delete storage[key]; },
-    } },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.0' }), onMessage: event() },
+    storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
       get: async id => { if (!tabs.has(id)) throw new Error('tab closed'); return copy(tabs.get(id)); },
       query: async () => [...tabs.values()].map(copy),
@@ -53,383 +46,353 @@ function harness(initial = {}) {
       onRemoved: event(), onUpdated: event(),
     },
     scripting: { executeScript: async request => {
+      if (request.func.name === 'cancelSignupPage') { cancellations.push({ target: copy(request.target), args: copy(request.args), injectImmediately: request.injectImmediately }); return [{ result: null }]; }
       const tab = tabs.get(request.target.tabId);
       if (!tab) throw new Error('tab closed');
-      if (request.func.name === 'fillSignupFields') {
-        injections.push({ tabId: tab.id, args: copy(request.args) });
-        const value = server.onFields ? await server.onFields(request.args[0]) : request.args[0].mode === 'inspect-code'
-          ? { phase: 'paused', codeReady: true, filled: [], message: 'email verification ready' }
-          : { phase: 'filled', filled: [request.args[0].mode === 'code' ? 'code' : 'email'], message: 'review and submit the platform form' };
-        return [{ result: value, documentId: `document-${tab.id}` }];
-      }
-      // Execute the production API bridge, with fetch replaced by an in-memory
-      // own-profile endpoint. This checks bridge behavior, not live cookies.
-      const location = new URL(tab.url);
-      const window = {}; window.top = window;
-      const context = vm.createContext({ window, location, URL, AbortController, setTimeout, clearTimeout, fetch: async (url, options) => {
-        const body = options.body ? JSON.parse(options.body) : null;
-        apiRequests.push({ url, body: copy(body), method: options.method, credentials: options.credentials, redirect: options.redirect, cache: options.cache });
-        assert.equal(url, '/api/account-setup');
-        assert.equal(options.credentials, 'same-origin');
-        assert.equal(options.redirect, 'error');
-        assert.equal(options.cache, 'no-store');
-        if (server.beforeFetch) await server.beforeFetch(body);
-        let data;
-        let status = server.status;
-        if (status !== 200) data = { ok: false, error: status === 403 ? 'profile changed' : 'connection unavailable' };
-        else if (!body) data = { ok: true, profile: server.profile, aliases: server.aliases };
-        else if (body.expectedProfileId !== server.profile.id) { status = 403; data = { ok: false, error: 'profile changed' }; }
-        else if (body.action === 'generate') data = { ok: true, alias: { ...server.aliases[0], platform: body.platform } };
-        else if (body.action === 'code') data = { ok: true, verification: server.verification };
-        else if (body.action === 'complete') data = { ok: true, alias: { ...server.aliases[0], accountUsername: body.username, platform: body.platform } };
-        else { status = 400; data = { ok: false, error: 'unknown action' }; }
-        return { status, ok: status === 200, json: async () => copy(data) };
-      }, args: copy(request.args) });
-      const result = await vm.runInContext(`(${request.func.toString()})(...args)`, context);
-      return [{ result, documentId: `document-${tab.id}` }];
+      const input = request.args[0];
+      injections.push({ target: copy(request.target), input: copy(input) });
+      let result;
+      if (input.mode === 'observe') result = server.onObserve ? await server.onObserve(input) : copy(server.observation);
+      else result = server.onAct ? await server.onAct(input) : { submitted: true, stage: server.observation.stage, signature: input.expectedSignature, documentId: input.expectedDocument, message: 'submitted once' };
+      return [{ result, documentId: `chrome-document-${tab.id}` }];
     } },
   };
-  const context = vm.createContext({ chrome, console, URL, crypto: webcrypto, Date: Clock, structuredClone, setTimeout, clearTimeout, AbortController });
+  const context = vm.createContext({ chrome, console, URL, crypto: webcrypto, Date: Clock, structuredClone, setTimeout, clearTimeout, AbortController, Uint8Array,
+    signupStep: function signupStep() {},
+    fetch: async (url, options) => {
+      const body = JSON.parse(options.body);
+      apiRequests.push({ url, body: copy(body), method: options.method, credentials: options.credentials, redirect: options.redirect, cache: options.cache, headers: copy(options.headers), signal: options.signal });
+      if (server.beforeFetch) await server.beforeFetch(body, options);
+      let data;
+      if (server.status !== 200) data = { ok: false, error: 'backend rejected' };
+      else if (body.action === 'prepare') data = { ok: true, alias: { ...server.alias, platform: body.platform } };
+      else if (body.action === 'code') data = { ok: true, verification: server.verification };
+      else if (body.action === 'complete') data = { ok: true, alias: { ...server.alias, platform: body.platform, accountUsername: body.username } };
+      else throw new Error('unknown native email action');
+      return { status: server.status, ok: server.status === 200, json: async () => copy(data) };
+    },
+  });
   context.importScripts = (...files) => files.forEach(file => vm.runInContext(fs.readFileSync(path.join(extension, file), 'utf8'), context, { filename: file }));
   vm.runInContext(fs.readFileSync(path.join(extension, 'background.js'), 'utf8'), context, { filename: 'background.js' });
   const message = (request, sender = panel) => new Promise(resolve => {
     const accepted = chrome.runtime.onMessage.listeners[0](request, sender, response => resolve(copy(response)));
     if (!accepted) resolve(undefined);
   });
-  return { chrome, tabs, storage, server, apiRequests, injections, created, message, now: () => now, tick: ms => { now += ms; },
-    async connect() { const response = await message({ type: 'signup-connect', dashboardTabId: 2 }); assert.equal(response?.ok, true, JSON.stringify(response)); return response; },
-    async start(extra = {}) { await this.connect(); const response = await message({ type: 'signup-start', platform: 'instagram', aliasId: ALIAS_ID, username: 'test.creator', fullName: 'Test Creator', password: PASSWORD, ...extra }); assert.equal(response?.ok, true, JSON.stringify(response)); return response; },
+  const runner = () => ({ id: 'extension-id', url: `chrome-extension://extension-id/signup-runner.html#${storage.signupJob.token}`, frameId: 0, tab: { id: storage.signupJob.runnerTabId } });
+  return { chrome, tabs, storage, local, server, apiRequests, injections, cancellations, created, message, runner, access, now: () => now, time: ms => { now += ms; },
+    acts: () => injections.filter(item => item.input.mode === 'act'),
+    async start(extra = {}) { const response = await message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD, ...extra }); assert.equal(response?.ok, true, JSON.stringify(response)); return response; },
+    async runnerMessage(type) { return message({ type: `signup-runner-${type}`, token: storage.signupJob.token }, runner()); },
+    async ready() { const response = await this.runnerMessage('ready'); assert.equal(response?.ok, true, JSON.stringify(response)); return response; },
+    async tick() { return this.runnerMessage('tick'); },
+    async details() { await this.start(); await this.ready(); const result = await this.tick(); assert.equal(result.ok, true); assert.equal(this.acts().length, 1); return result; },
   };
 }
 
-test('signup credentials and private state are accepted only from the exact packaged side panel', async () => {
+test('only the exact packaged panel accepts credentials; old website and dashboard commands cannot start signup', async () => {
   const h = harness();
-  const attempts = [web, { ...panel, id: 'other-extension' }, { ...panel, url: 'chrome-extension://extension-id/runner.html' }, { ...panel, frameId: 1 }, { ...panel, url: 'https://www.instagram.com/' }];
-  for (const sender of attempts) {
+  for (const sender of [web, { ...panel, id: 'other-extension' }, { ...panel, url: 'chrome-extension://extension-id/sidepanel.html?x=1' }, { ...panel, url: 'chrome-extension://extension-id/sidepanel.html#x' }, { ...panel, frameId: 1 }, { ...panel, url: 'https://www.instagram.com/' }]) {
     assert.equal(await h.message({ type: 'signup-start', password: PASSWORD }, sender), undefined);
     assert.equal(await h.message({ type: 'signup-state' }, sender), undefined);
   }
-  assert.equal(h.apiRequests.length, 0);
-  assert.equal(h.created.length, 0);
-  assert.equal(h.storage.signupJob, undefined);
+  assert.equal((await h.message({ type: 'signup-connect', dashboardTabId: 2 })).ok, false);
+  assert.equal(h.apiRequests.length, 0); assert.equal(h.created.length, 0);
 });
 
-test('public signup state excludes passwords, profile identity and verification codes', async () => {
-  const h = harness();
-  const result = await h.start();
+test('native start prepares its own email and uses a restricted install capability without cookies or secrets in public state', async () => {
+  const h = harness(); const response = await h.start();
+  assert.equal(h.created.length, 2);
+  assert.equal(h.created[0].url, 'https://www.instagram.com/accounts/emailsignup/');
+  assert.match(h.created[1].url, /^chrome-extension:\/\/extension-id\/signup-runner.html#[\w-]+$/);
+  assert.equal(h.created[1].active, false);
+  const request = h.apiRequests[0];
+  assert.equal(request.url, 'https://www.trycreatorcollective.com/api/warmup/native-inbox');
+  assert.equal(request.credentials, 'omit'); assert.equal(request.redirect, 'error'); assert.equal(request.cache, 'no-store');
+  assert.match(h.local.nativeSignupInstall, /^[a-f0-9]{64}$/);
+  assert.equal(request.headers.Authorization, `Bearer ${h.local.nativeSignupInstall}`);
+  assert.equal(h.access[0].accessLevel, 'TRUSTED_CONTEXTS');
+  assert.deepEqual(Object.keys(request.body).sort(), ['action', 'platform', 'requestId']);
+  assert.equal(request.body.requestId, h.storage.signupJob.requestId);
   assert.equal(h.storage.signupJob.password, PASSWORD);
-  for (const state of [result.data, (await h.message({ type: 'signup-state' })).data]) {
-    assert.equal(state.password, undefined);
-    assert.equal(state.profileId, undefined);
-    assert.equal(state.usedCodeIds, undefined);
-    assert.equal(JSON.stringify(state).includes(PASSWORD), false);
+  assert.equal(JSON.stringify(h.local).includes(PASSWORD), false);
+  for (const state of [response.data, (await h.message({ type: 'signup-state' })).data]) {
+    assert.equal(state.password, undefined); assert.equal(state.token, undefined); assert.equal(state.usedCodeIds, undefined);
+    assert.equal(JSON.stringify(state).includes(h.local.nativeSignupInstall), false);
   }
-  assert.equal(JSON.stringify(h.apiRequests).includes(PASSWORD), false);
+  assert.equal(JSON.stringify(request.body).includes(PASSWORD), false);
 });
 
-test('dashboard connection rejects wrong hosts and incognito without making a request', async () => {
-  for (const patch of [{ url: 'https://www.trycreatorcollective.com.evil.example/dashboard' }, { url: 'https://www.trycreatorcollective.com/login' }, { incognito: true }]) {
-    const h = harness(); Object.assign(h.tabs.get(2), patch);
-    const response = await h.message({ type: 'signup-connect', dashboardTabId: 2 });
-    assert.equal(response.ok, false);
-    assert.equal(h.apiRequests.length, 0);
+test('runner messages require the exact runner tab, token, frame and packaged URL and expose no password', async () => {
+  const h = harness(); await h.start();
+  for (const sender of [panel, web, { ...h.runner(), frameId: 1 }, { ...h.runner(), tab: { id: 999 } }, { ...h.runner(), url: `${h.runner().url}?x=1` }]) {
+    const response = await h.message({ type: 'signup-runner-tick', token: h.storage.signupJob.token }, sender);
+    assert.equal(response?.ok, false);
+  }
+  assert.equal((await h.message({ type: 'signup-runner-tick', token: 'wrong' }, h.runner())).ok, false);
+  assert.equal(h.injections.length, 0);
+  const result = await h.ready();
+  assert.equal(result.data.password, undefined); assert.equal(result.data.requestId, undefined);
+});
+
+test('normal steps submit once with recorded intent and a pinned Chrome document', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.onAct = input => {
+    assert.equal(h.storage.signupJob.attempts.length, 1);
+    assert.equal(h.storage.signupJob.pendingAction.signature, input.expectedSignature);
+    return { submitted: true, stage: 'details', signature: input.expectedSignature, documentId: input.expectedDocument };
+  };
+  await h.tick(); await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.injections[0].input.password, undefined);
+  assert.equal(h.acts()[0].input.password, PASSWORD);
+  assert.deepEqual(h.acts()[0].target.documentIds, [`chrome-document-${h.storage.signupJob.tabId}`]);
+  assert.equal(h.storage.signupJob.detailsSubmitted, true);
+  h.time(26000); await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1, 'continue cannot replay the same submission');
+  h.server.observation.documentId = 'reloaded-document';
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1, 'a new document cannot bypass the submitted step signature');
+});
+
+test('a new verified form step advances while unknown or blocked states pause', async () => {
+  for (const stage of ['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in', 'unknown']) {
+    const h = harness(); await h.start(); await h.ready();
+    h.server.observation = { ...h.server.observation, stage, signature: stage, canSubmit: false, message: 'manual step' };
+    await h.tick(); assert.equal(h.storage.signupJob.phase, 'paused', stage); assert.equal(h.acts().length, 0, stage);
+  }
+  const h = harness(); await h.details();
+  h.server.observation = { ...h.server.observation, signature: 'details:username:next' };
+  await h.tick(); assert.equal(h.acts().length, 2);
+});
+
+test('no injection reaches an untrusted host, another platform, incognito or a pending document', async () => {
+  for (const patch of [{ url: 'https://www.instagram.com.evil.example/accounts/emailsignup/' }, { url: 'https://www.tiktok.com/signup' }, { incognito: true }, { pendingUrl: 'https://www.instagram.com/accounts/login/' }, { status: 'loading' }]) {
+    const h = harness(); await h.start(); await h.ready(); Object.assign(h.tabs.get(h.storage.signupJob.tabId), patch);
+    await h.tick(); assert.equal(h.injections.length, 0); assert.notEqual(h.storage.signupJob.phase, 'complete');
   }
 });
 
-test('platform host changes and pending navigation never receive signup credentials', async () => {
-  for (const patch of [{ url: 'https://www.instagram.com.evil.example/accounts/emailsignup/' }, { url: 'https://www.tiktok.com/signup' }, { pendingUrl: 'https://www.instagram.com/accounts/login/' }, { status: 'loading' }]) {
-    const h = harness(); await h.start();
-    Object.assign(h.tabs.get(h.storage.signupJob.tabId), patch);
-    await h.message({ type: 'signup-continue' });
-    assert.equal(h.injections.length, 0);
-    assert.notEqual(h.storage.signupJob.phase, 'complete');
-  }
-});
-
-test('stopping, closing either connected tab, and expiry erase the saved password', async () => {
-  for (const reason of ['stop', 'platform-close', 'dashboard-close', 'expiry']) {
+test('stop, either tab closing, navigation away, discard and expiry erase credentials', async () => {
+  for (const reason of ['stop', 'platform-close', 'runner-close', 'navigation', 'discard', 'expiry']) {
     const h = harness(); await h.start();
     if (reason === 'stop') await h.message({ type: 'signup-stop' });
     if (reason.endsWith('close')) {
-      const id = reason === 'platform-close' ? h.storage.signupJob.tabId : 2;
+      const id = reason === 'platform-close' ? h.storage.signupJob.tabId : h.storage.signupJob.runnerTabId;
       h.tabs.delete(id); h.chrome.tabs.onRemoved.emit(id); await settle();
     }
-    if (reason === 'expiry') h.tick(31 * 60 * 1000);
-    const response = await h.message({ type: 'signup-state' });
-    assert.equal(response.data.active, false, reason);
-    assert.equal(h.storage.signupJob.password, '', reason);
-    assert.equal(h.injections.length, 0, reason);
+    if (reason === 'navigation') h.chrome.tabs.onUpdated.emit(h.storage.signupJob.tabId, { url: 'https://example.com/' });
+    if (reason === 'discard') h.chrome.tabs.onUpdated.emit(h.storage.signupJob.tabId, { discarded: true });
+    if (reason === 'expiry') h.time(31 * 60000);
+    await settle(); const response = await h.message({ type: 'signup-state' });
+    assert.equal(response.data.active, false, reason); assert.equal(h.storage.signupJob.password, '', reason);
+    assert.equal(h.injections.length, 0, reason); assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
   }
 });
 
-test('a stopped signup remains stopped when delayed tab completion arrives', async () => {
-  const h = harness(); await h.start();
-  const tabId = h.storage.signupJob.tabId;
-  await h.message({ type: 'signup-stop' });
-  h.chrome.tabs.onUpdated.emit(tabId, { status: 'complete' }); await settle();
-  assert.equal(h.injections.length, 0);
-  assert.equal(h.storage.signupJob.phase, 'stopped');
-  assert.equal(h.storage.signupJob.password, '');
-});
-
-test('signup and warm-up cannot run together in either start order', async () => {
-  const warming = harness({ job: { phase: 'running' } }); await warming.connect();
-  const rejected = await warming.message({ type: 'signup-start', platform: 'instagram', aliasId: ALIAS_ID, username: 'test.creator', fullName: 'Test Creator', password: PASSWORD });
-  assert.equal(rejected.ok, false); assert.equal(warming.created.length, 0);
+test('signup and warm-up exclude each other in either start order', async () => {
+  const warming = harness({ job: { phase: 'running' } });
+  assert.equal((await warming.message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD })).ok, false);
+  assert.equal(warming.created.length, 0); assert.equal(warming.apiRequests.length, 0);
   const signing = harness(); await signing.start();
-  const response = await signing.message({ type: 'start', tabId: 7, settings: { minutes: 1, niche: 'branding' } }, web);
-  assert.equal(response.ok, false); assert.equal(signing.created.length, 1);
+  assert.equal((await signing.message({ type: 'start', tabId: 7, settings: { minutes: 1, niche: 'branding' } }, web)).ok, false);
+  assert.equal(signing.created.length, 2);
 });
 
-test('switching the dashboard account stops signup before platform injection', async () => {
-  const h = harness(); await h.start();
-  h.server.profile = { id: '44444444-4444-4444-8444-444444444444', fullName: 'Other Creator' };
-  const response = await h.message({ type: 'signup-continue' });
-  assert.equal(response.ok, false);
-  assert.equal(h.storage.signupJob.password, '');
-  assert.equal(h.storage.signupJob.phase, 'stopped');
-  assert.equal(h.storage.signupConnection, undefined);
-  assert.equal(h.injections.length, 0);
-});
-
-test('generation binds its mutation to the connected profile and rejects a mid-request account switch', async () => {
-  const h = harness(); await h.connect();
-  h.server.beforeFetch = async body => { if (body?.action === 'generate') h.server.profile = { id: '44444444-4444-4444-8444-444444444444', fullName: 'Other Creator' }; };
-  const response = await h.message({ type: 'signup-generate', platform: 'instagram' });
-  assert.equal(response.ok, false);
-  const request = h.apiRequests.find(item => item.body?.action === 'generate');
-  assert.equal(request.body.expectedProfileId, PROFILE_ID);
-});
-
-test('fresh email codes are platform-scoped, consumed before fill, and never returned or persisted', async () => {
-  const h = harness(); await h.start({ platform: 'tiktok' }); h.tick(1000);
-  h.server.verification = { id: CODE_ID, code: '654321', receivedAt: new Date(h.now()).toISOString() };
-  h.server.onFields = input => {
-    if (input.mode === 'inspect-code') return { codeReady: true };
-    if (input.mode === 'code') assert.ok(h.storage.signupJob.usedCodeIds.includes(CODE_ID));
-    return { phase: 'filled', message: 'review the filled code', filled: ['code'] };
+test('email codes are polled at most every five seconds and consumed before the guarded act', async () => {
+  const h = harness(); await h.details(); h.time(1000);
+  h.server.observation = { stage: 'email-code', signature: 'email-code:verify', documentId: 'page-1', canSubmit: true };
+  await h.tick(); await h.tick();
+  assert.equal(h.apiRequests.filter(request => request.body.action === 'code').length, 1);
+  assert.equal(h.acts().length, 1);
+  h.time(5000); h.server.verification = { id: CODE_ID, code: '654321', receivedAt: new Date(h.now()).toISOString() };
+  h.server.onAct = input => {
+    assert.ok(h.storage.signupJob.usedCodeIds.includes(CODE_ID));
+    assert.equal(input.password, undefined); assert.equal(input.code, '654321');
+    return { submitted: true, stage: 'email-code', signature: input.expectedSignature, documentId: input.expectedDocument };
   };
-  const response = await h.message({ type: 'signup-code' });
-  assert.equal(response.ok, true, JSON.stringify(response));
-  const request = h.apiRequests.find(item => item.body?.action === 'code');
-  assert.equal(request.body.platform, 'tiktok'); assert.equal(request.body.aliasId, ALIAS_ID); assert.equal(request.body.expectedProfileId, PROFILE_ID);
-  const filled = h.injections.filter(item => item.args[0].mode === 'code');
-  assert.equal(filled.length, 1); assert.equal(filled[0].args[0].code, '654321'); assert.equal(filled[0].args[0].password, undefined);
-  assert.equal(JSON.stringify(response).includes('654321'), false);
+  const result = await h.tick();
+  const request = h.apiRequests.filter(item => item.body.action === 'code').at(-1);
+  assert.equal(request.body.requestId, h.storage.signupJob.requestId); assert.equal(request.body.platform, 'instagram');
+  assert.equal(request.body.since, h.storage.signupJob.since);
+  assert.equal(h.acts().length, 2);
   assert.equal(JSON.stringify(h.storage).includes('654321'), false);
-  assert.equal((await h.message({ type: 'signup-code' })).ok, false);
-  assert.equal(h.injections.filter(item => item.args[0].mode === 'code').length, 1);
+  assert.equal(JSON.stringify(result).includes('654321'), false);
+  assert.equal(JSON.stringify(request.body).includes('654321'), false);
 });
 
-test('stale, future, malformed and pre-signup verification codes never fill a platform field', async () => {
-  for (const kind of ['stale', 'future', 'malformed-time', 'bad-code', 'before-start', 'missing']) {
-    const h = harness(); await h.start(); h.tick(12 * 60 * 1000);
-    const times = { stale: h.now() - 11 * 60 * 1000, future: h.now() + 1, 'before-start': Date.parse(h.storage.signupJob.since) - 1 };
-    h.server.verification = kind === 'missing' ? null : { id: CODE_ID, code: kind === 'bad-code' ? '6543217' : '654321', receivedAt: kind === 'malformed-time' ? 'not-a-time' : new Date(times[kind] ?? h.now()).toISOString() };
-    const response = await h.message({ type: 'signup-code' });
-    assert.equal(response.ok, false, kind);
-    assert.equal(h.injections.filter(item => item.args[0].mode === 'code').length, 0, kind);
+test('fresh-code validation rejects stale, future, malformed, pre-start and already consumed codes', async () => {
+  for (const kind of ['stale', 'future', 'time', 'code', 'pre-start', 'consumed']) {
+    const h = harness(); await h.details(); h.time(12 * 60000);
+    h.server.observation = { stage: 'email-code', signature: 'email-code:verify', documentId: 'page-1', canSubmit: true };
+    const times = { stale: h.now() - 11 * 60000, future: h.now() + 1, 'pre-start': Date.parse(h.storage.signupJob.since) - 1 };
+    h.server.verification = { id: CODE_ID, code: kind === 'code' ? 'not-a-code' : '654321', receivedAt: kind === 'time' ? 'not-a-time' : new Date(times[kind] ?? h.now()).toISOString() };
+    if (kind === 'consumed') h.storage.signupJob.usedCodeIds.push(CODE_ID);
+    await h.tick(); assert.equal(h.acts().length, 1, kind); assert.equal(h.storage.signupJob.phase, 'paused', kind);
   }
 });
 
-test('stop while the dashboard is responding prevents later credential injection and state revival', async () => {
-  const h = harness(); await h.start();
-  const entered = deferred(); const release = deferred();
-  h.server.beforeFetch = async body => { if (!body) { entered.resolve(); await release.promise; } };
-  const filling = h.message({ type: 'signup-continue' }); await entered.promise;
-  const stopping = h.message({ type: 'signup-stop' });
-  await settle();
-  const stoppedBeforeReply = h.storage.signupJob.phase === 'stopped';
-  release.resolve();
-  await Promise.all([filling, stopping]);
-  assert.equal(stoppedBeforeReply, true, 'stop must not wait behind the network request');
-  assert.equal(h.injections.length, 0);
-  assert.equal(h.storage.signupJob.phase, 'stopped');
-  assert.equal(h.storage.signupJob.password, '');
+test('an unready recipient or occupied code field never requests or consumes an email code', async () => {
+  const h = harness(); await h.details(); h.time(26000);
+  h.server.observation = { stage: 'email-code', signature: 'email-code:verify', documentId: 'page-1', canSubmit: false, message: 'check the recipient or previous code' };
+  await h.tick();
+  assert.equal(h.apiRequests.filter(request => request.body.action === 'code').length, 0);
+  assert.equal(h.storage.signupJob.usedCodeIds.length, 0); assert.equal(h.acts().length, 1);
 });
 
-function formFixture({ platform = 'instagram', url, text = '', fields = [], challenge = false } = {}) {
-  const events = [];
-  let submits = 0;
-  class Input {
-    constructor(spec) { Object.assign(this, { name: '', id: '', type: 'text', autocomplete: '', placeholder: '', disabled: false, readOnly: false, isConnected: true, hidden: false, _value: '', attributes: {} }, spec); }
-    get value() { return this._value; }
-    set value(value) { this._value = value; }
-    getBoundingClientRect() { return { width: this.hidden ? 0 : 100, height: this.hidden ? 0 : 30 }; }
-    getAttribute(name) { return this.attributes[name] || null; }
-    dispatchEvent(event) { events.push({ name: this.name, type: event.type }); return true; }
+test('completion needs a submitted signup, matching authenticated username and matching saved email', async () => {
+  for (const kind of ['no-submission', 'other-user', 'confirmed']) {
+    const h = harness();
+    if (kind === 'no-submission') { await h.start(); await h.ready(); } else await h.details();
+    h.server.observation = { stage: 'complete', documentId: 'profile-document', canSubmit: false, username: kind === 'other-user' ? 'somebody.else' : 'TEST.CREATOR' };
+    await h.tick();
+    assert.equal(h.storage.signupJob.phase, kind === 'confirmed' ? 'complete' : 'paused', kind);
+    assert.equal(h.apiRequests.filter(request => request.body.action === 'complete').length, kind === 'confirmed' ? 1 : 0, kind);
+    if (kind === 'confirmed') { assert.equal(h.storage.signupJob.password, ''); assert.equal(h.local.nativeSignupRecovery.phase, 'complete'); }
   }
-  const inputs = fields.map(field => new Input(field));
-  const window = {}; window.top = window;
-  const document = {
-    body: { innerText: text },
-    querySelectorAll: selector => selector === 'input' ? inputs : selector === 'iframe' && challenge ? [{ src: 'https://captcha.example/challenge', title: 'captcha', getBoundingClientRect: () => ({ width: 100, height: 30 }) }] : [],
-    querySelector: () => null,
-    forms: [{ submit() { submits++; }, requestSubmit() { submits++; } }],
-  };
-  const context = vm.createContext({ window, document, location: { href: url || `https://www.${platform}.com/${platform === 'instagram' ? 'accounts/emailsignup/' : 'signup/phone-or-email/email'}` }, URL, HTMLInputElement: Input, Event: class Event { constructor(type) { this.type = type; } }, getComputedStyle: () => ({ visibility: 'visible', display: 'block', opacity: '1' }) });
-  vm.runInContext(fs.readFileSync(path.join(extension, 'signup-fields.js'), 'utf8'), context);
-  return { inputs, events, submits: () => submits, fill(input = {}) { context.request = { platform, ...input }; return copy(vm.runInContext('fillSignupFields(request)', context)); } };
-}
-
-test('visible signup fields fill without overwriting a different value or submitting the form', () => {
-  const fields = [{ name: 'email', type: 'email' }, { name: 'fullName' }, { name: 'username' }, { name: 'password', type: 'password' }];
-  const f = formFixture({ fields });
-  const input = { mode: 'details', email: 'test@example.com', fullName: 'Test Creator', username: 'test.creator', password: PASSWORD };
-  assert.equal(f.fill(input).phase, 'filled');
-  assert.deepEqual(f.inputs.map(field => field.value), [input.email, input.fullName, input.username, input.password]);
-  assert.equal(f.submits(), 0); assert.equal(f.events.length, 8);
-  const existing = formFixture({ fields: [{ name: 'email', type: 'email', _value: 'someone-else@example.com' }, ...fields.slice(1)] });
-  assert.equal(existing.fill(input).phase, 'paused');
-  assert.equal(existing.events.length, 0); assert.equal(existing.inputs[0].value, 'someone-else@example.com');
+  const h = harness(); await h.details();
+  h.server.observation = { stage: 'complete', signature: 'authenticated-profile', documentId: 'profile-document', username: 'test.creator' };
+  h.server.alias.email = 'other@example.com'; await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused'); assert.equal(h.storage.signupJob.password, '');
 });
 
-test('signup fixtures pause for phone, captcha and incomplete birthday checks', () => {
-  const cases = [
-    { text: 'Enter the code we sent to your phone', fields: [{ name: 'code', autocomplete: 'one-time-code' }] },
-    { text: 'Security check', challenge: true, fields: [{ name: 'email' }] },
-    { text: 'When is your birthday?', fields: [{ name: 'birthday', type: 'date' }, { name: 'email' }] },
-  ];
-  for (const sample of cases) {
-    const f = formFixture(sample);
-    const result = f.fill({ mode: 'inspect-code' });
-    assert.equal(result.phase, 'paused'); assert.notEqual(result.codeReady, true);
-    assert.equal(f.events.length, 0); assert.equal(f.submits(), 0);
-  }
-});
-
-test('signup fixtures reject ambiguous, hidden and outside-signup fields', () => {
-  for (const sample of [
-    { fields: [{ name: 'email' }, { name: 'email' }] },
-    { fields: [{ name: 'email', hidden: true }] },
-    { url: 'https://www.instagram.com/accounts/login/', fields: [{ name: 'email' }] },
-    { url: 'https://www.instagram.com.evil.example/accounts/emailsignup/', fields: [{ name: 'email' }] },
-  ]) {
-    const f = formFixture(sample);
-    assert.equal(f.fill({ mode: 'details', email: 'test@example.com' }).phase, 'paused');
-    assert.equal(f.events.length, 0);
-  }
-});
-
-test('email-code fixtures accept the complete selected address in visible text or an email field', () => {
-  const email = 'test-creator@example.com';
-  for (const sample of [
-    { text: `Enter the confirmation code sent to ${email}`, fields: [{ name: 'code' }] },
-    { text: 'Confirm your email with the code we sent.', fields: [{ name: 'email', type: 'email', _value: email.toUpperCase() }, { name: 'code' }] },
-  ]) {
-    const f = formFixture(sample);
-    assert.equal(f.fill({ mode: 'inspect-code', email }).codeReady, true);
-    assert.equal(f.fill({ mode: 'code', email, code: '654321' }).phase, 'filled');
-    assert.equal(f.inputs.find(field => field.name === 'code').value, '654321');
-    assert.equal(f.submits(), 0);
-  }
-});
-
-test('email-code fixtures reject masked, missing and different recipients, including address substrings', () => {
-  const email = 'test-creator@example.com';
-  for (const recipient of ['other@example.com', 't***@example.com', 'your email', `other-${email}`, `${email}.evil.example`]) {
-    for (const mode of ['inspect-code', 'code']) {
-      const f = formFixture({ text: `Enter the email code sent to ${recipient}`, fields: [{ name: 'code', autocomplete: 'one-time-code' }] });
-      const result = f.fill({ mode, email, code: '654321' });
-      assert.notEqual(result.codeReady, true, recipient);
-      assert.equal(result.phase, 'paused', recipient);
-      assert.equal(f.events.length, 0, recipient);
-      assert.equal(f.inputs[0].value, '', recipient);
-    }
-  }
-});
-
-test('an occupied verification field is rejected before a new code is fetched or consumed', async () => {
-  const h = harness(); await h.start(); h.tick(1000);
-  const f = formFixture({ text: `Enter the email code sent to ${h.storage.signupJob.email}`, fields: [{ name: 'code', _value: '111111' }] });
-  h.server.verification = { id: CODE_ID, code: '654321', receivedAt: new Date(h.now()).toISOString() };
-  h.server.onFields = input => f.fill(input);
-  const response = await h.message({ type: 'signup-code' });
-  assert.equal(response.ok, false);
-  assert.match(response.error, /previous code|clear/i);
-  assert.equal(h.apiRequests.filter(item => item.body?.action === 'code').length, 0);
-  assert.deepEqual(h.storage.signupJob.usedCodeIds, []);
-  assert.equal(f.inputs[0].value, '111111');
-  assert.equal(f.events.length, 0);
-});
-
-test('a birthday already entered by the user allows other details to fill without editing it', () => {
-  const f = formFixture({ text: 'When is your birthday?', fields: [{ name: 'birthday', type: 'date', _value: '2000-01-01' }, { name: 'email', type: 'email' }] });
-  assert.equal(f.fill({ mode: 'details', email: 'test@example.com' }).phase, 'filled');
-  assert.equal(f.inputs[0].value, '2000-01-01');
-  assert.ok(f.events.every(event => event.name === 'email'));
-});
-
-for (const change of ['closed', 'navigated']) {
-  test(`dashboard ${change} during deferred platform lookup prevents injection and password revival`, async () => {
-    const h = harness(); await h.start();
-    const platformTabId = h.storage.signupJob.tabId;
-    const priorRequests = h.apiRequests.length;
-    const entered = deferred(); const release = deferred();
-    const originalGet = h.chrome.tabs.get;
-    h.chrome.tabs.get = async id => {
-      const snapshot = await originalGet(id);
-      if (id === platformTabId) { entered.resolve(); await release.promise; }
-      return snapshot;
+test('failed or uncertain platform submission is never automatically retried or marked complete', async () => {
+  for (const kind of ['false', 'throw', 'changed-document']) {
+    const h = harness(); await h.start(); await h.ready();
+    h.server.onAct = input => {
+      if (kind === 'throw') throw new Error('response lost after click');
+      return { submitted: kind !== 'false', signature: input.expectedSignature, documentId: kind === 'changed-document' ? 'other-document' : input.expectedDocument };
     };
-    const filling = h.message({ type: 'signup-continue' });
-    await entered.promise;
-    assert.equal(h.apiRequests.length, priorRequests + 1, 'dashboard identity was already checked before platform lookup');
-    if (change === 'closed') {
-      h.tabs.delete(2);
-      h.chrome.tabs.onRemoved.emit(2);
-    } else {
-      h.tabs.get(2).url = 'https://www.trycreatorcollective.com/login';
-      h.chrome.tabs.onUpdated.emit(2, { url: h.tabs.get(2).url });
-    }
-    await settle();
-    const stoppedBeforeLookupFinished = h.storage.signupJob.phase === 'stopped' && h.storage.signupJob.password === '';
-    release.resolve();
-    const response = await filling;
-    await settle();
-    assert.equal(stoppedBeforeLookupFinished, true, 'tab invalidation must not wait behind a pending signup command');
-    assert.equal(response.ok, false);
-    assert.equal(h.injections.length, 0);
-    assert.equal(h.storage.signupJob.phase, 'stopped');
-    assert.equal(h.storage.signupJob.password, '');
-    assert.equal((await h.message({ type: 'signup-state' })).data.active, false);
-  });
-}
+    await h.tick(); h.time(26000); await h.message({ type: 'signup-continue' }); await h.tick();
+    assert.equal(h.acts().length, 1, kind); assert.equal(h.storage.signupJob.detailsSubmitted, false, kind);
+  }
+});
 
-for (const interruption of ['stop', 'dashboard-close']) {
-  test(`stale starting snapshot after ${interruption} cannot resume automatic field filling`, async () => {
-    const h = harness(); await h.start();
-    assert.equal(h.storage.signupJob.phase, 'starting');
-    const platformTabId = h.storage.signupJob.tabId;
-    const entered = deferred(); const release = deferred();
-    const originalGet = h.chrome.storage.session.get;
-    let delayNextJobRead = true;
-    h.chrome.storage.session.get = async keys => {
-      const snapshot = await originalGet(keys);
-      if (keys === 'signupJob' && delayNextJobRead) {
-        delayNextJobRead = false;
-        assert.equal(snapshot.signupJob.phase, 'starting');
-        entered.resolve();
-        await release.promise;
-      }
-      return snapshot;
-    };
-    h.chrome.tabs.onUpdated.emit(platformTabId, { status: 'complete' });
-    await entered.promise;
-    if (interruption === 'stop') await h.message({ type: 'signup-stop' });
-    else {
-      h.tabs.delete(2);
-      h.chrome.tabs.onRemoved.emit(2);
-      await settle();
-    }
-    const clearedBeforeStaleRead = h.storage.signupJob.phase === 'stopped' && h.storage.signupJob.password === '';
-    release.resolve();
-    await settle();
-    const state = await h.message({ type: 'signup-state' });
-    assert.equal(clearedBeforeStaleRead, true);
-    assert.equal(h.injections.length, 0, 'the delayed starting snapshot must not authorize autofill');
-    assert.equal(h.storage.signupJob.phase, 'stopped');
-    assert.equal(h.storage.signupJob.password, '');
-    assert.equal(state.data.active, false);
-  });
-}
+test('stop aborts a pending native API request before it can open tabs or revive credentials', async () => {
+  const h = harness(); const entered = deferred(); const release = deferred();
+  h.server.beforeFetch = async () => { entered.resolve(); await release.promise; };
+  const start = h.message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD });
+  await entered.promise; const stop = await h.message({ type: 'signup-stop' });
+  assert.equal(stop.data.phase, 'stopped'); assert.equal(h.apiRequests[0].signal.aborted, true);
+  release.resolve(); assert.equal((await start).ok, false);
+  assert.equal(h.created.length, 0); assert.equal(h.storage.signupJob.password, ''); assert.equal(h.storage.signupJob.phase, 'stopped');
+});
+
+test('stop or tab closure during a delayed observation prevents later act and stale state revival', async () => {
+  for (const reason of ['stop', 'close']) {
+    const h = harness(); await h.start(); await h.ready(); const entered = deferred(); const release = deferred();
+    h.server.onObserve = async () => { entered.resolve(); await release.promise; return copy(h.server.observation); };
+    const tick = h.tick(); await entered.promise;
+    if (reason === 'stop') await h.message({ type: 'signup-stop' });
+    else { h.tabs.delete(h.storage.signupJob.tabId); h.chrome.tabs.onRemoved.emit(h.storage.signupJob.tabId); await settle(); }
+    assert.equal(h.storage.signupJob.password, '', reason);
+    release.resolve(); assert.equal((await tick).ok, false, reason);
+    assert.equal(h.acts().length, 0, reason); assert.equal(h.storage.signupJob.phase, 'stopped', reason);
+  }
+});
+
+test('stop during a deferred platform lookup prevents any credential injection', async () => {
+  const h = harness(); await h.start(); await h.ready(); const entered = deferred(); const release = deferred();
+  const originalGet = h.chrome.tabs.get;
+  h.chrome.tabs.get = async id => { const snapshot = await originalGet(id); if (id === h.storage.signupJob.tabId) { entered.resolve(); await release.promise; } return snapshot; };
+  const tick = h.tick(); await entered.promise; await h.message({ type: 'signup-stop' }); release.resolve();
+  assert.equal((await tick).ok, false); assert.equal(h.injections.length, 0); assert.equal(h.storage.signupJob.password, '');
+});
+
+test('a stale storage snapshot cannot revive signup after stop or tab removal', async () => {
+  for (const reason of ['stop', 'close']) {
+    const h = harness(); await h.start(); await h.ready(); const entered = deferred(); const release = deferred();
+    const originalGet = h.chrome.storage.session.get; let delayed = false;
+    h.chrome.storage.session.get = async keys => { const snapshot = await originalGet(keys); if (keys === 'signupJob' && !delayed) { delayed = true; entered.resolve(); await release.promise; } return snapshot; };
+    const tick = h.tick(); await entered.promise;
+    if (reason === 'stop') await h.message({ type: 'signup-stop' });
+    else { h.chrome.tabs.onRemoved.emit(h.storage.signupJob.tabId); await settle(); }
+    release.resolve(); assert.equal((await tick).ok, false);
+    assert.equal(h.injections.length, 0); assert.equal(h.storage.signupJob.password, ''); assert.equal(h.storage.signupJob.phase, 'stopped');
+  }
+});
+
+test('runner refresh stops an existing job, preserving email recovery without replaying actions', async () => {
+  const h = harness(); await h.details();
+  const refreshed = await h.ready();
+  assert.equal(refreshed.data.phase, 'stopped'); assert.equal(h.storage.signupJob.password, '');
+  await h.tick(); assert.equal(h.acts().length, 1);
+  const recovered = harness({}, h.local); const state = await recovered.message({ type: 'signup-state' });
+  assert.equal(state.data.phase, 'recovery'); assert.equal(state.data.email, EMAIL); assert.equal(state.data.active, false);
+  assert.equal(recovered.injections.length, 0); assert.equal(recovered.apiRequests.length, 0);
+});
+
+test('install capability stays stable across completed and stopped jobs on the same device', async () => {
+  const h = harness(); await h.start(); const capability = h.local.nativeSignupInstall;
+  await h.message({ type: 'signup-stop' }); await h.start({ platform: 'tiktok', username: 'test_creator' });
+  assert.equal(h.local.nativeSignupInstall, capability);
+  assert.equal(h.apiRequests.at(-1).headers.Authorization, `Bearer ${capability}`);
+  assert.notEqual(h.apiRequests[0].body.requestId, h.apiRequests.at(-1).body.requestId);
+});
+
+test('stop dispatches the in-page cancellation token while an act is still settling', async () => {
+  const h = harness(); await h.start(); await h.ready(); const entered = deferred(); const release = deferred();
+  h.server.onAct = async input => { entered.resolve(); await release.promise; return { submitted: false, signature: input.expectedSignature, documentId: input.expectedDocument }; };
+  const token = h.storage.signupJob.token; const tabId = h.storage.signupJob.tabId;
+  const ticking = h.tick(); await entered.promise; await h.message({ type: 'signup-stop' });
+  assert.equal(h.cancellations.length, 1);
+  assert.deepEqual(h.cancellations[0], { target: { tabId }, args: [token, 'instagram'], injectImmediately: true });
+  assert.equal(h.acts()[0].input.actionToken, token); assert.equal(h.storage.signupJob.password, '');
+  release.resolve(); assert.equal((await ticking).ok, false); assert.equal(h.storage.signupJob.phase, 'stopped');
+});
+
+test('terminal cleanup wins after a delayed intent write and prevents any platform act', async () => {
+  const h = harness(); await h.start(); await h.ready(); const entered = deferred(); const release = deferred();
+  const originalSet = h.chrome.storage.session.set; let held = false;
+  h.chrome.storage.session.set = async values => { if (values.signupJob?.pendingAction && !held) { held = true; entered.resolve(); await release.promise; } return originalSet(values); };
+  const ticking = h.tick(); await entered.promise;
+  const stopping = h.message({ type: 'signup-stop' }); await settle();
+  assert.equal(h.cancellations.length, 1, 'page cancellation is sent before waiting for the write');
+  release.resolve(); await Promise.all([ticking, stopping]);
+  assert.equal(h.acts().length, 0); assert.equal(h.storage.signupJob.phase, 'stopped'); assert.equal(h.storage.signupJob.password, '');
+});
+
+test('a start already queued before stop cannot restart signup after the stopped request settles', async () => {
+  const h = harness(); const entered = deferred(); const release = deferred();
+  h.server.beforeFetch = async () => { entered.resolve(); await release.promise; };
+  const input = { type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD };
+  const first = h.message(input); await entered.promise;
+  const queued = h.message(input); await h.message({ type: 'signup-stop' }); release.resolve();
+  assert.equal((await first).ok, false); assert.equal((await queued).ok, false);
+  assert.equal(h.apiRequests.length, 1); assert.equal(h.created.length, 0); assert.equal(h.storage.signupJob.password, '');
+});
+
+test('failed preparation preserves existing mailbox history and restart recovery', async () => {
+  const h = harness(); await h.start(); await h.message({ type: 'signup-stop' });
+  const first = copy(h.local.nativeSignupRecovery);
+  h.server.status = 503;
+  const failure = await h.message({ type: 'signup-start', platform: 'instagram', username: 'another.creator', password: PASSWORD });
+  assert.equal(failure.ok, false);
+  assert.deepEqual(h.local.nativeSignupRecovery, first);
+  assert.deepEqual(h.local.nativeSignupAccounts, [first]);
+  assert.equal(h.local.nativeSignupPending.phase, 'error'); assert.equal(h.local.nativeSignupPending.email, undefined);
+  assert.notEqual(h.local.nativeSignupPending.requestId, first.requestId);
+  const restarted = harness({}, h.local);
+  const result = await restarted.message({ type: 'signup-state' });
+  assert.equal(result.data.email, EMAIL); assert.equal(result.data.username, 'test.creator');
+  assert.equal(JSON.stringify(h.local).includes(PASSWORD), false);
+});
+
+test('prepared accounts keep a per-request history and failed prepare retries its same idempotent request', async () => {
+  const h = harness(); await h.start(); await h.message({ type: 'signup-stop' });
+  const firstId = h.local.nativeSignupRecovery.requestId;
+  await h.start({ username: 'another.creator' });
+  assert.equal(h.local.nativeSignupAccounts.length, 2);
+  assert.equal(h.local.nativeSignupAccounts[0].requestId, firstId);
+  assert.equal(h.local.nativeSignupAccounts[1].username, 'another.creator');
+  await h.message({ type: 'signup-stop' }); assert.equal(h.local.nativeSignupAccounts.length, 2);
+  const failed = harness(); failed.server.status = 503;
+  const input = { type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD };
+  assert.equal((await failed.message(input)).ok, false);
+  const requestId = failed.apiRequests[0].body.requestId;
+  failed.server.status = 200; await failed.start();
+  assert.equal(failed.apiRequests[1].body.requestId, requestId);
+  assert.equal(failed.local.nativeSignupAccounts.length, 1);
+  assert.equal(failed.local.nativeSignupPending, null);
+});

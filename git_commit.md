@@ -1,15 +1,12 @@
-add account signup to the warmup side panel
+make account creation native to the warmup extension
 
-feature:
-- connect student account emails to supervised instagram and tiktok signup
-- fill recognised details and fresh codes, then save confirmed usernames
-- preserve the published browsing and side panel behaviour
-
+signup:
+- replace dashboard pairing with username, password and start
+- prepare private emails and advance recognized signup steps once
+- pause platform checks and preserve mailbox recovery records
 security:
-- restrict signup to the packaged panel and the connected student
-- clear passwords and cancel delayed work on stop or tab closure
-- keep credentials out of website requests and public assets
-
+- isolate install capabilities and keep passwords in session storage
+- cancel pending submissions and prevent uncertain action replay
 release:
-- package version 0.5.0 with updated setup and privacy details
-- include reviewed extension source and 86 passing checks
+- package version 0.6.0 and update setup and privacy details
+- verify 106 extension checks and companion email API coverage

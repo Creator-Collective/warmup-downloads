@@ -45,11 +45,19 @@ async function dashboardCommand(message, fromPanel = false) {
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (!message || typeof message.type !== 'string') return false;
+  if (message.type.startsWith('signup-runner-')) {
+    if (sender.id !== chrome.runtime.id) return false;
+    const revision = signupController.revision();
+    const operation = message.type === 'signup-runner-stop' ? signupController.runnerCommand(message, sender) : serial(() => signupController.runnerCommand(message, sender, revision));
+    operation.then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
+    return true;
+  }
   // Signup details are accepted only from the packaged side panel. Neither
   // the public website bridge nor platform content can read or send them.
   if (message.type.startsWith('signup-')) {
     if (!panelSender(sender, extensionOrigin)) return false;
-    const operation = message.type === 'signup-stop' ? signupController.command(message) : serial(() => signupController.command(message));
+    const revision = signupController.revision();
+    const operation = message.type === 'signup-stop' ? signupController.command(message) : serial(() => signupController.command(message, revision));
     operation.then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
     return true;
   }
@@ -93,5 +101,4 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error 
 chrome.tabs.onRemoved.addListener(tabId => { void signupController.tabRemoved(tabId).catch(() => {}); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url || change.discarded) void signupController.tabUpdated(tabId, { url: change.url, discarded: change.discarded }).catch(() => {});
-  if (change.status === 'complete') void serial(() => signupController.tabUpdated(tabId, { status: 'complete' })).catch(() => {});
 });
