@@ -1,5 +1,5 @@
 'use strict';
-importScripts('plan.js', 'guards.js', 'signup-fields.js', 'signup.js');
+importScripts('features.js', 'plan.js', 'guards.js', 'signup-fields.js', 'signup.js');
 let queue = Promise.resolve();
 const serial = operation => { const result = queue.then(operation); queue = result.catch(() => {}); return result; };
 const getJob = async () => (await chrome.storage.session.get('job')).job;
@@ -14,7 +14,7 @@ async function dashboardCommand(message, fromPanel = false) {
   if (message.type === 'state') return publicState(await getJob());
   if (message.type === 'tabs') {
     const tabs = await chrome.tabs.query({ url: ['https://www.instagram.com/*', 'https://instagram.com/*'] });
-    return tabs.filter(tab => instagramURL(tab.url)).map(tab => ({ id: tab.id, title: tab.title || 'instagram' }));
+    return tabs.filter(tab => !tab.incognito && instagramURL(tab.url)).map(tab => ({ id: tab.id, title: tab.title || 'instagram' }));
   }
   if (message.type === 'open-instagram') {
     const tab = await chrome.tabs.create({ url: 'https://www.instagram.com/' });
@@ -22,6 +22,7 @@ async function dashboardCommand(message, fromPanel = false) {
   }
   if (message.type === 'stop') { await stopJob(); return publicState(await getJob()); }
   if (message.type !== 'start') throw new Error('unknown dashboard action.');
+  await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
   const settings = sessionPlan.validateSettings(message.settings);
   if (!Number.isInteger(message.tabId)) throw new Error('choose an instagram tab first.');
@@ -98,6 +99,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 });
 // Chrome handles the toolbar click directly, preserving its user gesture.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error('Could not enable warm-up side panel:', error.message));
+void serial(() => signupController.suspendIfDisabled()).catch(error => console.error('Could not stop paused account creation:', error.message));
 chrome.tabs.onRemoved.addListener(tabId => { void signupController.tabRemoved(tabId).catch(() => {}); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url || change.discarded) void signupController.tabUpdated(tabId, { url: change.url, discarded: change.discarded }).catch(() => {});

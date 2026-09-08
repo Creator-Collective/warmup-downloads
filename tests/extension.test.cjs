@@ -33,10 +33,22 @@ test('manifest limits permissions and contains no remote code or cookie access',
  assert.deepEqual(manifest.permissions,['storage','scripting','sidePanel']);
  assert.deepEqual(manifest.content_scripts[0].matches,[origin+'/*']);
  assert.equal(manifest.content_scripts[0].all_frames,false);
+ assert.deepEqual(manifest.host_permissions,['https://www.instagram.com/*','https://instagram.com/*']);
  for(const file of ['plan.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
  const ctx=vm.createContext({setTimeout,clearTimeout,AbortController});
  for(const file of ['plan.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
  assert.equal(typeof ctx.sessionEngine.runSession,'function');
+});
+test('release opens directly to warm-up without signup controls or its UI script',()=>{
+ for(const file of ['index.html','browser-extension/sidepanel.html']) {
+  const html=fs.readFileSync(path.join(root,file),'utf8');
+  assert.match(html,/<h1>auto warm-up<\/h1>/);
+  assert.match(html,/id="session-form"/);
+  assert.doesNotMatch(html,/signup-section|signup-ui\.js|create an account/);
+ }
+ const ctx=vm.createContext({});
+ vm.runInContext(fs.readFileSync(path.join(extension,'features.js'),'utf8'),ctx);
+ assert.equal(vm.runInContext('productFeatures.accountSignup',ctx),false);
 });
 test('start validates settings, creates a dedicated runner and blocks duplicate starts',async()=>{
  const h=background();

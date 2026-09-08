@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../signup-ui.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, 'fixtures/signup-panel.html'), 'utf8');
 const ids = [...html.matchAll(/id="(signup-[^"]+)"/g)].map(match => match[1]);
 const ready = { phase: 'ready', active: false, message: 'ready' };
 const active = { phase: 'creating', active: true, message: 'creating your account', platform: 'instagram', email: 'one@example.com', username: 'requested.name', tabId: 8 };
