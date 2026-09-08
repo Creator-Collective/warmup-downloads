@@ -1,75 +1,121 @@
 'use strict';
 
-// This function is injected into the top frame. Keep it self-contained: no
-// page-provided functions, remote code, cookies, or cross-frame form access.
-function fillSignupFields(input) {
-  const paused = message => ({ phase: 'paused', message, filled: [] });
-  if (window !== window.top) return paused('open signup in the main browser tab.');
+// Serialized into Chrome's isolated top-frame world. The page cannot supply
+// executable code, credentials, selectors, or destinations to this function.
+async function signupStep(input) {
+  const stop = (stage, message) => ({ stage, message, canSubmit: false, submitted: false });
   const url = new URL(location.href);
-  const hosts = input.platform === 'instagram' ? ['www.instagram.com', 'instagram.com'] : ['www.tiktok.com', 'tiktok.com'];
-  if (url.protocol !== 'https:' || url.port || url.username || url.password || !hosts.includes(url.hostname)) return paused('the signup tab changed. stop and start again.');
-  const signupPath = input.platform === 'instagram' ? /^\/accounts\/(emailsignup|signup|confirm_email)(\/|$)/ : /^\/signup(\/|$)/;
-  if (!signupPath.test(url.pathname)) return paused('this tab is outside signup. if an account is already signed in, choose the account yourself before continuing.');
+  if (window !== window.top || !['instagram', 'tiktok'].includes(input.platform) || url.protocol !== 'https:' || url.port || url.username || url.password || ![input.platform + '.com', 'www.' + input.platform + '.com'].includes(url.hostname)) return stop('unknown', 'the signup tab changed. stop and start again.');
+  if (!globalThis.__ccNativeSignupCancelled) globalThis.__ccNativeSignupCancelled = new Set();
+  const cancelled = () => globalThis.__ccNativeSignupCancelled.has(input.actionToken);
+  if (cancelled()) return stop('unknown', 'signup stopped.');
+  if (!globalThis.__ccNativeSignupDocument) globalThis.__ccNativeSignupDocument = { id: crypto.randomUUID(), submitted: new Set() };
+  const state = globalThis.__ccNativeSignupDocument;
   const visible = element => {
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    const box = element.getBoundingClientRect(), css = getComputedStyle(element);
+    return element.isConnected && box.width > 0 && box.height > 0 && css.visibility !== 'hidden' && css.display !== 'none' && css.opacity !== '0';
   };
-  const text = (document.body?.innerText || '').slice(0, 24000).toLowerCase();
-  const challenges = [...document.querySelectorAll('iframe')].some(frame => visible(frame) && /captcha|recaptcha|hcaptcha|arkose|challenge/i.test(frame.src || frame.title || ''));
-  if (challenges || /verify (?:that )?you(?:'re| are) (?:a )?human|security check|complete (?:the |this )?captcha|phone verification|verify your phone|(?:code|sent|send).{0,70}(?:your phone|phone number|mobile number|sms|text message)/.test(text)) return paused('finish the security or phone check in the signup tab, then continue here.');
-  const inputs = [...document.querySelectorAll('input')].filter(element => visible(element) && !element.disabled && !element.readOnly);
-  const birthdayFields = [...inputs, ...document.querySelectorAll('select')].filter(element => visible(element) && (element.type === 'date' || /birth|birthday|dob|^(month|day|year)$/i.test(`${element.name || ''}`) || /birth|birthday|dob/i.test(`${element.id || ''} ${element.getAttribute('aria-label') || ''}`)));
-  if (birthdayFields.some(element => !element.value) || (!birthdayFields.length && /when(?:'s| is) your birthday|what(?:'s| is) your (?:birthday|date of birth)|enter your (?:birthday|date of birth)|add your birthday/.test(text))) return paused('enter your own birthday in the signup tab, then continue here.');
-  if (inputs.some(element => element.type === 'tel' && /phone|mobile/i.test(`${element.name} ${element.placeholder}`)) && !inputs.some(element => element.type === 'email')) return paused('choose email signup, or finish the phone step yourself, then continue.');
-
-  const patterns = {
-    email: /^(email|emailorphone|email_or_phone|email_address)$/i,
-    username: /^(username|user_name|uniqueid|unique_id)$/i,
-    fullName: /^(fullname|full_name|name)$/i,
-    password: /^(password|new_password|newpassword)$/i,
-    code: /^(code|verification_code|verificationcode|confirmation_code|confirmationcode|email_confirmation_code|verifycode)$/i,
+  const all = selector => [...document.querySelectorAll(selector)].filter(visible);
+  const label = element => (element.innerText || element.value || element.getAttribute('aria-label') || '').trim().toLowerCase();
+  const text = () => (document.body?.innerText || '').slice(0, 30000).toLowerCase();
+  const blockers = () => {
+    const body = text();
+    if (all('iframe').some(frame => /captcha|recaptcha|hcaptcha|arkose|challenge/i.test(`${frame.src || ''} ${frame.title || ''}`)) || /verify (?:that )?you(?:'re| are) (?:a )?human|security check|complete (?:the |this )?captcha|unusual activity|suspicious activity/.test(body)) return stop('captcha', 'finish the security check in the signup tab, then continue here.');
+    if (/phone verification|verify your phone|(?:code|sent|send).{0,70}(?:your phone|phone number|mobile number|sms|text message)/.test(body)) return stop('phone', 'finish the phone check in the signup tab, then continue here.');
+    const birthdays = all('input, select').filter(field => field.type === 'date' || /birth|birthday|dob|^(month|day|year)$/i.test(field.name || '') || /birth|birthday|dob/i.test(`${field.id || ''} ${field.getAttribute('aria-label') || ''}`));
+    if (birthdays.length || /when(?:'s| is) your birthday|what(?:'s| is) your (?:birthday|date of birth)|enter your (?:birthday|date of birth)|add your birthday/.test(body)) return stop('birthday', 'enter your birthday and finish that step in the signup tab, then continue here.');
+    if (/username.{0,55}(?:isn.t available|is not available|is unavailable|is already taken|is taken|already exists)|(?:this|that) username.{0,30}(?:taken|unavailable)|try another username/.test(body)) return stop('username-unavailable', 'that username is unavailable. stop and try another username.');
+    if (all('[role="alert"], [aria-live="assertive"]').map(label).some(value => /error|incorrect|invalid|try again|couldn.t|can.t|not allowed|too many|must be|at least/.test(value))) return stop('unknown', 'the platform needs a correction. check its message, fix that step, then continue here.');
+    return null;
   };
-  const matches = key => inputs.filter(element => {
-    const name = element.name || element.id || '';
-    const auto = element.autocomplete || '';
-    const label = `${element.getAttribute('aria-label') || ''} ${element.placeholder || ''}`.trim();
-    if (patterns[key].test(name)) return true;
-    if (key === 'email') return element.type === 'email' || auto === 'email' || /^(mobile number or email|email address|email)$/i.test(label);
-    if (key === 'password') return element.type === 'password' && auto !== 'current-password';
-    if (key === 'username') return auto === 'username' || /^username$/i.test(label);
-    if (key === 'fullName') return auto === 'name' || /^full name$/i.test(label);
-    return auto === 'one-time-code' || /^(confirmation code|verification code|enter (?:a )?6[- ]digit code|6[- ]digit code)$/i.test(label);
-  });
-  const codeFields = matches('code');
-  const emailStep = /(?:code|sent|send|confirm|verify).{0,100}(?:email|e-mail)|(?:email|e-mail).{0,100}(?:code|confirm|verify)/.test(text) || (input.email && text.includes(input.email.toLowerCase()));
-  if ((input.mode === 'code' || input.mode === 'inspect-code') && !emailStep) return paused('this is not a clearly identified email verification step. complete it yourself.');
-  const displayedEmails = text.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/g) || [];
-  const recipientMatches = typeof input.email === 'string' && input.email.length > 3 && (displayedEmails.includes(input.email.toLowerCase()) || matches('email').some(element => element.value.toLowerCase() === input.email.toLowerCase()));
-  if ((input.mode === 'code' || input.mode === 'inspect-code') && !recipientMatches) return paused('the signup page does not show your selected email. check the recipient and enter the code yourself.');
-  if (input.mode === 'inspect-code') return codeFields.length === 1 && !codeFields[0].value ? { phase: 'paused', message: 'email verification is ready.', codeReady: true, filled: [] } : paused(codeFields.length === 1 ? 'clear the previous code in the signup tab, then request a new email code here.' : 'open the email verification step before requesting a code.');
-  const keys = input.mode === 'code' ? ['code'] : ['email', 'fullName', 'username', 'password'];
-  if (input.mode !== 'code' && codeFields.length) return paused('email verification is ready. choose fill email code to use a fresh code from your account email.');
-  const targets = [];
-  for (const key of keys) {
-    const found = matches(key);
-    if (found.length > 1) return paused('this signup form has more than one matching field. fill this step yourself.');
-    if (!found.length || !input[key]) continue;
-    const element = found[0];
-    if (element.value && element.value !== input[key]) return paused('a signup field already has different details. review it yourself before continuing.');
-    targets.push({ key, element, value: input[key] });
+  const signupPath = input.platform === 'instagram' ? /^\/accounts\/(emailsignup|signup|confirm_email)(\/|$)/ : /^\/signup(\/|$)/;
+  const inspect = () => {
+    const blocked = blockers();
+    if (blocked) return blocked;
+    if (!signupPath.test(url.pathname)) {
+      // Neither a public profile nor a home redirect proves account ownership.
+      const links = all('a[href]');
+      const ownPath = input.platform === 'instagram' ? `/${input.username}` : `/@${input.username}`;
+      const path = link => { try { const u = new URL(link.href, url); return u.origin === url.origin ? u.pathname.replace(/\/$/, '').toLowerCase() : ''; } catch { return ''; } };
+      const own = links.filter(link => (label(link) === 'profile' || link.getAttribute('data-e2e') === 'nav-profile') && path(link) === ownPath.toLowerCase());
+      const privateLink = links.some(link => input.platform === 'instagram' ? /^\/(direct\/inbox|accounts\/edit)(\/|$)/.test(path(link)) : /^\/(settings|setting)(\/|$)/.test(path(link)));
+      const login = all('button, a[href]').some(element => /^(log in|login|sign in)$/.test(label(element)));
+      if (own.length === 1 && privateLink && !login) return { stage: 'complete', username: input.username, canSubmit: false, message: 'your new account is signed in.' };
+      return stop('signed-in', 'check the platform tab. if an account is already signed in, choose the account yourself before starting again.');
+    }
+    const fields = all('input').filter(field => !field.disabled && !field.readOnly && !['hidden', 'submit', 'button', 'checkbox', 'radio'].includes(field.type));
+    const patterns = {
+      email: /^(email|emailorphone|email_or_phone|email_address)$/i,
+      username: /^(username|user_name|uniqueid|unique_id)$/i,
+      fullName: /^(fullname|full_name|name)$/i,
+      password: /^(password|new_password|newpassword)$/i,
+      code: /^(code|verification_code|verificationcode|confirmation_code|confirmationcode|email_confirmation_code|verifycode)$/i,
+    };
+    const matches = key => fields.filter(field => {
+      const name = field.name || field.id || '';
+      const accessibleName = `${field.getAttribute('aria-label') || ''} ${field.placeholder || ''}`.trim();
+      if (patterns[key].test(name)) return true;
+      if (key === 'email') return field.type === 'email' || field.autocomplete === 'email' || /^(mobile number or email|email address|email)$/i.test(accessibleName);
+      if (key === 'password') return field.type === 'password' && field.autocomplete !== 'current-password';
+      if (key === 'username') return field.autocomplete === 'username' || /^username$/i.test(accessibleName);
+      if (key === 'fullName') return field.autocomplete === 'name' || /^full name$/i.test(accessibleName);
+      return field.autocomplete === 'one-time-code' || /^(confirmation code|verification code|enter (?:a )?6[- ]digit code|6[- ]digit code)$/i.test(accessibleName);
+    });
+    if (fields.some(field => field.type === 'tel' && /phone|mobile/i.test(`${field.name} ${field.placeholder}`)) && !matches('email').length) return stop('phone', 'choose email signup in the platform tab, then continue here.');
+    const recognized = Object.fromEntries(Object.keys(patterns).map(key => [key, matches(key)]));
+    if (Object.values(recognized).some(found => found.length > 1)) return stop('unknown', 'the signup fields are unclear. finish this step in the platform tab.');
+    const buttons = all('button, input[type="submit"], [role="button"]');
+    const send = buttons.filter(button => /^(send code|send verification code)$/.test(label(button)));
+    const body = text();
+    const codeSent = /(?:we(?:.ve| have)? sent|code (?:was |has been )?sent|check your (?:email|inbox)|enter (?:the |your )?(?:confirmation|verification|6.digit) code|resend code|resend in|send again in)/.test(body);
+    const codeStep = recognized.code.length === 1 && !(input.platform === 'tiktok' && send.length === 1 && !codeSent);
+    if (codeStep) {
+      const emails = body.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/g) || [];
+      const recipient = typeof input.email === 'string' && (emails.includes(input.email.toLowerCase()) || recognized.email.some(field => field.value.toLowerCase() === input.email.toLowerCase()));
+      if (!recipient || !/(?:email|e-mail|inbox)/.test(body)) return stop('unknown', 'the verification step does not show your signup email. check the recipient and complete that step yourself.');
+      if (recognized.code[0].value && recognized.code[0].value !== input.code && state.submittedCodeField !== recognized.code[0]) return stop('unknown', 'a code is already entered. finish that step in the platform tab, then continue here.');
+    }
+    const stage = codeStep ? 'email-code' : 'details';
+    const keys = codeStep ? ['code'] : ['email', 'fullName', 'username', 'password'];
+    const targets = keys.flatMap(key => recognized[key].map(element => ({ key, element })));
+    if (!targets.length || new Set(targets.map(target => target.element)).size !== targets.length) return stop('unknown', 'open email signup in this tab, then continue here.');
+    const normal = codeStep ? /^(next|continue|confirm|confirm email|verify|verify email|sign up|signup)$/ : /^(sign up|signup|next|continue)$/;
+    const candidates = input.platform === 'tiktok' && !codeStep && send.length === 1 ? send : buttons.filter(button => normal.test(label(button)));
+    if (candidates.length !== 1) return stop('unknown', 'the next signup button is unclear. finish that step in the platform tab.');
+    const button = candidates[0];
+    const form = button.form || targets[0].element.form;
+    if (form?.action) { try { if (new URL(form.action, url).origin !== url.origin) return stop('unknown', 'the signup form changed. review it in the platform tab.'); } catch { return stop('unknown', 'the signup form changed. review it in the platform tab.'); } }
+    if (targets.some(({ element }) => element.form && form && element.form !== form)) return stop('unknown', 'the signup fields belong to different forms. finish this step yourself.');
+    const signature = JSON.stringify([url.pathname, stage, targets.map(({ key, element }) => [key, element.name || element.id || element.type]), label(button)]);
+    return { stage, signature, canSubmit: true, message: codeStep ? 'waiting for the email code…' : 'entering your signup details…', targets, button };
+  };
+  const view = inspect();
+  const publicView = value => { const { targets, button, ...result } = value; return { ...result, documentId: state.id }; };
+  if (input.mode !== 'act') return publicView(view);
+  if (!view.canSubmit || input.expectedDocument !== state.id || input.expectedSignature !== view.signature || state.submitted.has(view.signature)) return { ...publicView(view), submitted: false, message: 'the signup step changed or was already sent. check the platform tab.' };
+  if (view.stage === 'email-code' && !/^\d{6}$/.test(input.code || '')) return { ...publicView(view), submitted: false, message: 'waiting for a fresh email code.' };
+  const values = { email: input.email, username: input.username, fullName: input.fullName || input.username, password: input.password, code: input.code };
+  for (const { key, element } of view.targets) {
+    const value = values[key];
+    if (typeof value !== 'string' || !value || (element.value && element.value !== value)) return { ...publicView(view), submitted: false, message: 'a signup field has different details. review that step in the platform tab.' };
   }
-  if (!targets.length) return paused('open email signup in this tab, then continue. if the form looks different, fill this step yourself.');
-  if (new Set(targets.map(target => target.element)).size !== targets.length) return paused('the signup fields are unclear. fill this step yourself.');
-  const filled = [];
-  for (const { key, element, value } of targets) {
-    if (!element.isConnected || !visible(element) || element.disabled || element.readOnly) return paused('the signup form changed. review the fields and continue again.');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(element, value);
+  for (const { key, element } of view.targets) {
+    if (!visible(element) || element.disabled || element.readOnly) return { ...publicView(view), submitted: false, message: 'the signup form changed. check the platform tab.' };
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(element, values[key]);
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
-    if (element.value !== value) return paused('the platform did not accept a field. review the signup tab before continuing.');
-    filled.push(key);
+    if (element.value !== values[key]) return { ...publicView(view), submitted: false, message: 'the platform did not accept a field. check that step.' };
   }
-  return { phase: 'filled', filled, message: input.mode === 'code' ? 'email code filled. review and submit it in the signup tab.' : 'available signup fields filled. review and submit this step in the signup tab, then continue here.' };
+  // Allow controlled-input handlers to settle, without retries or double clicks.
+  await new Promise(resolve => setTimeout(resolve, 100));
+  if (cancelled()) return { ...publicView(view), submitted: false, message: 'signup stopped.' };
+  const blocked = blockers();
+  if (blocked) return { ...publicView(blocked), submitted: false };
+  if (location.href !== url.href || !visible(view.button) || view.button.disabled || view.button.getAttribute('aria-disabled') === 'true' || view.targets.some(({ key, element }) => !visible(element) || element.value !== values[key] || (element.checkValidity && !element.checkValidity()))) return { ...publicView(view), submitted: false, message: 'check the signup fields and next button in the platform tab, then continue here.' };
+  if (all('input[type="checkbox"]').some(field => field.required && !field.checked)) return { ...publicView(view), submitted: false, message: 'review the required choice on the platform, then continue here.' };
+  state.submitted.add(view.signature);
+  if (view.stage === 'email-code') state.submittedCodeField = view.targets[0].element;
+  view.button.click();
+  return { ...publicView(view), submitted: true, message: view.stage === 'email-code' ? 'email code sent. checking the next step…' : 'signup details sent. checking the next step…' };
 }
-if (typeof module !== 'undefined') module.exports = { fillSignupFields };
+if (typeof module !== 'undefined') module.exports = { signupStep };

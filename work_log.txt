@@ -1,3 +1,11 @@
+2026-09-08 native account creation in the extension
+- replaced dashboard connection, alias selection and full-name setup with platform, username, password and start; prepares a private email and submits recognized normal steps and fresh codes automatically.
+- pause birthday/phone/captcha, unknown forms and uncertain outcomes; exact document/stage guards and persistent attempt records prevent duplicate submissions. stop cancels pending input settling and removes the session password.
+- retain per-request email history and the local install capability; failed prepares preserve earlier accounts and can retry the same mailbox. no public-site signup commands or passwords sent to the email backend.
+- files: signup UI/panel, signup controller/fields/runner and background wiring; 0.6.0 manifest/downloads, package allowlist, setup/privacy/docs and focused tests.
+- verification: 106 extension/UI/runner tests pass; 23-file ZIP allowlist regenerated; no live signup performed. backend companion has 151 focused native/dashboard tests and scoped TypeScript passing. full backend CI and live endpoint/download verification are release gates.
+- follow-up: update the existing unpacked extension folder and reload its Chrome card, then perform a user-supervised signup on each platform. store approval and live signup verification remain open.
+
 2026-09-08 | publish signup helper for review
 - user authorized publication; releasing the student email connection first, then warmup 0.5.0 on the existing site. signup remains a supervised helper and live account creation is still unverified.
 - files: release notes/setup copy, git_commit.md and 0.5.0 website/extension assets. source reviews and 86 extension/UI checks plus 72 backend checks already passed; hosted checks follow deployment.
