@@ -22,7 +22,8 @@ const signupController = (() => {
   }
   function track(job) { activeTabs = isActive(job) ? { tabId: job.tabId, runnerTabId: job.runnerTabId, token: job.token, platform: job.platform } : null; }
   function recovery(job) {
-    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, phase: job.phase, since: job.since, updatedAt: Date.now() };
+    const detailsState = job.detailsSubmitted ? 'sent' : job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
+    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, phase: job.phase, since: job.since, detailsState, updatedAt: Date.now() };
   }
   function write(operation) {
     const result = writes.then(operation);
@@ -122,7 +123,15 @@ const signupController = (() => {
       assertRevision(revision);
       const data = await response.json();
       assertRevision(revision);
-      if (!response.ok || data?.ok !== true) throw new Error(response.status === 429 ? 'too many signup requests. wait a little before continuing.' : response.status === 404 ? 'account signup is not available yet. its email update needs to be released first.' : 'the account email service could not complete this step. try continuing shortly.');
+      if (response.status === 429) {
+        if (data?.error === 'account email setup has reached its daily limit. try again tomorrow') {
+          const reset = new Date(); reset.setUTCHours(24, 0, 0, 0);
+          const time = reset.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).toLowerCase();
+          throw new Error(`no signup started. the daily limit for new signup emails resets ${time}. retry with your earlier username to reuse its saved email.`);
+        }
+        throw new Error('the email service is limiting requests. no signup step was sent. try again later.');
+      }
+      if (!response.ok || data?.ok !== true) throw new Error(response.status === 404 ? 'account signup is not available yet. its email update needs to be released first.' : 'the account email service could not complete this step. try continuing shortly.');
       return data;
     } catch (error) {
       assertRevision(revision);
@@ -170,6 +179,7 @@ const signupController = (() => {
         return publicState(await pause(job, 'instagram is already signed in here. continue opens a private signup window with this email, so your current login stays untouched.', revision, { needsPrivateSignup: true, continueLabel: 'open private signup' }));
       }
       if (['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in'].includes(observed.stage)) return publicState(await pause(job, observed.message || 'finish this check in the signup tab, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
+      if (observed.stage === 'details' && job.recovered && job.detailsState !== 'not-sent') return publicState(await pause(job, 'your saved email is restored. this signup may already have been sent, so it will not be submitted again automatically. check the account first; if needed, finish this form with the saved email, then continue.', revision));
       if (['details', 'email-code'].includes(observed.stage) && observed.canSubmit && (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000)) return publicState(await pause(job, 'this signup action could not be identified. finish the step in its tab.', revision));
       const previous = job.attempts.find(attempt => attempt.signature === observed.signature);
       if (previous) {
@@ -184,6 +194,9 @@ const signupController = (() => {
       let code;
       let codeId;
       if (observed.stage === 'email-code') {
+        // The observer requires the exact saved recipient before exposing this
+        // stage, so a manually resumed form can continue verification.
+        if (!job.detailsSubmitted && job.recovered && job.detailsState === 'uncertain') job = await patch(job, { detailsSubmitted: true, detailsState: 'sent' }, revision);
         if (!job.detailsSubmitted) return publicState(await pause(job, 'this email check was opened before signup started. check the account in that tab.', revision));
         if (Date.now() < (job.nextCodeAt || 0)) return publicState(job);
         job = await patch(job, { nextCodeAt: Date.now() + 5000, waitingForCode: true, message: 'waiting for your signup email code…' }, revision);
@@ -219,16 +232,21 @@ const signupController = (() => {
       if (warmup && ['starting', 'running', 'stopping'].includes(warmup.phase)) throw new Error('stop the warm-up session before creating an account.');
       const chosenUsername = username(message.username, message.platform);
       if (typeof message.password !== 'string' || message.password.length < 8 || message.password.length > 64) throw new Error('use a password between 8 and 64 characters.');
-      const local = await chrome.storage.local.get(['nativeSignupAccounts', 'nativeSignupPending']);
+      const local = await chrome.storage.local.get(['nativeSignupAccounts', 'nativeSignupPending', 'nativeSignupRecovery']);
       assertRevision(revision);
-      if (Array.isArray(local.nativeSignupAccounts) && local.nativeSignupAccounts.length >= MAX_SAVED_ACCOUNTS) throw new Error('this device has reached its saved account limit. keep your existing account emails before starting more.');
+      const accounts = Array.isArray(local.nativeSignupAccounts) ? local.nativeSignupAccounts : [];
+      const recoverable = account => account?.email && account.phase !== 'complete' && account.platform === message.platform && account.username?.toLowerCase() === chosenUsername.toLowerCase() && /^[a-f0-9-]{36}$/i.test(account.requestId || '');
+      const saved = recoverable(previous) ? recovery(previous) : [...accounts, local.nativeSignupRecovery].reverse().find(recoverable);
+      if (!saved && accounts.length >= MAX_SAVED_ACCOUNTS) throw new Error('this device has reached its saved account limit. keep your existing account emails before starting more.');
       const pending = previous?.phase === 'error' && !previous.email ? previous : local.nativeSignupPending;
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
-      let job = { token: crypto.randomUUID(), requestId: retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null };
+      let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
+      if (saved) Object.assign(job, { email: saved.email, aliasId: saved.aliasId, detailsSubmitted: saved.detailsState === 'sent' });
       await save(job, revision);
       try {
         const alias = safeAlias((await api({ action: 'prepare', requestId: job.requestId, platform: job.platform }, revision)).alias, job.platform);
         if (alias.accountUsername) throw new Error('this email already has an account. check it before starting again.');
+        if (saved && (alias.id !== saved.aliasId || alias.email.toLowerCase() !== saved.email.toLowerCase())) throw new Error('the saved signup email could not be confirmed. keep it and check the account before trying again.');
         job = await patch(job, { email: alias.email, aliasId: alias.id, message: 'opening account signup…' }, revision);
         const tab = await chrome.tabs.create({ url: signupURL(job.platform), active: true });
         assertRevision(revision);

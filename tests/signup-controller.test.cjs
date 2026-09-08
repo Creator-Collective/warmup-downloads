@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.1' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.2' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -72,7 +72,7 @@ function harness(initial = {}, initialLocal = {}) {
       apiRequests.push({ url, body: copy(body), method: options.method, credentials: options.credentials, redirect: options.redirect, cache: options.cache, headers: copy(options.headers), signal: options.signal });
       if (server.beforeFetch) await server.beforeFetch(body, options);
       let data;
-      if (server.status !== 200) data = { ok: false, error: 'backend rejected' };
+      if (server.status !== 200) data = { ok: false, error: server.error || 'backend rejected' };
       else if (body.action === 'prepare') data = { ok: true, alias: { ...server.alias, platform: body.platform } };
       else if (body.action === 'code') data = { ok: true, verification: server.verification };
       else if (body.action === 'complete') data = { ok: true, alias: { ...server.alias, platform: body.platform, accountUsername: body.username } };
@@ -489,4 +489,71 @@ test('prepared accounts keep a per-request history and failed prepare retries it
   assert.equal(failed.apiRequests[1].body.requestId, requestId);
   assert.equal(failed.local.nativeSignupAccounts.length, 1);
   assert.equal(failed.local.nativeSignupPending, null);
+});
+
+test('daily email limits explain the reset, open no tabs, and clear the password', async () => {
+  const h = harness(); h.server.status = 429;
+  h.server.error = 'account email setup has reached its daily limit. try again tomorrow';
+  const result = await h.message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /daily limit/);
+  assert.match(result.error, /resets/);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.storage.signupJob.password, '');
+  assert.equal(h.storage.signupJob.phase, 'error');
+});
+
+test('retrying the same username after stop reuses its mailbox request instead of creating another', async () => {
+  const h = harness(); await h.start();
+  const original = copy(h.storage.signupJob);
+  await h.message({ type: 'signup-stop' });
+  await h.start({ username: 'TEST.CREATOR' }); await h.ready(); await h.tick();
+  assert.equal(h.apiRequests[1].body.requestId, original.requestId);
+  assert.equal(h.storage.signupJob.email, original.email);
+  assert.equal(h.local.nativeSignupAccounts.length, 1);
+  assert.equal(h.acts().length, 1);
+});
+
+test('reloading before details were sent preserves mailbox recovery and automatic signup', async () => {
+  const first = harness(); await first.start();
+  const restarted = harness({}, first.local); await restarted.start(); await restarted.ready(); await restarted.tick();
+  assert.equal(restarted.apiRequests[0].body.requestId, first.storage.signupJob.requestId);
+  assert.equal(restarted.local.nativeSignupAccounts.length, 1);
+  assert.equal(restarted.acts().length, 1);
+});
+
+test('recovering submitted details never automatically sends the form again', async () => {
+  const first = harness(); await first.details();
+  const restarted = harness({}, first.local); await restarted.start(); await restarted.ready();
+  const state = await restarted.tick();
+  assert.equal(state.data.phase, 'paused');
+  assert.match(state.data.message, /will not be submitted again/);
+  assert.equal(restarted.acts().length, 0);
+  assert.equal(restarted.storage.signupJob.email, EMAIL);
+});
+
+test('legacy saved emails pause for review, then permit exact-recipient email verification', async () => {
+  const first = harness(); await first.start();
+  const saved = copy(first.local);
+  delete saved.nativeSignupRecovery.detailsState;
+  delete saved.nativeSignupAccounts[0].detailsState;
+  const restarted = harness({}, saved); await restarted.start(); await restarted.ready();
+  const state = await restarted.tick();
+  assert.match(state.data.message, /may already have been sent/);
+  assert.equal(restarted.acts().length, 0);
+  restarted.server.observation = { stage: 'email-code', signature: 'manual-email-code', documentId: 'manual-page', canSubmit: true };
+  await restarted.message({ type: 'signup-continue' });
+  await restarted.tick();
+  assert.equal(restarted.apiRequests.at(-1).body.action, 'code');
+  assert.equal(restarted.storage.signupJob.detailsSubmitted, true);
+});
+
+test('a recovered mailbox mismatch fails before opening any platform tab', async () => {
+  const first = harness(); await first.start();
+  const restarted = harness({}, first.local);
+  restarted.server.alias.email = 'different@example.com';
+  const result = await restarted.message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD });
+  assert.equal(result.ok, false);
+  assert.equal(restarted.created.length, 0);
+  assert.equal(restarted.local.nativeSignupRecovery.email, EMAIL);
 });
