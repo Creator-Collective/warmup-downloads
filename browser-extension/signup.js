@@ -26,7 +26,7 @@ const signupController = (() => {
   function track(job) { activeTabs = isActive(job) ? { tabId: job.tabId, runnerTabId: job.runnerTabId, token: job.token, platform: job.platform } : null; }
   function recovery(job) {
     const detailsState = job.detailsSubmitted ? 'sent' : job.detailsPrefilled || job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
-    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, phase: job.phase, since: job.since, detailsState, updatedAt: Date.now() };
+    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, phase: job.phase, since: job.since, detailsState, detailsAutoRetryUsed: job.detailsAutoRetryUsed === true, updatedAt: Date.now() };
   }
   function write(operation) {
     const result = writes.then(operation);
@@ -184,6 +184,7 @@ const signupController = (() => {
   }
   async function advance(job, revision) {
     const watchingForCode = job.phase === 'paused';
+    const watchingForRetry = watchingForCode && job.detailsRetry && !job.detailsAutoRetryUsed;
     const hasDetailsHistory = job.detailsSubmitted || job.detailsPrefilled || job.attempts.some(attempt => attempt.stage === 'details') || (job.recovered && job.detailsState === 'uncertain');
     if (watchingForCode && (!hasDetailsHistory || job.codeScreenSeen)) return publicState(job);
     if (!isActive(job)) return publicState(job);
@@ -192,10 +193,15 @@ const signupController = (() => {
       if (!observed) return publicState(job);
       if (!validObservation(observed)) return publicState(await pause(job, 'the signup page could not be identified. finish this step in its tab.', revision));
       if (watchingForCode) {
-        // A person can finish a paused form in Instagram. Only the observer's
-        // exact-recipient code screen may resume automatically, never details.
-        if (observed.stage !== 'email-code' || !observed.canSubmit || typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(job);
-        job = await patch(job, { phase: 'running', detailsSubmitted: true, detailsState: 'sent', codeScreenSeen: true, detailsRetry: null, continueLabel: null, message: 'confirmation screen found. checking your signup code…' }, revision);
+        // Older sessions can already be paused on Retry signup. Resume only
+        // that pinned form, or the observer's exact-recipient code screen.
+        const retryTarget = { tabId: job.tabId, documentId: observed.documentId, browserDocument: observed.browserDocument, signature: observed.signature };
+        if (watchingForRetry && observed.stage === 'details' && observed.canSubmit && Object.entries(retryTarget).every(([key, value]) => job.detailsRetry[key] === value)) {
+          job = await patch(job, { phase: 'running', continueLabel: null }, revision);
+        } else {
+          if (observed.stage !== 'email-code' || !observed.canSubmit || typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(job);
+          job = await patch(job, { phase: 'running', detailsSubmitted: true, detailsState: 'sent', codeScreenSeen: true, detailsRetry: null, continueLabel: null, message: 'confirmation screen found. checking your signup code…' }, revision);
+        }
       }
       if (job.detailsRetry && observed.stage !== 'details') job = await patch(job, { detailsRetry: null, continueLabel: null }, revision);
       if (observed.stage === 'complete') {
@@ -210,13 +216,15 @@ const signupController = (() => {
         return publicState(await openPrivateSignup(job, revision));
       }
       const needsDetailsReview = (job.recovered && job.detailsState !== 'not-sent') || job.detailsPrefilled;
+      let automaticDetailsRetry = false;
       if (['details', 'birthday'].includes(observed.stage) && needsDetailsReview) {
         if (job.attempts.some(attempt => attempt.stage === 'details')) return publicState(await pause(job, 'this signup step was already attempted. check instagram before starting another attempt; your email is saved.', revision));
         const identified = observed.stage === 'details' && observed.canSubmit && typeof observed.signature === 'string' && observed.signature.length > 0 && observed.signature.length < 1000 && typeof observed.browserDocument === 'string' && observed.browserDocument.length > 0;
         if (!identified) return publicState(await pause(job, observed.message || 'check this step in the signup tab, then continue here. your email is saved.', revision));
         const target = { tabId: job.tabId, documentId: observed.documentId, browserDocument: observed.browserDocument, signature: observed.signature };
         const approved = job.detailsRetry?.approved === true && Object.entries(target).every(([key, value]) => job.detailsRetry[key] === value);
-        if (!approved) return publicState(await pause(job, 'your email is saved. the earlier attempt may have been sent. retry signup sends this form again once.', revision, { continueLabel: 'retry signup', detailsRetry: { ...target, approved: false } }));
+        automaticDetailsRetry = !job.detailsAutoRetryUsed;
+        if (!approved && !automaticDetailsRetry) return publicState(await pause(job, 'automatic retry was already used for this email. check the platform before retrying again.', revision, { continueLabel: 'retry signup', detailsRetry: { ...target, approved: false } }));
       }
       if (observed.stage === 'birthday' && observed.canFill && job.platform === 'instagram' && !job.detailsSubmitted) {
         if (job.detailsPrefilled) return publicState(await pause(job, 'check your details, choose your birthday and press submit in instagram, then continue here.', revision));
@@ -260,7 +268,7 @@ const signupController = (() => {
       const attempt = { signature: observed.signature, documentId: observed.documentId, stage: observed.stage, at: Date.now() };
       // Persist intent and code consumption before the click, including when the
       // page navigates or the extension disappears before its result returns.
-      job = await patch(job, { phase: 'running', pendingAction: attempt, attempts: [...job.attempts, attempt], detailsRetry: null, usedCodeIds: codeId ? [...job.usedCodeIds, codeId].slice(-50) : job.usedCodeIds, waitingForCode: false, message: 'continuing account signup…' }, revision);
+      job = await patch(job, { phase: 'running', pendingAction: attempt, attempts: [...job.attempts, attempt], detailsRetry: null, detailsAutoRetryUsed: job.detailsAutoRetryUsed === true || automaticDetailsRetry, usedCodeIds: codeId ? [...job.usedCodeIds, codeId].slice(-50) : job.usedCodeIds, waitingForCode: false, message: automaticDetailsRetry ? 'retrying signup once with your saved email…' : 'continuing account signup…' }, revision);
       const outcome = await inject(job, { mode: 'act', expectedSignature: observed.signature, expectedDocument: observed.documentId, ...(observed.stage === 'details' ? { password: job.password } : { code }) }, revision, observed.browserDocument);
       if (!outcome?.submitted || outcome.signature !== observed.signature || outcome.documentId !== observed.documentId) return publicState(await pause(job, outcome?.message || 'the signup step changed. check its tab before continuing.', revision));
       job = await patch(job, { detailsSubmitted: job.detailsSubmitted || observed.stage === 'details', message: 'signup step sent. waiting for the next screen…' }, revision);
@@ -292,6 +300,7 @@ const signupController = (() => {
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
       let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
       job.birthDate = saved?.birthDate || DEFAULT_BIRTH_DATE;
+      job.detailsAutoRetryUsed = saved?.detailsAutoRetryUsed === true;
       if (saved) Object.assign(job, { email: saved.email, aliasId: saved.aliasId, detailsSubmitted: saved.detailsState === 'sent' });
       job = await save(job, revision);
       try {

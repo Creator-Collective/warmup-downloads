@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.7' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.8' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -221,7 +221,8 @@ test('inline birthday fills known details once without submitting or persisting 
   assert.equal(h.injections.filter(item => item.input.mode === 'fill').length, 1);
   h.server.observation = { ...birthdayForm, stage: 'details', canSubmit: true };
   await h.message({ type: 'signup-continue' }); await h.tick();
-  assert.equal(h.acts().length, 0, 'a manually filled form must not later be auto-submitted');
+  assert.equal(h.acts().length, 1, 'a now-recognized form can use its single automatic recovery retry');
+  assert.equal(h.local.nativeSignupRecovery.detailsAutoRetryUsed, true);
 });
 
 test('manual birthday submission can advance to exact-recipient email verification', async () => {
@@ -712,41 +713,147 @@ test('reloading before details were sent preserves mailbox recovery and automati
   assert.equal(restarted.acts().length, 1);
 });
 
-test('recovering submitted details never automatically sends the form again', async () => {
+test('recovering submitted details retries the recognized form once with the same mailbox', async () => {
   const first = harness(); await first.details();
   const restarted = harness({}, first.local); await restarted.start(); await restarted.ready();
   const state = await restarted.tick();
-  assert.equal(state.data.phase, 'paused');
-  assert.equal(state.data.continueLabel, 'retry signup');
-  assert.equal(restarted.acts().length, 0);
+  assert.equal(state.data.phase, 'running');
+  assert.equal(state.data.continueLabel, null);
+  assert.equal(restarted.acts().length, 1);
+  assert.equal(restarted.local.nativeSignupRecovery.detailsAutoRetryUsed, true);
   assert.equal(restarted.storage.signupJob.email, EMAIL);
 });
 
-test('legacy saved emails pause for review, then permit exact-recipient email verification', async () => {
+test('legacy saved emails retry once, then permit exact-recipient email verification', async () => {
   const first = harness(); await first.start();
   const saved = copy(first.local);
   delete saved.nativeSignupRecovery.detailsState;
   delete saved.nativeSignupAccounts[0].detailsState;
   const restarted = harness({}, saved); await restarted.start(); await restarted.ready();
   const state = await restarted.tick();
-  assert.equal(state.data.continueLabel, 'retry signup');
-  assert.equal(restarted.acts().length, 0);
+  assert.equal(state.data.phase, 'running');
+  assert.equal(restarted.acts().length, 1);
   restarted.server.observation = { stage: 'email-code', signature: 'manual-email-code', documentId: 'manual-page', canSubmit: true };
-  await restarted.message({ type: 'signup-continue' });
   await restarted.tick();
   assert.equal(restarted.apiRequests.at(-1).body.action, 'code');
   assert.equal(restarted.storage.signupJob.detailsSubmitted, true);
 });
 
-async function recoveredSignup() {
+async function recoveredSignup({ autoRetryUsed = true, tick = true } = {}) {
   const first = harness(); await first.start(); await first.ready();
   first.server.observation = copy(birthdayForm); await first.tick();
+  first.local.nativeSignupRecovery.detailsAutoRetryUsed = autoRetryUsed;
+  first.local.nativeSignupAccounts[0].detailsAutoRetryUsed = autoRetryUsed;
   const restored = harness({}, first.local);
-  await restored.start(); await restored.ready(); await restored.tick();
+  await restored.start(); await restored.ready();
+  if (tick) await restored.tick();
   return restored;
 }
 
-test('recovered prefill has an actionable retry that sends the same email once', async () => {
+test('automatic recovery persists its single retry before acting and never allocates another mailbox', async () => {
+  const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+  const original = copy(h.storage.signupJob);
+  h.server.onAct = input => {
+    assert.equal(h.local.nativeSignupRecovery.detailsAutoRetryUsed, true);
+    assert.equal(h.local.nativeSignupAccounts[0].detailsAutoRetryUsed, true);
+    assert.equal(h.storage.signupJob.attempts.length, 1);
+    assert.match(h.storage.signupJob.message, /retrying signup once/);
+    return { submitted: true, signature: input.expectedSignature, documentId: input.expectedDocument };
+  };
+  await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.acts()[0].input.email, original.email);
+  assert.equal(h.acts()[0].input.birthDate, original.birthDate);
+  assert.equal(h.storage.signupJob.requestId, original.requestId);
+  assert.equal(h.apiRequests.length, 1);
+  assert.equal(h.local.nativeSignupAccounts.length, 1);
+  assert.deepEqual(h.acts()[0].target.documentIds, [`chrome-document-${original.tabId}`]);
+  h.time(26000); await h.tick();
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  h.server.observation.signature = 'different-form';
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 1);
+});
+
+test('automatic retry remains spent after failure, stop and extension reload', async () => {
+  for (const failure of ['rejected', 'lost-result', 'success']) {
+    const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+    h.server.onAct = input => {
+      if (failure === 'lost-result') throw new Error('document unloaded');
+      return { submitted: failure === 'success', signature: input.expectedSignature, documentId: input.expectedDocument };
+    };
+    await h.tick();
+    await h.message({ type: 'signup-stop' });
+    await h.start(); await h.ready(); await h.tick();
+    assert.equal(h.acts().length, 1, failure);
+    const restarted = harness({}, h.local);
+    await restarted.start(); await restarted.ready(); await restarted.tick();
+    assert.equal(restarted.acts().length, 0, failure);
+    assert.equal(restarted.storage.signupJob.continueLabel, 'retry signup');
+    assert.match(restarted.storage.signupJob.message, /automatic retry was already used/);
+  }
+});
+
+test('automatic recovery leaves security checks and unidentified forms paused without spending a retry', async () => {
+  for (const changes of [{ stage: 'captcha' }, { stage: 'phone' }, { stage: 'birthday' }, { stage: 'unknown' }, { stage: 'username-unavailable' }, { canSubmit: false }, { signature: '' }, { signature: 'x'.repeat(1000) }]) {
+    const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+    h.server.observation = { ...h.server.observation, ...changes };
+    await h.tick(); await h.tick();
+    assert.equal(h.acts().length, 0, JSON.stringify(changes));
+    assert.equal(h.storage.signupJob.phase, 'paused');
+    assert.equal(h.local.nativeSignupRecovery.detailsAutoRetryUsed, false);
+  }
+});
+
+test('automatic retry uses private signup without changing the existing login', async () => {
+  const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+  const originalTab = copy(h.tabs.get(h.storage.signupJob.tabId));
+  const form = copy(h.server.observation);
+  h.server.observation = { stage: 'signed-in', documentId: 'feed' };
+  h.incognito(true); await h.tick();
+  assert.equal(h.storage.signupJob.privateSignup, true);
+  assert.equal(h.acts().length, 0);
+  assert.deepEqual(h.tabs.get(originalTab.id), originalTab);
+  h.server.observation = form; await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.notEqual(h.acts()[0].target.tabId, originalTab.id);
+  assert.equal(h.storage.signupJob.email, EMAIL);
+});
+
+test('stop during automatic retry observation prevents submission', async () => {
+  const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+  const gate = deferred();
+  h.server.onObserve = async () => { await gate.promise; return h.server.observation; };
+  const pending = h.tick(); await settle();
+  await h.message({ type: 'signup-stop' }); gate.resolve(); await pending;
+  assert.equal(h.acts().length, 0);
+  assert.equal(h.storage.signupJob.password, '');
+  assert.equal(h.local.nativeSignupRecovery.detailsAutoRetryUsed, false);
+});
+
+test('an old paused retry becomes automatic only for its pinned form', async () => {
+  for (const changed of [false, true]) {
+    const h = await recoveredSignup();
+    h.storage.signupJob.detailsAutoRetryUsed = false;
+    if (changed) h.server.observation.documentId = 'another-document';
+    await h.tick();
+    assert.equal(h.acts().length, changed ? 0 : 1);
+  }
+});
+
+test('a matching code screen skips recovery submission and continues code entry', async () => {
+  const h = await recoveredSignup({ autoRetryUsed: false, tick: false });
+  h.time(1000);
+  h.server.observation = { stage: 'email-code', signature: 'recovered-code', documentId: 'code-page', canSubmit: true };
+  h.server.verification = { id: CODE_ID, code: '123456', receivedAt: new Date(h.now()).toISOString() };
+  await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.acts()[0].input.code, '123456');
+  assert.equal(h.acts()[0].input.password, undefined);
+  assert.equal(h.local.nativeSignupRecovery.detailsAutoRetryUsed, false);
+});
+
+test('after the automatic retry is spent, explicit retry sends the same email once', async () => {
   const h = await recoveredSignup();
   assert.equal(h.storage.signupJob.phase, 'paused');
   assert.equal(h.storage.signupJob.continueLabel, 'retry signup');

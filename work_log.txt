@@ -1,3 +1,8 @@
+2026-09-08 | 0.6.8 automatic signup recovery retry
+- user requested removing the Retry signup click. recognized recovered forms now retry once with the same mailbox, birthday and current document guards. save the used retry with mailbox history before injection; restart/reload cannot reset it. additional recovered retries still require explicit review, and same-job attempts are never replayed.
+- preserve private-window isolation, security/unknown-form pauses, cancellation and exact-recipient code handling. support older sessions already paused on a pinned Retry signup form without opening a new mailbox.
+- verification: 158 automated tests pass, including persistent retry limits, failed/lost results, stop races, private login preservation, legacy recovery and code-screen handoff. no live signup action performed; automatic retry, code entry and completed platform signup remain unverified.
+
 2026-09-08 0.6.7: submit readiness and confirmation-code continuation
 - user screenshots at 5:31-5:32 pm confirm populated details and May 30, 2006, followed by Instagram's confirmation screen after manual submission. the panel retained its prior pre-submit pause.
 - read-only, exact-mailbox lookup confirmed an Instagram verification email received at 21:31:59 UTC with a parsed code. the code was provided to the user for this active attempt; no codes, passwords or mailbox capabilities are stored in this log or fixtures.
