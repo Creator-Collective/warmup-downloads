@@ -9,6 +9,9 @@ let currentState;
 let polling = false;
 let requestError = '';
 let validPlan = false;
+const actions = ['like','follow','comment'];
+let limitOverrides = {};
+let editingLimit = null;
 const fields = ['niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
@@ -29,29 +32,35 @@ function request(type, extra = {}) {
 }
 try {
   const saved = JSON.parse(localStorage.getItem('cc-web-session') || '{}');
-  for (const field of fields) if (typeof saved[field] === 'string') $(field).value = saved[field];
-  $('enable-comments').checked = saved.enableComments === true;
+  for (const field of fields.filter(field => !field.startsWith('limit-'))) if (typeof saved[field] === 'string') $(field).value = saved[field];
+  for (const action of actions) {
+    const value = saved.version === 2 ? saved.customLimits?.[action] : saved[`limit-${action}`];
+    if (typeof value === 'string' && value !== '') limitOverrides[action] = value;
+  }
 } catch { /* defaults remain usable */ }
+const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
-  return { niche: $('niche').value, minutes: Number($('minutes').value), pace: $('pace').value, enableComments: $('enable-comments').checked,
-    mix: Object.fromEntries(['like','follow','comment'].map(name => [name, Number($(`mix-${name}`).value)])),
-    customLimits: Object.fromEntries(['like','follow','comment'].filter(name => $(`limit-${name}`).value !== '').map(name => [name, Number($(`limit-${name}`).value)])) };
+  return { niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
+    mix: Object.fromEntries(actions.map(name => [name, numeric($(`mix-${name}`).value)])),
+    customLimits: Object.fromEntries(Object.entries(limitOverrides).map(([name, value]) => [name, numeric(value)])) };
 }
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
 function error(message) { requestError = message; showError(message); }
 function plan() {
   let valid = false;
   try {
+    const automatic = sessionPlan.validateSettings({ ...input(), customLimits: {} });
+    for (const action of actions) {
+      if (!Object.hasOwn(limitOverrides, action) && editingLimit !== action) $(`limit-${action}`).value = String(automatic.limits[action]);
+    }
     const result = sessionPlan.validateSettings(input());
-    for (const action of ['like','follow','comment']) $(`limit-${action}`).placeholder = String(result.limits[action]);
-    $('pace-help').textContent = sessionPlan.paces[result.pace].description;
+    // Polling and recalculation must not replace a number while it is edited.
+    for (const action of actions) if (editingLimit !== action) $(`limit-${action}`).value = String(result.limits[action]);
     showError(requestError); valid = true;
-  } catch (e) { showError(e.message); }
+  } catch (e) { showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message); }
   validPlan = valid;
-  $('limit-comment').disabled = !$('enable-comments').checked;
-  $('plan-mode').textContent = ['like','follow','comment'].some(action => $(`limit-${action}`).value !== '') ? 'custom amounts' : 'automatic';
   $('start').disabled = !connected || running || busy || !valid || !$('instagram-tab').value;
-  try { localStorage.setItem('cc-web-session', JSON.stringify({ ...Object.fromEntries(fields.map(field => [field, $(field).value])), enableComments: $('enable-comments').checked })); } catch { /* in-memory settings still work */ }
+  try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 2, ...Object.fromEntries(fields.filter(field => !field.startsWith('limit-')).map(field => [field, $(field).value])), customLimits: limitOverrides })); } catch { /* in-memory settings still work */ }
 }
 function connection(value) {
   connected = value;
@@ -99,11 +108,20 @@ $('session-form').addEventListener('submit', async event => {
 });
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
-for (const field of fields) $(field).addEventListener('input', edited);
-$('enable-comments').addEventListener('change', edited);
+for (const field of fields.filter(field => !field.startsWith('limit-'))) $(field).addEventListener('input', edited);
+for (const action of actions) {
+  const field = $(`limit-${action}`);
+  field.addEventListener('focus', () => { editingLimit = action; });
+  field.addEventListener('input', () => { editingLimit = action; limitOverrides[action] = field.value; edited(); });
+  field.addEventListener('blur', () => {
+    editingLimit = null;
+    if (field.value === '' && !field.validity?.badInput) delete limitOverrides[action];
+    plan();
+  });
+}
 $('instagram-tab').addEventListener('change', edited);
-$('reset-limits').addEventListener('click', () => { for (const action of ['like','follow','comment']) $(`limit-${action}`).value = ''; plan(); });
-$('reset-mix').addEventListener('click', () => { for (const action of ['like','follow','comment']) $(`mix-${action}`).value = action === 'like' ? '2' : '1'; plan(); });
+$('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
+$('reset-mix').addEventListener('click', () => { for (const action of actions) $(`mix-${action}`).value = action === 'like' ? '2' : '1'; edited(); });
 $('refresh-tabs').addEventListener('click', () => tabs().catch(e => error(e.message)));
 $('open-instagram').addEventListener('click', () => request('open-instagram').then(tabs).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => request('stop').then(render).catch(e => error(e.message)));

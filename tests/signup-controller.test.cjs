@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}, { signupEnabled = true } = {})
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.9' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.10' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
