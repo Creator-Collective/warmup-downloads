@@ -41,7 +41,7 @@ async function signupStep(input) {
       const privateLink = links.some(link => input.platform === 'instagram' ? /^\/(direct\/inbox|accounts\/edit)(\/|$)/.test(path(link)) : /^\/(settings|setting)(\/|$)/.test(path(link)));
       const login = all('button, a[href]').some(element => /^(log in|login|sign in)$/.test(label(element)));
       if (own.length === 1 && privateLink && !login) return { stage: 'complete', username: input.username, canSubmit: false, message: 'your new account is signed in.' };
-      return stop('signed-in', 'check the platform tab. if an account is already signed in, choose the account yourself before starting again.');
+      return stop('signed-in', 'instagram is already signed in here. continue opens a private signup window with this email, so your current login stays untouched.');
     }
     const fields = all('input').filter(field => !field.disabled && !field.readOnly && !['hidden', 'submit', 'button', 'checkbox', 'radio'].includes(field.type));
     const patterns = {

@@ -39,6 +39,7 @@
     node('show').disabled = busy || stopping || !active || !hasTab;
     node('continue').hidden = !state?.active || state.phase !== 'paused';
     node('continue').disabled = busy || stopping || !state?.active || state.phase !== 'paused';
+    node('continue').textContent = state?.continueLabel || 'continue';
     node('stop').disabled = !active || stopping;
   }
 

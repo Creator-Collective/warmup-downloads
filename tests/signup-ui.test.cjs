@@ -125,10 +125,11 @@ test('continue is available only for a paused signup and resumes normal progress
   await settle();
   await h.click('continue');
   assert.equal(h.requests.some(request => request.type === 'signup-continue'), false);
-  nextState = paused;
+  nextState = { ...paused, continueLabel: 'open private signup' };
   await h.timers[0].handler();
   assert.equal(h.node('continue').hidden, false);
   assert.equal(h.node('continue').disabled, false);
+  assert.equal(h.node('continue').textContent, 'open private signup');
   await h.click('continue');
   assert.equal(h.requests.filter(request => request.type === 'signup-continue').length, 1);
   assert.equal(h.node('continue').hidden, true);

@@ -28,6 +28,8 @@ function harness(initial = {}, initialLocal = {}) {
     observation: { stage: 'details', signature: 'details:email-password-username:signup', documentId: 'page-1', canSubmit: true, message: 'signup details' },
   };
   let nextTab = 90;
+  let nextWindow = 2;
+  let incognitoAllowed = false;
   const area = data => ({
     get: async keys => Object.fromEntries((typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(data)).map(key => [key, copy(data[key])])),
     set: async values => { for (const [key, value] of Object.entries(values)) data[key] = copy(value); },
@@ -36,15 +38,21 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.0' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.1' }), onMessage: event() },
+    extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
       get: async id => { if (!tabs.has(id)) throw new Error('tab closed'); return copy(tabs.get(id)); },
-      query: async () => [...tabs.values()].map(copy),
+      query: async query => [...tabs.values()].filter(tab => !Number.isInteger(query?.windowId) || tab.windowId === query.windowId).map(copy),
       create: async options => { const tab = { id: nextTab++, status: 'complete', windowId: 1, ...options }; tabs.set(tab.id, tab); created.push(copy(tab)); return copy(tab); },
       update: async (id, options) => { const tab = tabs.get(id); if (!tab) throw new Error('tab closed'); Object.assign(tab, options); return copy(tab); },
       onRemoved: event(), onUpdated: event(),
     },
+    windows: { create: async options => {
+      const tab = { id: nextTab++, url: options.url, status: 'complete', active: true, incognito: options.incognito === true, windowId: nextWindow++ };
+      tabs.set(tab.id, tab); created.push(copy(tab));
+      return { id: tab.windowId, focused: options.focused === true, incognito: tab.incognito, tabs: [copy(tab)] };
+    } },
     scripting: { executeScript: async request => {
       if (request.func.name === 'cancelSignupPage') { cancellations.push({ target: copy(request.target), args: copy(request.args), injectImmediately: request.injectImmediately }); return [{ result: null }]; }
       const tab = tabs.get(request.target.tabId);
@@ -79,7 +87,7 @@ function harness(initial = {}, initialLocal = {}) {
     if (!accepted) resolve(undefined);
   });
   const runner = () => ({ id: 'extension-id', url: `chrome-extension://extension-id/signup-runner.html#${storage.signupJob.token}`, frameId: 0, tab: { id: storage.signupJob.runnerTabId } });
-  return { chrome, tabs, storage, local, server, apiRequests, injections, cancellations, created, message, runner, access, now: () => now, time: ms => { now += ms; },
+  return { chrome, tabs, storage, local, server, apiRequests, injections, cancellations, created, message, runner, access, now: () => now, time: ms => { now += ms; }, incognito: allowed => { incognitoAllowed = allowed; },
     acts: () => injections.filter(item => item.input.mode === 'act'),
     async start(extra = {}) { const response = await message({ type: 'signup-start', platform: 'instagram', username: 'test.creator', password: PASSWORD, ...extra }); assert.equal(response?.ok, true, JSON.stringify(response)); return response; },
     async runnerMessage(type) { return message({ type: `signup-runner-${type}`, token: storage.signupJob.token }, runner()); },
@@ -165,6 +173,92 @@ test('a new verified form step advances while unknown or blocked states pause', 
   const h = harness(); await h.details();
   h.server.observation = { ...h.server.observation, signature: 'details:username:next' };
   await h.tick(); assert.equal(h.acts().length, 2);
+});
+
+test('signed-in instagram recovery opens private signup without losing the generated email', async () => {
+  const h = harness(); h.incognito(true); await h.start(); await h.ready();
+  const originalTabId = h.storage.signupJob.tabId;
+  h.tabs.get(originalTabId).url = 'https://www.instagram.com/';
+  h.server.observation = { stage: 'signed-in', signature: 'existing-feed', documentId: 'feed-page', canSubmit: false, message: 'existing account feed' };
+  const paused = await h.tick();
+  assert.equal(paused.data.phase, 'paused');
+  assert.equal(paused.data.continueLabel, 'open private signup');
+  assert.match(paused.data.message, /already signed in/);
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+  assert.equal(h.storage.signupJob.password, PASSWORD);
+  const continued = await h.message({ type: 'signup-continue' });
+  assert.equal(continued.ok, true, JSON.stringify(continued));
+  assert.equal(continued.data.phase, 'running');
+  assert.equal(h.storage.signupJob.privateSignup, true);
+  assert.equal(h.storage.signupJob.needsPrivateSignup, false);
+  assert.notEqual(h.storage.signupJob.tabId, originalTabId);
+  assert.equal(h.tabs.get(h.storage.signupJob.tabId).incognito, true);
+  assert.equal(h.tabs.get(originalTabId).url, 'https://www.instagram.com/');
+  h.server.observation = { stage: 'details', signature: 'private-details', documentId: 'private-page', canSubmit: true, message: 'signup details' };
+  await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.acts()[0].input.password, PASSWORD);
+});
+
+test('private signup recovery keeps the email saved when incognito access is unavailable', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.tabs.get(h.storage.signupJob.tabId).url = 'https://www.instagram.com/';
+  h.server.observation = { stage: 'signed-in', signature: 'existing-feed', documentId: 'feed-page', canSubmit: false, message: 'existing account feed' };
+  await h.tick();
+  const continued = await h.message({ type: 'signup-continue' });
+  assert.equal(continued.ok, true, JSON.stringify(continued));
+  assert.equal(continued.data.phase, 'paused');
+  assert.equal(continued.data.email, EMAIL);
+  assert.equal(continued.data.continueLabel, 'open private signup');
+  assert.match(continued.data.message, /allow this extension in incognito/);
+  assert.equal(h.created.length, 2);
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+  assert.equal(h.storage.signupJob.password, PASSWORD);
+});
+
+test('signup waits for the tracked tab URL to load before checking a logged-in redirect', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  const tab = h.tabs.get(h.storage.signupJob.tabId);
+  Object.assign(tab, { url: '', pendingUrl: 'https://www.instagram.com/accounts/emailsignup/', status: 'loading' });
+  const loading = await h.tick();
+  assert.equal(loading.data.phase, 'running');
+  assert.equal(h.injections.length, 0);
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+  Object.assign(tab, { url: 'https://www.instagram.com/', pendingUrl: undefined, status: 'complete' });
+  h.server.observation = { stage: 'signed-in', documentId: 'feed-page', canSubmit: false };
+  const loaded = await h.tick();
+  assert.equal(loaded.data.continueLabel, 'open private signup');
+  assert.equal(h.acts().length, 0);
+});
+
+test('an existing private login pauses without opening more windows or submitting details', async () => {
+  const h = harness(); h.incognito(true); await h.start(); await h.ready();
+  h.server.observation = { stage: 'signed-in', documentId: 'feed-page', canSubmit: false };
+  await h.tick(); await h.message({ type: 'signup-continue' });
+  const paused = await h.tick();
+  assert.equal(paused.data.phase, 'paused');
+  assert.match(paused.data.message, /private window is also signed in/);
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.created.length, 3);
+  assert.equal(h.acts().length, 0);
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+});
+
+test('stop during the private access check prevents a new window from opening', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = { stage: 'signed-in', documentId: 'feed-page', canSubmit: false };
+  await h.tick();
+  const access = deferred();
+  h.chrome.extension.isAllowedIncognitoAccess = callback => { access.promise.then(callback); };
+  const continuing = h.message({ type: 'signup-continue' });
+  await settle();
+  await h.message({ type: 'signup-stop' });
+  access.resolve(true);
+  await continuing;
+  assert.equal(h.created.length, 2);
+  assert.equal(h.storage.signupJob.phase, 'stopped');
+  assert.equal(h.storage.signupJob.password, '');
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
 });
 
 test('no injection reaches an untrusted host, another platform, incognito or a pending document', async () => {
