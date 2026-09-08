@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.2' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.3' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -180,13 +180,12 @@ test('signed-in instagram recovery opens private signup without losing the gener
   const originalTabId = h.storage.signupJob.tabId;
   h.tabs.get(originalTabId).url = 'https://www.instagram.com/';
   h.server.observation = { stage: 'signed-in', signature: 'existing-feed', documentId: 'feed-page', canSubmit: false, message: 'existing account feed' };
-  const paused = await h.tick();
-  assert.equal(paused.data.phase, 'paused');
-  assert.equal(paused.data.continueLabel, 'open private signup');
-  assert.match(paused.data.message, /already signed in/);
+  const continued = await h.tick();
+  assert.equal(continued.data.phase, 'running');
+  assert.equal(continued.data.continueLabel, null);
+  assert.match(continued.data.message, /private signup opened/);
   assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
   assert.equal(h.storage.signupJob.password, PASSWORD);
-  const continued = await h.message({ type: 'signup-continue' });
   assert.equal(continued.ok, true, JSON.stringify(continued));
   assert.equal(continued.data.phase, 'running');
   assert.equal(h.storage.signupJob.privateSignup, true);
@@ -209,8 +208,8 @@ test('private signup recovery keeps the email saved when incognito access is una
   assert.equal(continued.ok, true, JSON.stringify(continued));
   assert.equal(continued.data.phase, 'paused');
   assert.equal(continued.data.email, EMAIL);
-  assert.equal(continued.data.continueLabel, 'open private signup');
-  assert.match(continued.data.message, /allow this extension in incognito/);
+  assert.equal(continued.data.continueLabel, 'retry private signup');
+  assert.match(continued.data.message, /allow in incognito/);
   assert.equal(h.created.length, 2);
   assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
   assert.equal(h.storage.signupJob.password, PASSWORD);
@@ -227,7 +226,7 @@ test('signup waits for the tracked tab URL to load before checking a logged-in r
   Object.assign(tab, { url: 'https://www.instagram.com/', pendingUrl: undefined, status: 'complete' });
   h.server.observation = { stage: 'signed-in', documentId: 'feed-page', canSubmit: false };
   const loaded = await h.tick();
-  assert.equal(loaded.data.continueLabel, 'open private signup');
+  assert.equal(loaded.data.continueLabel, 'retry private signup');
   assert.equal(h.acts().length, 0);
 });
 
@@ -259,6 +258,22 @@ test('stop during the private access check prevents a new window from opening', 
   assert.equal(h.storage.signupJob.phase, 'stopped');
   assert.equal(h.storage.signupJob.password, '');
   assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+});
+
+test('signup time freezes while paused and stopped, then resumes without counting the pause', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.time(3000);
+  h.server.observation = { stage: 'birthday', documentId: 'birthday', canSubmit: false };
+  const paused = await h.tick();
+  assert.equal(paused.data.elapsedMs, 3000);
+  h.time(20000);
+  assert.equal((await h.message({ type: 'signup-state' })).data.elapsedMs, 3000);
+  await h.message({ type: 'signup-continue' });
+  h.time(2000);
+  assert.equal((await h.message({ type: 'signup-state' })).data.elapsedMs, 5000);
+  await h.message({ type: 'signup-stop' });
+  h.time(10000);
+  assert.equal((await h.message({ type: 'signup-state' })).data.elapsedMs, 5000);
 });
 
 test('no injection reaches an untrusted host, another platform, incognito or a pending document', async () => {

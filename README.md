@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.3 automatically opens a private signup window after detecting an existing Instagram login when incognito access is allowed. Otherwise, it pauses with a visible permission action. The compact panel shows active elapsed time, freezes it during pauses, hides the inactive details form while running, and keeps the saved email behind an expandable row. Automated and isolated UI checks are not proof of live platform signup. Daily mailbox allocation limits remain unchanged.
+
 0.6.2 reuses a saved unfinished mailbox when retrying the same platform and username, including after an extension reload. Prior submissions and older records without submission history pause for manual review instead of replaying signup details. Daily mailbox limits now show the local reset time; generic throttling remains a separate error. Existing server allocation limits are unchanged.
 
 0.6.1 keeps native account creation in the Chrome side panel: platform, username, password, start. No student dashboard tab or login is needed. The extension prepares its own private account email and submits recognized signup steps once, including fresh email verification. If Instagram is already signed in to another account, continue opens a private signup window so the current login stays untouched. Birthday, phone, CAPTCHA, unavailable names, and unclear forms pause for the user. Completion requires matching signed-in profile navigation after a details submission; a home redirect alone never counts. Warm-up remains Instagram-only and is started separately.

@@ -17,6 +17,21 @@
   let polling = false;
   let revision = 0;
   let identity = '';
+  let receivedAt = Date.now();
+  let startingAt = 0;
+
+  function syncProgress() {
+    const working = starting || (state?.active && state.phase !== 'paused' && !stopping);
+    const phase = stopping ? 'stopping' : starting ? 'starting' : state?.phase;
+    node('progress').hidden = !starting && (!state || ['ready', 'recovery'].includes(phase));
+    node('progress').className = `signup-progress ${working ? 'is-working' : phase === 'paused' ? 'is-paused' : ''}`;
+    node('status').textContent = phase === 'paused' ? 'waiting for you' : phase === 'error' ? 'not started' : phase === 'complete' ? 'account ready' : working ? (starting ? 'starting' : 'working') : phase || 'ready';
+    const milliseconds = starting ? Date.now() - startingAt : (state?.elapsedMs || 0) + (working ? Date.now() - receivedAt : 0);
+    const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+    node('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    node('account').hidden = !state?.active || !state?.username;
+    node('account').textContent = state?.username ? `${state.platform} · @${state.username}` : '';
+  }
 
   async function request(type, extra = {}) {
     const result = await chrome.runtime.sendMessage({ type, ...extra });
@@ -35,6 +50,7 @@
     const hasTab = Number.isInteger(state?.tabId) && state.tabId > 0;
     node('fields').disabled = busy || active || stopping;
     node('start').disabled = busy || active || stopping;
+    node('form').hidden = active;
     node('active-controls').hidden = !active;
     node('show').hidden = !hasTab;
     node('show').disabled = busy || stopping || !active || !hasTab;
@@ -42,10 +58,12 @@
     node('continue').disabled = busy || stopping || !state?.active || state.phase !== 'paused';
     node('continue').textContent = state?.continueLabel || 'continue';
     node('stop').disabled = !active || stopping;
+    syncProgress();
   }
 
   function render(next) {
     state = next ?? null;
+    receivedAt = Date.now();
     const key = state?.email ? `${state.platform}:${state.email}` : '';
     if (key && key !== identity) {
       if (state.platform === 'instagram' || state.platform === 'tiktok') node('platform').value = state.platform;
@@ -91,6 +109,7 @@
       password: node('password').value,
     };
     starting = true;
+    startingAt = Date.now();
     node('message').textContent = 'getting signup ready…';
     node('section').open = true;
     return operate(async () => {
@@ -146,6 +165,7 @@
       if (startedAt === revision) showError(error?.message || 'connection lost. reopen the extension side panel.');
     } finally { polling = false; }
   }, 2000);
+  setInterval(syncProgress, 1000);
   window.addEventListener('pagehide', () => { node('password').value = ''; });
   syncUsernameLimit();
   void operate(() => request('signup-state'));

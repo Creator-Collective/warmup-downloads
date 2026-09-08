@@ -12,7 +12,6 @@ let panel = (await readFile(path.join(root,'index.html'),'utf8'))
   .replace('<body>', '<body class="side-panel">')
   .replace('your niche. your pace. one session at a time.', 'your session, beside instagram.')
   .replace('chrome on desktop · extension beta', 'keep Chrome and the session tab open.')
-  .replace('</footer>', '</footer><p class="footnote">closing this panel keeps your session running. press stop to end it.</p>')
   .replace(/href="(\/|setup\.html|privacy\.html)"/g, (_, value) => `href="${origin}/${value === '/' ? '' : value}" target="_blank" rel="noopener"`);
 await writeFile(path.join(extension,'sidepanel.html'), panel);
 await copyFile(path.join(root,'dashboard.css'),path.join(extension,'dashboard.css'));

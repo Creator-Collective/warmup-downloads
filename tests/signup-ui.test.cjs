@@ -13,6 +13,8 @@ const stopped = { phase: 'stopped', active: false, message: 'stopped' };
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 
 function harness({ panel = true, respond } = {}) {
+  let now = 100000;
+  class Clock extends Date { static now() { return now; } }
   const nodes = new Map();
   const requests = [];
   const timers = [];
@@ -35,6 +37,7 @@ function harness({ panel = true, respond } = {}) {
     return active;
   };
   const context = vm.createContext({
+    Date: Clock,
     document: { getElementById: element },
     location: panel ? { protocol: 'chrome-extension:', pathname: '/sidepanel.html' } : { protocol: 'https:', pathname: '/' },
     chrome: { runtime: { sendMessage: async message => {
@@ -50,8 +53,26 @@ function harness({ panel = true, respond } = {}) {
   const node = suffix => element(`signup-${suffix}`);
   const click = suffix => node(suffix).listeners.click();
   const submit = suffix => node(suffix).listeners.submit({ preventDefault() {} });
-  return { node, click, submit, requests, timers, windowListeners };
+  return { node, click, submit, requests, timers, windowListeners, time: ms => { now += ms; } };
 }
+
+test('the panel shows live working time, a frozen paused timer, and only relevant controls', async () => {
+  let current = { ...active, phase: 'running', elapsedMs: 5000 };
+  const h = harness({ respond: message => message.type === 'signup-state' ? { ok: true, data: current } : undefined });
+  await settle();
+  assert.equal(h.node('status').textContent, 'working');
+  assert.equal(h.node('timer').textContent, '00:05');
+  assert.equal(h.node('form').hidden, true);
+  h.time(3000); h.timers[1].handler();
+  assert.equal(h.node('timer').textContent, '00:08');
+  current = { ...paused, elapsedMs: 8000 };
+  await h.timers[0].handler();
+  h.time(30000); h.timers[1].handler();
+  assert.equal(h.node('status').textContent, 'waiting for you');
+  assert.equal(h.node('timer').textContent, '00:08');
+  assert.equal(h.node('continue').hidden, false);
+  assert.equal(h.node('account').textContent, 'instagram · @requested.name');
+});
 
 test('the website never contacts signup runtime and leaves its controls disabled', async () => {
   const h = harness({ panel: false });

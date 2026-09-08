@@ -11,6 +11,8 @@ const signupController = (() => {
   const requests = new Set();
   const assertRevision = revision => { if (revision !== cancellationRevision) throw new Error('signup stopped. an action already sent may still complete.'); };
   const isActive = job => Boolean(job && activePhases.includes(job.phase));
+  const isWorking = job => ['starting', 'running'].includes(job?.phase);
+  const elapsed = job => Math.max(0, (job?.elapsedMs || 0) + (Number.isFinite(job?.runningSince) ? Date.now() - job.runningSince : 0));
   function platformURL(value, platform) {
     try { const u = new URL(value); return platforms.includes(platform) && u.protocol === 'https:' && !u.port && !u.username && !u.password && [`www.${platform}.com`, `${platform}.com`].includes(u.hostname); } catch { return false; }
   }
@@ -32,6 +34,8 @@ const signupController = (() => {
   }
   async function persist(job, revision) {
     assertRevision(revision);
+    if (!isWorking(job) && Number.isFinite(job.runningSince)) job = { ...job, elapsedMs: elapsed(job), runningSince: null };
+    else if (isWorking(job) && !Number.isFinite(job.runningSince)) job = { ...job, runningSince: Date.now() };
     track(job);
     await chrome.storage.session.set({ signupJob: job });
     assertRevision(revision);
@@ -84,7 +88,7 @@ const signupController = (() => {
     return job;
   }
   function publicState(job) {
-    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'choose your platform and account details to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, continueLabel: job?.continueLabel, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
+    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'ready to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, elapsedMs: elapsed(job), continueLabel: job?.continueLabel, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
   }
   function incognitoAccess() {
     return new Promise(resolve => {
@@ -160,6 +164,23 @@ const signupController = (() => {
     return result[0] ? { ...result[0].result, browserDocument: result[0].documentId } : null;
   }
   const validObservation = observation => observation && ['details', 'email-code', 'birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in', 'complete', 'unknown', 'loading'].includes(observation.stage) && typeof observation.documentId === 'string' && observation.documentId.length > 0 && observation.documentId.length < 150;
+  async function openPrivateSignup(job, revision) {
+    if (job.platform !== 'instagram' || job.detailsSubmitted) return pause(job, 'check the platform tab before continuing.', revision, { needsPrivateSignup: false, continueLabel: null });
+    const allowed = await incognitoAccess();
+    assertRevision(revision);
+    if (!allowed) {
+      return pause(job, 'in extension details, turn on "allow in incognito", then retry. your current login stays signed in.', revision, { needsPrivateSignup: true, continueLabel: 'retry private signup' });
+    }
+    let privateWindow;
+    try { privateWindow = await chrome.windows.create({ url: signupURL(job.platform), focused: true, incognito: true }); }
+    catch { return pause(job, 'private signup could not open. your signup email is saved.', revision, { needsPrivateSignup: true, continueLabel: 'retry private signup' }); }
+    assertRevision(revision);
+    let tab = Array.isArray(privateWindow?.tabs) ? privateWindow.tabs.find(candidate => Number.isInteger(candidate?.id)) : null;
+    if (!tab && Number.isInteger(privateWindow?.id)) tab = (await chrome.tabs.query({ windowId: privateWindow.id, active: true }))[0];
+    assertRevision(revision);
+    if (!Number.isInteger(tab?.id)) return pause(job, 'private signup could not open. your signup email is saved.', revision, { needsPrivateSignup: true, continueLabel: 'retry private signup' });
+    return patch(job, { tabId: tab.id, privateSignup: true, needsPrivateSignup: false, continueLabel: null, phase: 'running', waitingForCode: false, pendingAction: null, message: 'private signup opened. checking the form…' }, revision);
+  }
   async function advance(job, revision) {
     if (job.phase === 'paused') return publicState(job);
     if (!isActive(job)) return publicState(job);
@@ -176,7 +197,7 @@ const signupController = (() => {
       }
       if (observed.stage === 'signed-in' && job.platform === 'instagram' && !job.detailsSubmitted) {
         if (job.privateSignup) return publicState(await pause(job, 'this private window is also signed in. use a separate chrome profile for a fresh signup, or deliberately sign out of that private account before continuing. your signup email is saved.', revision, { needsPrivateSignup: false, continueLabel: null }));
-        return publicState(await pause(job, 'instagram is already signed in here. continue opens a private signup window with this email, so your current login stays untouched.', revision, { needsPrivateSignup: true, continueLabel: 'open private signup' }));
+        return publicState(await openPrivateSignup(job, revision));
       }
       if (['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in'].includes(observed.stage)) return publicState(await pause(job, observed.message || 'finish this check in the signup tab, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
       if (observed.stage === 'details' && job.recovered && job.detailsState !== 'not-sent') return publicState(await pause(job, 'your saved email is restored. this signup may already have been sent, so it will not be submitted again automatically. check the account first; if needed, finish this form with the saved email, then continue.', revision));
@@ -242,7 +263,7 @@ const signupController = (() => {
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
       let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
       if (saved) Object.assign(job, { email: saved.email, aliasId: saved.aliasId, detailsSubmitted: saved.detailsState === 'sent' });
-      await save(job, revision);
+      job = await save(job, revision);
       try {
         const alias = safeAlias((await api({ action: 'prepare', requestId: job.requestId, platform: job.platform }, revision)).alias, job.platform);
         if (alias.accountUsername) throw new Error('this email already has an account. check it before starting again.');
@@ -265,23 +286,7 @@ const signupController = (() => {
     assertRevision(revision);
     if (!isActive(job)) throw new Error('start an account signup first.');
     if (message.type === 'signup-show') { await chrome.tabs.update(job.tabId, { active: true }); assertRevision(revision); return publicState(job); }
-    if (message.type === 'signup-continue' && job.needsPrivateSignup) {
-      if (job.platform !== 'instagram' || job.detailsSubmitted) return publicState(await pause(job, 'check the platform tab before continuing.', revision, { needsPrivateSignup: false, continueLabel: null }));
-      const allowed = await incognitoAccess();
-      assertRevision(revision);
-      if (!allowed) {
-        return publicState(await pause(job, 'to keep your current instagram login, allow this extension in incognito, then continue again. your signup email is saved.', revision, { needsPrivateSignup: true, continueLabel: 'open private signup' }));
-      }
-      let privateWindow;
-      try { privateWindow = await chrome.windows.create({ url: signupURL(job.platform), focused: true, incognito: true }); }
-      catch { return publicState(await pause(job, 'private signup could not open. your signup email is saved.', revision, { needsPrivateSignup: true, continueLabel: 'open private signup' })); }
-      assertRevision(revision);
-      let tab = Array.isArray(privateWindow?.tabs) ? privateWindow.tabs.find(candidate => Number.isInteger(candidate?.id)) : null;
-      if (!tab && Number.isInteger(privateWindow?.id)) tab = (await chrome.tabs.query({ windowId: privateWindow.id, active: true }))[0];
-      assertRevision(revision);
-      if (!Number.isInteger(tab?.id)) return publicState(await pause(job, 'private signup could not open. your signup email is saved.', revision, { needsPrivateSignup: true, continueLabel: 'open private signup' }));
-      return publicState(await patch(job, { tabId: tab.id, privateSignup: true, needsPrivateSignup: false, continueLabel: null, phase: 'running', waitingForCode: false, pendingAction: null, message: 'private signup is open. continuing account signup…' }, revision));
-    }
+    if (message.type === 'signup-continue' && job.needsPrivateSignup) return publicState(await openPrivateSignup(job, revision));
     if (message.type === 'signup-continue') return publicState(await patch(job, { phase: 'running', message: 'checking the signup tab…', waitingForCode: false, needsPrivateSignup: false, continueLabel: null }, revision));
     throw new Error('unknown signup action.');
   }
