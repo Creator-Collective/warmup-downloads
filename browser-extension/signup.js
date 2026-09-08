@@ -24,7 +24,7 @@ const signupController = (() => {
   }
   function track(job) { activeTabs = isActive(job) ? { tabId: job.tabId, runnerTabId: job.runnerTabId, token: job.token, platform: job.platform } : null; }
   function recovery(job) {
-    const detailsState = job.detailsSubmitted ? 'sent' : job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
+    const detailsState = job.detailsSubmitted ? 'sent' : job.detailsPrefilled || job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
     return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, phase: job.phase, since: job.since, detailsState, updatedAt: Date.now() };
   }
   function write(operation) {
@@ -199,8 +199,19 @@ const signupController = (() => {
         if (job.privateSignup) return publicState(await pause(job, 'this private window is also signed in. use a separate chrome profile for a fresh signup, or deliberately sign out of that private account before continuing. your signup email is saved.', revision, { needsPrivateSignup: false, continueLabel: null }));
         return publicState(await openPrivateSignup(job, revision));
       }
+      if (['details', 'birthday'].includes(observed.stage) && job.recovered && job.detailsState !== 'not-sent') return publicState(await pause(job, 'your saved email is restored. this signup may already have been sent, so it will not be submitted again automatically. check the account first; if needed, finish this form with the saved email, then continue.', revision));
+      if (observed.stage === 'birthday' && observed.canFill && job.platform === 'instagram' && !job.detailsSubmitted) {
+        if (job.detailsPrefilled) return publicState(await pause(job, 'check your details, choose your birthday and press submit in instagram, then continue here.', revision));
+        if (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(await pause(job, 'this signup form could not be identified. finish the step in its tab.', revision));
+        // A user may submit the filled form even if Chrome closes before the
+        // fill result returns. Recovery must never assume it is still unsent.
+        job = await patch(job, { detailsPrefilled: true, message: 'entering your signup details…' }, revision);
+        const outcome = await inject(job, { mode: 'fill', password: job.password, expectedSignature: observed.signature, expectedDocument: observed.documentId }, revision, observed.browserDocument);
+        const filled = outcome?.filled && !outcome.submitted && outcome.signature === observed.signature && outcome.documentId === observed.documentId;
+        return publicState(await pause(job, filled ? 'details filled. choose your birthday and press submit in instagram, then continue here.' : outcome?.message || 'check your details in instagram before submitting, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
+      }
       if (['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in'].includes(observed.stage)) return publicState(await pause(job, observed.message || 'finish this check in the signup tab, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
-      if (observed.stage === 'details' && job.recovered && job.detailsState !== 'not-sent') return publicState(await pause(job, 'your saved email is restored. this signup may already have been sent, so it will not be submitted again automatically. check the account first; if needed, finish this form with the saved email, then continue.', revision));
+      if (observed.stage === 'details' && job.detailsPrefilled) return publicState(await pause(job, 'your details were filled for manual signup. check the form in instagram and press submit there, then continue here.', revision));
       if (['details', 'email-code'].includes(observed.stage) && observed.canSubmit && (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000)) return publicState(await pause(job, 'this signup action could not be identified. finish the step in its tab.', revision));
       const previous = job.attempts.find(attempt => attempt.signature === observed.signature);
       if (previous) {
@@ -217,7 +228,7 @@ const signupController = (() => {
       if (observed.stage === 'email-code') {
         // The observer requires the exact saved recipient before exposing this
         // stage, so a manually resumed form can continue verification.
-        if (!job.detailsSubmitted && job.recovered && job.detailsState === 'uncertain') job = await patch(job, { detailsSubmitted: true, detailsState: 'sent' }, revision);
+        if (!job.detailsSubmitted && (job.detailsPrefilled || (job.recovered && job.detailsState === 'uncertain'))) job = await patch(job, { detailsSubmitted: true, detailsState: 'sent' }, revision);
         if (!job.detailsSubmitted) return publicState(await pause(job, 'this email check was opened before signup started. check the account in that tab.', revision));
         if (Date.now() < (job.nextCodeAt || 0)) return publicState(job);
         job = await patch(job, { nextCodeAt: Date.now() + 5000, waitingForCode: true, message: 'waiting for your signup email code…' }, revision);

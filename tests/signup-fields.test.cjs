@@ -52,6 +52,67 @@ test('native details fill and submit once, with stable nonsecret observation sig
   assert.equal((await form.act()).submitted, false); assert.equal(form.clicks(), 1);
 });
 
+test('instagram get-started form prefills details but leaves birthday and Submit to the user', async () => {
+  const form = fixture({
+    text: 'Get started on Instagram\nMobile number or email\nPassword\nBirthday\nMonth\nDay\nYear\nName\nUsername\nSubmit',
+    inputs: [
+      { placeholder: 'Mobile number or email', attrs: { 'aria-label': 'Mobile number or email' } },
+      { placeholder: 'Password', type: 'password', attrs: { 'aria-label': 'Password' } },
+      { placeholder: 'Full name', attrs: { 'aria-label': 'Full name' } },
+      { placeholder: 'Username', attrs: { 'aria-label': 'Username' } },
+    ], buttons: [{ innerText: 'Month' }, { innerText: 'Day' }, { innerText: 'Year' }, { innerText: 'Submit', disabled: true }, { innerText: 'I already have an account' }],
+  });
+  const observed = await form.run({ mode: 'observe' });
+  assert.equal(observed.stage, 'birthday');
+  assert.equal(observed.canFill, true);
+  assert.equal(observed.canSubmit, false);
+  const filled = await form.run({ mode: 'fill', expectedDocument: observed.documentId, expectedSignature: observed.signature });
+  assert.equal(filled.filled, true);
+  assert.equal(filled.submitted, false);
+  assert.deepEqual(form.inputs.map(field => field.value), [details.email, details.password, details.username, details.username]);
+  assert.equal(form.clicks(), 0);
+  assert.equal((await form.act()).submitted, false);
+  assert.equal(form.clicks(), 0);
+});
+
+test('Submit is accepted only for a complete recognized instagram details form', async () => {
+  const form = fixture({ buttons: [{ innerText: 'Submit' }] });
+  assert.equal((await form.act()).submitted, true);
+  assert.equal((await fixture({ inputs: [{ name: 'email' }], buttons: [{ innerText: 'Submit' }] }).act()).submitted, false);
+});
+
+test('birthday prefill preserves user edits and refuses changed documents or security checks', async () => {
+  for (const change of ['occupied', 'document', 'captcha', 'validation']) {
+    const form = fixture({ text: 'Get started on Instagram\nBirthday', buttons: [{ innerText: 'Submit' }] });
+    const observed = await form.run({ mode: 'observe' });
+    if (change === 'occupied') form.inputs[0].value = 'another@example.com';
+    if (change === 'captcha') form.document.body.innerText += '\nVerify you are human';
+    if (change === 'validation') form.document.body.innerText += '\nThis username is already taken';
+    const result = await form.run({ mode: 'fill', expectedDocument: change === 'document' ? 'changed' : observed.documentId, expectedSignature: observed.signature });
+    assert.notEqual(result.filled, true);
+    assert.equal(form.inputs.at(-1).value, '');
+    assert.equal(form.clicks(), 0);
+  }
+});
+
+test('birthday fill-only stops when cancelled or a security check appears while fields settle', async () => {
+  for (const change of ['cancel', 'captcha']) {
+    let settleInputs;
+    const form = fixture({ text: 'Get started on Instagram\nBirthday', buttons: [{ innerText: 'Submit' }], setTimeout: callback => { settleInputs = callback; } });
+    const observed = await form.run({ mode: 'observe' });
+    const pending = form.run({ mode: 'fill', expectedDocument: observed.documentId, expectedSignature: observed.signature });
+    for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+    assert.equal(typeof settleInputs, 'function');
+    if (change === 'cancel') form.cancel();
+    else form.document.body.innerText += '\nVerify you are human';
+    settleInputs();
+    const result = await pending;
+    assert.notEqual(result.filled, true);
+    assert.equal(result.submitted, false);
+    assert.equal(form.clicks(), 0);
+  }
+});
+
 test('changed document or stage does not fill or submit', async () => {
   const form = fixture(), observation = await form.run({ mode: 'observe' });
   const outcome = await form.run({ mode: 'act', expectedDocument: 'old-document', expectedSignature: observation.signature });

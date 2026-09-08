@@ -1,3 +1,9 @@
+2026-09-08 0.6.4: Instagram Get started form compatibility
+- reproduced the reported unclear-button pause using a fixture based on the user's 3:17 pm screenshots. the new form uses Submit, inline Birthday controls and repeated accessible labels.
+- recognize the complete form and fill only the known email, password, name and username. leave birthday and Submit to the user; continue can retrieve a fresh code only on the exact saved recipient's verification step.
+- preserve user edits, stop/captcha/document guards and mailbox recovery. persist manual-prefill uncertainty before filling so restart cannot automatically create a duplicate signup. no changes to mailbox limits or existing logged-in sessions.
+- verification: 128 automated tests pass. private-window opening was confirmed by the user's screenshot, not an agent-driven end-to-end test. live form fill, birthday submission, email verification and completed platform signup remain unverified until the updated extension is reloaded.
+
 2026-09-08 native account creation in the extension
 - replaced dashboard connection, alias selection and full-name setup with platform, username, password and start; prepares a private email and submits recognized normal steps and fresh codes automatically.
 - pause birthday/phone/captcha, unknown forms and uncertain outcomes; exact document/stage guards and persistent attempt records prevent duplicate submissions. stop cancels pending input settling and removes the session password.
