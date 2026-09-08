@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Creator Collective Warm-up",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Run a timed niche browsing session on Instagram, with limits and activity you control.",
   "minimum_chrome_version": "120",
   "permissions": [

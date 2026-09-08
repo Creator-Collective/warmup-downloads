@@ -8,7 +8,7 @@ const details = { platform: 'instagram', email: 'native@example.com', username: 
 
 function fixture(options = {}) {
   class Input {
-    constructor(props = {}) { Object.assign(this, { type: 'text', name: '', id: '', placeholder: '', autocomplete: '', disabled: false, readOnly: false, isConnected: true, _value: '', attrs: {}, width: 100, height: 30 }, props); }
+    constructor(props = {}) { Object.assign(this, { tagName: 'INPUT', type: 'text', name: '', id: '', placeholder: '', autocomplete: '', disabled: false, readOnly: false, isConnected: true, _value: '', attrs: {}, width: 100, height: 30 }, props); }
     get value() { return this._value; }
     set value(value) { this._value = value; }
     getAttribute(name) { return this.attrs[name] || null; }
@@ -16,14 +16,37 @@ function fixture(options = {}) {
     dispatchEvent(event) { options.onEvent?.(this, event); }
     checkValidity() { return !this.invalid; }
   }
+  class Select extends Input {
+    constructor(props) { super({ tagName: 'SELECT', ...props }); }
+    get value() { return this._value; }
+    set value(value) { this._value = value; }
+  }
+  const selects = (options.selects || []).map(props => new Select(props));
   const inputs = (options.inputs || [{ name: 'email', type: 'email' }, { name: 'fullName' }, { name: 'username' }, { name: 'password', type: 'password' }]).map(props => new Input(props));
   let clicks = 0;
   const buttons = (options.buttons || [{ innerText: 'Sign up' }]).map(props => Object.assign(new Input(props), { click() { clicks++; options.onClick?.(); } }));
   const links = (options.links || []).map(props => new Input(props));
   const frames = (options.frames || []).map(props => new Input(props));
   const alerts = (options.alerts || []).map(innerText => new Input({ innerText }));
+  let openList = null;
+  const birthdayControls = (options.customBirthday || []).map(({ key, choices, ...props }) => {
+    const control = new Input({ tagName: 'BUTTON', innerText: key, attrs: { 'aria-label': key, 'aria-controls': `${key}-list` }, ...props });
+    const list = new Input({ id: `${key}-list`, attrs: { role: 'listbox' }, isConnected: false });
+    const items = choices.map(text => Object.assign(new Input({ innerText: text, attrs: { role: 'option' } }), { click() {
+      options.onBirthdayChoice?.(key, text);
+      if (!options.rejectBirthday) control.innerText = text;
+      list.isConnected = false; openList = null;
+    } }));
+    list.querySelectorAll = selector => selector === '[role="option"]' ? items : [];
+    control.click = () => { options.onBirthdayOpen?.(key); openList = list; list.isConnected = true; };
+    return { control, list };
+  });
   const document = { body: { innerText: options.text || 'Sign up with your email' }, querySelectorAll(selector) {
-    if (selector === 'input' || selector === 'input, select') return inputs;
+    if (selector === 'input') return inputs;
+    if (selector === 'input, select') return [...inputs, ...selects];
+    if (selector === 'select') return selects;
+    if (selector === 'button, [role="button"], [role="combobox"], [aria-haspopup="listbox"]') return [...buttons, ...birthdayControls.map(item => item.control)];
+    if (selector === '[role="listbox"]') return openList ? [openList] : [];
     if (selector === 'input[type="checkbox"]') return inputs.filter(input => input.type === 'checkbox');
     if (selector === 'iframe') return frames;
     if (selector === '[role="alert"], [aria-live="assertive"]') return alerts;
@@ -31,14 +54,107 @@ function fixture(options = {}) {
     if (selector === 'button, a[href]') return [...buttons, ...links];
     if (selector === 'button, input[type="submit"], [role="button"]') return buttons;
     return [];
-  } };
+  }, getElementById(id) { return birthdayControls.find(item => item.list.id === id)?.list || null; } };
   const window = {}; window.top = options.subframe ? {} : window;
   const location = { href: options.url || 'https://www.instagram.com/accounts/emailsignup/' };
-  const context = vm.createContext({ window, location, document, URL, crypto: webcrypto, HTMLInputElement: Input, Event: class { constructor(type) { this.type = type; } }, getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }), setTimeout: options.setTimeout || (callback => callback()) });
+  const context = vm.createContext({ window, location, document, URL, crypto: webcrypto, HTMLInputElement: Input, HTMLSelectElement: Select, Event: class { constructor(type) { this.type = type; } }, getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }), setTimeout: options.setTimeout || (callback => callback()) });
   vm.runInContext(source, context);
   const run = async input => { context.request = { ...details, ...input }; return structuredClone(await vm.runInContext('signupStep(request)', context)); };
-  return { inputs, buttons, document, location, clicks: () => clicks, run, cancel() { vm.runInContext('globalThis.__ccNativeSignupCancelled.add("fixture-action-token")', context); }, async act(extra = {}) { const observed = await run({ mode: 'observe', ...extra }); return run({ mode: 'act', expectedDocument: observed.documentId, expectedSignature: observed.signature, ...extra }); } };
+  return { inputs, selects, buttons, birthdayControls: birthdayControls.map(item => item.control), document, location, clicks: () => clicks, run, cancel() { vm.runInContext('globalThis.__ccNativeSignupCancelled.add("fixture-action-token")', context); }, async act(extra = {}) { const observed = await run({ mode: 'observe', ...extra }); return run({ mode: 'act', expectedDocument: observed.documentId, expectedSignature: observed.signature, ...extra }); } };
 }
+
+const birthday = { birthDate: '2006-05-30' };
+const nativeBirthday = () => ['month', 'day', 'year'].map((key, index) => ({ name: `birthday_${key}`, options: [{ textContent: key, value: '' }, { textContent: ['May', '30', '2006'][index], value: ['4', '30', '2006'][index] }] }));
+const customBirthday = () => [{ key: 'month', choices: ['April', 'May', 'June'] }, { key: 'day', choices: ['29', '30', '31'] }, { key: 'year', choices: ['2005', '2006', '2007'] }];
+
+test('custom birthday menus choose the exact date and confirm all three values before submitting', async () => {
+  const selected = [];
+  const form = fixture({ text: 'Get started on Instagram\nBirthday', customBirthday: customBirthday(), buttons: [{ innerText: 'Submit' }], onBirthdayChoice: (key, value) => selected.push([key, value]) });
+  const before = await form.run({ mode: 'observe', ...birthday });
+  assert.equal((await form.act(birthday)).submitted, true);
+  assert.deepEqual(selected, [['month', 'May'], ['day', '30'], ['year', '2006']]);
+  assert.deepEqual(form.birthdayControls.map(control => control.innerText), ['May', '30', '2006']);
+  const after = await form.run({ mode: 'observe', ...birthday });
+  assert.equal(after.signature, before.signature);
+  assert.equal((await form.act(birthday)).submitted, false);
+  assert.equal(form.clicks(), 1);
+});
+
+test('custom birthday menus stop on cancellation, security checks, missing choices or rejected selections', async () => {
+  for (const change of ['cancel', 'captcha', 'missing', 'ambiguous', 'rejected', 'detached', 'navigation', 'edited', 'submit-trigger']) {
+    const menus = customBirthday();
+    if (change === 'missing') menus[0].choices = ['April', 'June'];
+    if (change === 'ambiguous') menus[0].choices.push('May');
+    if (change === 'submit-trigger') menus[0].type = 'submit';
+    let choices = 0;
+    const form = fixture({ text: 'Birthday', customBirthday: menus, buttons: [{ innerText: 'Submit' }], rejectBirthday: change === 'rejected', onBirthdayOpen: () => {
+      if (change === 'cancel') form.cancel();
+      if (change === 'captcha') form.document.body.innerText += '\nVerify you are human';
+      if (change === 'detached') form.birthdayControls[0].isConnected = false;
+      if (change === 'navigation') form.location.href = 'https://www.instagram.com/accounts/login/';
+      if (change === 'edited') form.birthdayControls[0].innerText = 'June';
+    }, onBirthdayChoice: () => choices++ });
+    const result = await form.act(birthday);
+    assert.equal(result.submitted, false, change);
+    assert.equal(form.clicks(), 0, change);
+    assert.equal(choices, change === 'rejected' ? 1 : 0, change);
+  }
+});
+
+test('native birthday placeholders need not use empty values and invalid options cannot submit', async () => {
+  const selects = nativeBirthday();
+  for (const field of selects) { field.options[0].value = 'unset'; field._value = 'unset'; }
+  const form = fixture({ text: 'Birthday', selects, buttons: [{ innerText: 'Submit' }] });
+  assert.equal((await form.act(birthday)).submitted, true);
+  const disabled = nativeBirthday(); disabled[0].options[1].disabled = true;
+  assert.equal((await fixture({ text: 'Birthday', selects: disabled }).act(birthday)).submitted, false);
+});
+
+test('native birthday is checked again after controlled-input changes and never ignores a security check', async () => {
+  for (const change of ['date', 'captcha', 'disabled']) {
+    const form = fixture({ text: 'Birthday', selects: nativeBirthday(), buttons: [{ innerText: 'Submit' }], onEvent: element => {
+      if (element.name === 'birthday_year') {
+        if (change === 'date') form.selects[0].value = '8';
+        if (change === 'captcha') form.document.body.innerText += '\nVerify you are human';
+        if (change === 'disabled') form.buttons[0].disabled = true;
+      }
+    } });
+    assert.equal((await form.act(birthday)).submitted, false, change);
+    assert.equal(form.clicks(), 0);
+  }
+});
+
+test('configured birthday fills exact native options and submits the inline form once', async () => {
+  const form = fixture({ text: 'Get started on Instagram\nBirthday', selects: nativeBirthday(), buttons: [{ innerText: 'Submit' }] });
+  const before = await form.run({ mode: 'observe', ...birthday });
+  assert.equal(before.stage, 'details'); assert.equal(before.canSubmit, true);
+  assert.equal((await form.act(birthday)).submitted, true);
+  assert.deepEqual(form.selects.map(field => field.value), ['4', '30', '2006'], 'use May option value, not a guessed month index');
+  assert.equal((await form.act(birthday)).submitted, false);
+  assert.equal(form.clicks(), 1);
+});
+
+test('configured birthday supports a named date input without exposing it in the signature', async () => {
+  const form = fixture({ text: 'Birthday', inputs: [{ name: 'email' }, { name: 'fullName' }, { name: 'username' }, { name: 'password', type: 'password' }, { name: 'birthday', type: 'date' }], buttons: [{ innerText: 'Submit' }] });
+  const result = await form.act(birthday);
+  assert.equal(result.submitted, true);
+  assert.equal(form.inputs.at(-1).value, birthday.birthDate);
+  assert.equal(result.signature.includes(birthday.birthDate), false);
+});
+
+test('birthday automation preserves existing dates and pauses on missing or ambiguous controls', async () => {
+  for (const kind of ['occupied', 'missing', 'duplicate', 'invalid']) {
+    const selects = nativeBirthday();
+    if (kind === 'occupied') selects[0]._value = '8';
+    if (kind === 'missing') selects.pop();
+    if (kind === 'duplicate') selects.push({ ...selects[0] });
+    const form = fixture({ text: 'Birthday', selects, buttons: [{ innerText: 'Submit' }] });
+    const result = await form.act(kind === 'invalid' ? { birthDate: '2006-02-30' } : birthday);
+    assert.equal(result.submitted, false, kind);
+    assert.equal(form.clicks(), 0, kind);
+    assert.equal(form.inputs[0].value, '', kind);
+  }
+});
 
 test('native details fill and submit once, with stable nonsecret observation signatures', async () => {
   const form = fixture();

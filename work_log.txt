@@ -1,3 +1,9 @@
+2026-09-08 0.6.5: configured Instagram birthday automation
+- user requested May 30, 2006 with no separate birthday entry. persist that default with local signup recovery and fill only recognized inline Instagram birthday controls before submitting once.
+- support exact native option labels, a date input, and uniquely matched custom listbox options. verify all selected values; preserve existing different dates and cancellation, CAPTCHA, document and duplicate-submission guards. standalone birthday pages and TikTok birthday controls retain manual handling.
+- verification: 136 automated tests pass, including native/custom menu fixtures, missing/ambiguous options, rejected or changed selections, cancellation/security checks and recovery. no completed live signup or live birthday automation is claimed. private signup is not accessible through the enabled browser connector; no extension-page restriction was bypassed.
+- release: package and publish 0.6.5 through the existing feature PR and production project. update the existing unpacked extension folder without clearing mailbox access; its Chrome card still needs manual reload.
+
 2026-09-08 0.6.4: Instagram Get started form compatibility
 - reproduced the reported unclear-button pause using a fixture based on the user's 3:17 pm screenshots. the new form uses Submit, inline Birthday controls and repeated accessible labels.
 - recognize the complete form and fill only the known email, password, name and username. leave birthday and Submit to the user; continue can retrieve a fresh code only on the exact saved recipient's verification step.
