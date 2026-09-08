@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.3' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.4' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -61,6 +61,7 @@ function harness(initial = {}, initialLocal = {}) {
       injections.push({ target: copy(request.target), input: copy(input) });
       let result;
       if (input.mode === 'observe') result = server.onObserve ? await server.onObserve(input) : copy(server.observation);
+      else if (input.mode === 'fill') result = server.onFill ? await server.onFill(input) : { filled: true, submitted: false, stage: 'birthday', signature: input.expectedSignature, documentId: input.expectedDocument };
       else result = server.onAct ? await server.onAct(input) : { submitted: true, stage: server.observation.stage, signature: input.expectedSignature, documentId: input.expectedDocument, message: 'submitted once' };
       return [{ result, documentId: `chrome-document-${tab.id}` }];
     } },
@@ -173,6 +174,97 @@ test('a new verified form step advances while unknown or blocked states pause', 
   const h = harness(); await h.details();
   h.server.observation = { ...h.server.observation, signature: 'details:username:next' };
   await h.tick(); assert.equal(h.acts().length, 2);
+});
+
+const birthdayForm = { stage: 'birthday', canFill: true, canSubmit: false, signature: 'birthday:full-details:submit', documentId: 'birthday-page', message: 'birthday required' };
+
+test('inline birthday fills known details once without submitting or persisting credentials', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = copy(birthdayForm);
+  h.server.onFill = input => {
+    assert.equal(h.local.nativeSignupRecovery.detailsState, 'uncertain', 'manual submission is possible before the fill result returns');
+    assert.equal(h.storage.signupJob.attempts.length, 0);
+    return { filled: true, submitted: false, signature: input.expectedSignature, documentId: input.expectedDocument };
+  };
+  const result = await h.tick();
+  assert.equal(result.data.phase, 'paused');
+  assert.match(result.data.message, /details filled.*birthday.*press submit/);
+  const fills = h.injections.filter(item => item.input.mode === 'fill');
+  assert.equal(fills.length, 1);
+  assert.equal(fills[0].input.password, PASSWORD);
+  assert.equal(fills[0].input.email, EMAIL);
+  assert.deepEqual(fills[0].target.documentIds, [`chrome-document-${h.storage.signupJob.tabId}`]);
+  assert.equal(h.acts().length, 0);
+  assert.equal(h.storage.signupJob.detailsSubmitted, false);
+  assert.equal(JSON.stringify(h.local).includes(PASSWORD), false);
+  assert.equal(JSON.stringify(result).includes(PASSWORD), false);
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.injections.filter(item => item.input.mode === 'fill').length, 1);
+  h.server.observation = { ...birthdayForm, stage: 'details', canSubmit: true };
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.acts().length, 0, 'a manually filled form must not later be auto-submitted');
+});
+
+test('manual birthday submission can advance to exact-recipient email verification', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = copy(birthdayForm); await h.tick();
+  h.server.observation = { stage: 'email-code', signature: 'email:confirm', documentId: 'code-page', canSubmit: true };
+  await h.message({ type: 'signup-continue' }); await h.tick();
+  assert.equal(h.storage.signupJob.waitingForCode, true);
+  assert.equal(h.storage.signupJob.detailsSubmitted, true);
+  assert.equal(h.local.nativeSignupRecovery.detailsState, 'sent');
+  assert.equal(h.acts().length, 0, 'no email code yet');
+  h.time(6000);
+  h.server.verification = { id: CODE_ID, code: '654321', receivedAt: new Date(h.now() - 1000).toISOString() };
+  await h.tick();
+  assert.equal(h.acts().length, 1);
+  assert.equal(h.acts()[0].input.code, '654321');
+  assert.equal(h.acts()[0].input.password, undefined);
+  assert.equal(h.apiRequests.filter(request => request.body.action === 'prepare').length, 1);
+});
+
+test('restart preserves the prefilled email without risking a second signup', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = copy(birthdayForm); await h.tick();
+  const restored = harness({}, h.local);
+  await restored.start(); await restored.ready();
+  assert.equal(restored.storage.signupJob.email, EMAIL);
+  assert.equal(restored.storage.signupJob.requestId, h.storage.signupJob.requestId);
+  restored.server.observation = copy(birthdayForm); await restored.tick();
+  assert.equal(restored.storage.signupJob.phase, 'paused');
+  assert.equal(restored.injections.filter(item => item.input.mode !== 'observe').length, 0);
+  assert.match(restored.storage.signupJob.message, /may already have been sent/);
+});
+
+test('invalid or changed birthday forms never report a successful fill or submit', async () => {
+  for (const signature of ['', 'x'.repeat(1000), null]) {
+    const h = harness(); await h.start(); await h.ready();
+    h.server.observation = { ...birthdayForm, signature }; await h.tick();
+    assert.equal(h.injections.filter(item => item.input.mode !== 'observe').length, 0);
+    assert.equal(h.storage.signupJob.phase, 'paused');
+  }
+  for (const outcome of [null, { filled: false }, { filled: true, signature: 'changed', documentId: 'birthday-page' }]) {
+    const h = harness(); await h.start(); await h.ready();
+    h.server.observation = copy(birthdayForm); h.server.onFill = () => outcome;
+    await h.tick();
+    assert.equal(h.storage.signupJob.phase, 'paused');
+    assert.doesNotMatch(h.storage.signupJob.message, /details filled/);
+    assert.equal(h.acts().length, 0);
+    assert.equal(h.local.nativeSignupRecovery.detailsState, 'uncertain');
+  }
+});
+
+test('stop during birthday fill cannot restore credentials or continue signup', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  const waiting = deferred(); h.server.observation = copy(birthdayForm);
+  h.server.onFill = async input => { await waiting.promise; return { filled: true, submitted: false, signature: input.expectedSignature, documentId: input.expectedDocument }; };
+  const tick = h.tick(); await settle();
+  await h.message({ type: 'signup-stop' }); waiting.resolve(); await tick;
+  assert.equal(h.storage.signupJob.phase, 'stopped');
+  assert.equal(h.storage.signupJob.password, '');
+  assert.equal(h.local.nativeSignupRecovery.email, EMAIL);
+  assert.equal(h.local.nativeSignupRecovery.detailsState, 'uncertain');
+  assert.equal(h.acts().length, 0);
 });
 
 test('signed-in instagram recovery opens private signup without losing the generated email', async () => {

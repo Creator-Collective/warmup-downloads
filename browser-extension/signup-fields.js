@@ -23,15 +23,15 @@ async function signupStep(input) {
     if (all('iframe').some(frame => /captcha|recaptcha|hcaptcha|arkose|challenge/i.test(`${frame.src || ''} ${frame.title || ''}`)) || /verify (?:that )?you(?:'re| are) (?:a )?human|security check|complete (?:the |this )?captcha|unusual activity|suspicious activity/.test(body)) return stop('captcha', 'finish the security check in the signup tab, then continue here.');
     if (/phone verification|verify your phone|(?:code|sent|send).{0,70}(?:your phone|phone number|mobile number|sms|text message)/.test(body)) return stop('phone', 'finish the phone check in the signup tab, then continue here.');
     const birthdays = all('input, select').filter(field => field.type === 'date' || /birth|birthday|dob|^(month|day|year)$/i.test(field.name || '') || /birth|birthday|dob/i.test(`${field.id || ''} ${field.getAttribute('aria-label') || ''}`));
-    if (birthdays.length || /when(?:'s| is) your birthday|what(?:'s| is) your (?:birthday|date of birth)|enter your (?:birthday|date of birth)|add your birthday/.test(body)) return stop('birthday', 'enter your birthday and finish that step in the signup tab, then continue here.');
     if (/username.{0,55}(?:isn.t available|is not available|is unavailable|is already taken|is taken|already exists)|(?:this|that) username.{0,30}(?:taken|unavailable)|try another username/.test(body)) return stop('username-unavailable', 'that username is unavailable. stop and try another username.');
     if (all('[role="alert"], [aria-live="assertive"]').map(label).some(value => /error|incorrect|invalid|try again|couldn.t|can.t|not allowed|too many|must be|at least/.test(value))) return stop('unknown', 'the platform needs a correction. check its message, fix that step, then continue here.');
+    if (birthdays.length || /when(?:'s| is) your birthday|what(?:'s| is) your (?:birthday|date of birth)|enter your (?:birthday|date of birth)|add your birthday|(?:^|\n)\s*birthday\b/.test(body)) return stop('birthday', 'finish the birthday step in the signup tab, then continue here.');
     return null;
   };
   const signupPath = input.platform === 'instagram' ? /^\/accounts\/(emailsignup|signup|confirm_email)(\/|$)/ : /^\/signup(\/|$)/;
   const inspect = () => {
     const blocked = blockers();
-    if (blocked) return blocked;
+    if (blocked && (blocked.stage !== 'birthday' || input.platform !== 'instagram' || !signupPath.test(url.pathname))) return blocked;
     if (!signupPath.test(url.pathname)) {
       // Neither a public profile nor a home redirect proves account ownership.
       const links = all('a[href]');
@@ -53,17 +53,19 @@ async function signupStep(input) {
     };
     const matches = key => fields.filter(field => {
       const name = field.name || field.id || '';
-      const accessibleName = `${field.getAttribute('aria-label') || ''} ${field.placeholder || ''}`.trim();
+      const accessibleNames = [field.getAttribute('aria-label'), field.placeholder, ...Array.from(field.labels || [], item => item.textContent)].filter(Boolean).map(value => value.trim());
       if (patterns[key].test(name)) return true;
-      if (key === 'email') return field.type === 'email' || field.autocomplete === 'email' || /^(mobile number or email|email address|email)$/i.test(accessibleName);
+      if (key === 'email') return field.type === 'email' || field.autocomplete === 'email' || accessibleNames.some(value => /^(mobile number or email|email address|email)$/i.test(value));
       if (key === 'password') return field.type === 'password' && field.autocomplete !== 'current-password';
-      if (key === 'username') return field.autocomplete === 'username' || /^username$/i.test(accessibleName);
-      if (key === 'fullName') return field.autocomplete === 'name' || /^full name$/i.test(accessibleName);
-      return field.autocomplete === 'one-time-code' || /^(confirmation code|verification code|enter (?:a )?6[- ]digit code|6[- ]digit code)$/i.test(accessibleName);
+      if (key === 'username') return field.autocomplete === 'username' || accessibleNames.some(value => /^username$/i.test(value));
+      if (key === 'fullName') return field.autocomplete === 'name' || accessibleNames.some(value => /^(full name|name)$/i.test(value));
+      return field.autocomplete === 'one-time-code' || accessibleNames.some(value => /^(confirmation code|verification code|enter (?:a )?6[- ]digit code|6[- ]digit code)$/i.test(value));
     });
     if (fields.some(field => field.type === 'tel' && /phone|mobile/i.test(`${field.name} ${field.placeholder}`)) && !matches('email').length) return stop('phone', 'choose email signup in the platform tab, then continue here.');
     const recognized = Object.fromEntries(Object.keys(patterns).map(key => [key, matches(key)]));
     if (Object.values(recognized).some(found => found.length > 1)) return stop('unknown', 'the signup fields are unclear. finish this step in the platform tab.');
+    const fullDetails = ['email', 'fullName', 'username', 'password'].every(key => recognized[key].length === 1);
+    if (blocked && (!fullDetails || recognized.code.length)) return blocked;
     const buttons = all('button, input[type="submit"], [role="button"]');
     const send = buttons.filter(button => /^(send code|send verification code)$/.test(label(button)));
     const body = text();
@@ -75,24 +77,25 @@ async function signupStep(input) {
       if (!recipient || !/(?:email|e-mail|inbox)/.test(body)) return stop('unknown', 'the verification step does not show your signup email. check the recipient and complete that step yourself.');
       if (recognized.code[0].value && recognized.code[0].value !== input.code && state.submittedCodeField !== recognized.code[0]) return stop('unknown', 'a code is already entered. finish that step in the platform tab, then continue here.');
     }
-    const stage = codeStep ? 'email-code' : 'details';
+    const stage = blocked ? 'birthday' : codeStep ? 'email-code' : 'details';
     const keys = codeStep ? ['code'] : ['email', 'fullName', 'username', 'password'];
     const targets = keys.flatMap(key => recognized[key].map(element => ({ key, element })));
     if (!targets.length || new Set(targets.map(target => target.element)).size !== targets.length) return stop('unknown', 'open email signup in this tab, then continue here.');
     const normal = codeStep ? /^(next|continue|confirm|confirm email|verify|verify email|sign up|signup)$/ : /^(sign up|signup|next|continue)$/;
-    const candidates = input.platform === 'tiktok' && !codeStep && send.length === 1 ? send : buttons.filter(button => normal.test(label(button)));
+    const candidates = input.platform === 'tiktok' && !codeStep && send.length === 1 ? send : buttons.filter(button => normal.test(label(button)) || (input.platform === 'instagram' && !codeStep && fullDetails && label(button) === 'submit'));
     if (candidates.length !== 1) return stop('unknown', 'the next signup button is unclear. finish that step in the platform tab.');
     const button = candidates[0];
     const form = button.form || targets[0].element.form;
     if (form?.action) { try { if (new URL(form.action, url).origin !== url.origin) return stop('unknown', 'the signup form changed. review it in the platform tab.'); } catch { return stop('unknown', 'the signup form changed. review it in the platform tab.'); } }
     if (targets.some(({ element }) => element.form && form && element.form !== form)) return stop('unknown', 'the signup fields belong to different forms. finish this step yourself.');
     const signature = JSON.stringify([url.pathname, stage, targets.map(({ key, element }) => [key, element.name || element.id || element.type]), label(button)]);
-    return { stage, signature, canSubmit: true, message: codeStep ? 'waiting for the email code…' : 'entering your signup details…', targets, button };
+    return { stage, signature, canSubmit: !blocked, canFill: Boolean(blocked), message: blocked?.message || (codeStep ? 'waiting for the email code…' : 'entering your signup details…'), targets, button };
   };
   const view = inspect();
   const publicView = value => { const { targets, button, ...result } = value; return { ...result, documentId: state.id }; };
-  if (input.mode !== 'act') return publicView(view);
-  if (!view.canSubmit || input.expectedDocument !== state.id || input.expectedSignature !== view.signature || state.submitted.has(view.signature)) return { ...publicView(view), submitted: false, message: 'the signup step changed or was already sent. check the platform tab.' };
+  const fillOnly = input.mode === 'fill' && view.stage === 'birthday' && view.canFill;
+  if (input.mode !== 'act' && !fillOnly) return publicView(view);
+  if ((!fillOnly && !view.canSubmit) || input.expectedDocument !== state.id || input.expectedSignature !== view.signature || state.submitted.has(view.signature)) return { ...publicView(view), submitted: false, message: 'the signup step changed or was already sent. check the platform tab.' };
   if (view.stage === 'email-code' && !/^\d{6}$/.test(input.code || '')) return { ...publicView(view), submitted: false, message: 'waiting for a fresh email code.' };
   const values = { email: input.email, username: input.username, fullName: input.fullName || input.username, password: input.password, code: input.code };
   for (const { key, element } of view.targets) {
@@ -110,7 +113,11 @@ async function signupStep(input) {
   await new Promise(resolve => setTimeout(resolve, 100));
   if (cancelled()) return { ...publicView(view), submitted: false, message: 'signup stopped.' };
   const blocked = blockers();
-  if (blocked) return { ...publicView(blocked), submitted: false };
+  if (blocked && (!fillOnly || blocked.stage !== 'birthday')) return { ...publicView(blocked), submitted: false };
+  if (fillOnly) {
+    const filled = location.href === url.href && view.targets.every(({ key, element }) => visible(element) && element.value === values[key]);
+    return { ...publicView(view), filled, submitted: false, message: filled ? 'details filled. choose your birthday and press submit in instagram, then continue here.' : 'the signup form changed. check its details before continuing.' };
+  }
   if (location.href !== url.href || !visible(view.button) || view.button.disabled || view.button.getAttribute('aria-disabled') === 'true' || view.targets.some(({ key, element }) => !visible(element) || element.value !== values[key] || (element.checkValidity && !element.checkValidity()))) return { ...publicView(view), submitted: false, message: 'check the signup fields and next button in the platform tab, then continue here.' };
   if (all('input[type="checkbox"]').some(field => field.required && !field.checked)) return { ...publicView(view), submitted: false, message: 'review the required choice on the platform, then continue here.' };
   state.submitted.add(view.signature);
