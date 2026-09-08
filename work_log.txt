@@ -1,3 +1,9 @@
+2026-09-08 | 0.6.10 simplify warm-up amounts and controls
+- user's screenshots showed default follows as a placeholder that could not be deleted. show actual calculated amounts, keep edit drafts stable across polls, and separate explicit saved overrides from automatic duration/pace-based limits. empty fields return to automatic on blur; malformed/out-of-range values cannot start.
+- remove the comments toggle and include comments in the visible automatic plan. a 10-minute auto session defaults to 10 likes, 2 follows and 1 comment; explicit 0 overrides remain off. the new panel passes the existing engine's comment opt-in when starting, without changing its pacing or validation rules for older clients.
+- remove explanatory gray hints, the automatic/custom label and privacy/report footer links from the working controls. keep public help/privacy pages with accurate comment-default disclosures. align the minutes number and unit with matching font size and line height.
+- verification: 174 automated checks pass, including amount editing, polls, empty/invalid values, duration/pace recalculation, saved overrides and zeros, legacy settings migration, submitted plans, mix defaults and simplified markup. live session/engagement on this exact extension remains unverified; public page and download are release checks.
+
 2026-09-08 | 0.6.9 return to auto warm-up
 - user shelved account creation and phone-provider work. remove signup controls/scripts from the website and generated panel; keep the signup source and tests for later behind a disabled bundled feature flag.
 - reject signup start/continue commands and stop older active jobs on update or runner contact, clearing temporary passwords while preserving local mailbox history/access. no mailbox network requests, private-window creation or new signup actions. remove TikTok/email host permissions and exclude private Instagram tabs from the warm-up picker.
