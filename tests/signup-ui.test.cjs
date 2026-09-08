@@ -147,6 +147,7 @@ test('failed start still clears the password and preserves its error through a p
   await h.timers[0].handler();
   assert.equal(h.node('error').textContent, 'signup tab closed');
   assert.equal(h.node('error').hidden, false);
+  assert.equal(h.node('message').hidden, true);
 });
 
 test('polling is limited to one pending request and cannot replace a newer stop result', async () => {

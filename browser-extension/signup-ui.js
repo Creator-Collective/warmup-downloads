@@ -27,6 +27,7 @@
   function showError(message = '') {
     node('error').textContent = message;
     node('error').hidden = !message;
+    node('message').hidden = Boolean(message);
   }
 
   function syncControls() {
