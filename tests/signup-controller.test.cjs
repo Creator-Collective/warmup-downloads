@@ -38,7 +38,7 @@ function harness(initial = {}, initialLocal = {}) {
   });
   const chrome = {
     sidePanel: { setPanelBehavior: async () => {} },
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.6' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.7' }), onMessage: event() },
     extension: { isAllowedIncognitoAccess: callback => callback(incognitoAllowed) },
     storage: { session: area(storage), local: area(local), onChanged: event() },
     tabs: {
@@ -240,6 +240,69 @@ test('manual birthday submission can advance to exact-recipient email verificati
   assert.equal(h.acts()[0].input.code, '654321');
   assert.equal(h.acts()[0].input.password, undefined);
   assert.equal(h.apiRequests.filter(request => request.body.action === 'prepare').length, 1);
+});
+
+test('a paused details attempt automatically notices the matching confirmation screen', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.onAct = () => ({ submitted: false, message: 'next button not ready' });
+  await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  assert.equal(h.storage.signupJob.detailsSubmitted, false);
+  const detailsActs = h.acts().length;
+  h.server.observation = { stage: 'email-code', signature: 'confirmation', documentId: 'confirmation-page', canSubmit: true };
+  await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'running');
+  assert.equal(h.storage.signupJob.detailsSubmitted, true);
+  assert.equal(h.storage.signupJob.waitingForCode, true);
+  assert.equal(h.apiRequests.at(-1).body.action, 'code');
+  assert.equal(h.acts().length, detailsActs);
+  h.time(6000);
+  h.server.verification = { id: CODE_ID, code: '123456', receivedAt: new Date(h.now() - 1000).toISOString() };
+  h.server.onAct = input => ({ submitted: true, signature: input.expectedSignature, documentId: input.expectedDocument });
+  await h.tick();
+  assert.equal(h.acts().at(-1).input.code, '123456');
+  assert.equal(h.acts().at(-1).input.password, undefined);
+});
+
+test('paused observation cannot resume details, unclear recipients, security checks or invalid code forms', async () => {
+  for (const observed of [
+    { stage: 'details', canSubmit: true, signature: 'details' },
+    { stage: 'unknown', canSubmit: false, message: 'recipient does not match' },
+    { stage: 'captcha', canSubmit: false },
+    { stage: 'email-code', canSubmit: false, signature: 'code' },
+    { stage: 'email-code', canSubmit: true, signature: '' },
+  ]) {
+    const h = harness(); await h.start(); await h.ready();
+    h.server.observation = copy(birthdayForm); await h.tick();
+    h.server.observation = { documentId: 'new-step', ...observed };
+    const before = h.apiRequests.length;
+    await h.tick();
+    assert.equal(h.storage.signupJob.phase, 'paused', observed.stage);
+    assert.equal(h.acts().length, 0);
+    assert.equal(h.apiRequests.length, before);
+  }
+});
+
+test('a paused new job with no details history does not start verification on its own', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = { stage: 'unknown', documentId: 'unknown', canSubmit: false }; await h.tick();
+  h.server.observation = { stage: 'email-code', documentId: 'code', signature: 'code', canSubmit: true }; await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  assert.equal(h.apiRequests.filter(request => request.body.action === 'code').length, 0);
+});
+
+test('a code-service failure stays paused instead of repeatedly auto-resuming the same screen', async () => {
+  const h = harness(); await h.start(); await h.ready();
+  h.server.observation = copy(birthdayForm); await h.tick();
+  h.server.observation = { stage: 'email-code', signature: 'confirmation', documentId: 'confirmation-page', canSubmit: true };
+  h.server.status = 503;
+  await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  assert.equal(h.storage.signupJob.codeScreenSeen, true);
+  const requests = h.apiRequests.length;
+  h.time(6000); await h.tick();
+  assert.equal(h.storage.signupJob.phase, 'paused');
+  assert.equal(h.apiRequests.length, requests);
 });
 
 test('restart preserves the prefilled email without risking a second signup', async () => {

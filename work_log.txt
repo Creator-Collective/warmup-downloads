@@ -1,3 +1,10 @@
+2026-09-08 0.6.7: submit readiness and confirmation-code continuation
+- user screenshots at 5:31-5:32 pm confirm populated details and May 30, 2006, followed by Instagram's confirmation screen after manual submission. the panel retained its prior pre-submit pause.
+- read-only, exact-mailbox lookup confirmed an Instagram verification email received at 21:31:59 UTC with a parsed code. the code was provided to the user for this active attempt; no codes, passwords or mailbox capabilities are stored in this log or fixtures.
+- reproduce confirmation text without the literal word email. require the exact visible saved address plus a delivery prompt instead. paused jobs with details history observe for the first matching code screen and resume code retrieval once, not details submission, security checks or repeated service failures.
+- replace the one-shot final readiness check with a bounded three-second wait that reacquires the same form without refilling. screenshots identify the failed guard but not which condition failed; delayed validation and replaced controls are covered, with specific field/button diagnostics if it still pauses.
+- verification: 151 automated tests pass. live details filling, birthday selection and incoming email delivery are confirmed by screenshots and the mailbox record. automatic submission, automatic code entry and completed signup remain unverified. no backend changes.
+
 2026-09-08 0.6.6: saved signup recovery retry
 - reproduced the 4:57 pm screenshot state: recovered uncertain/prefilled history always paused before filling, and Continue re-entered that same guard. the blank Instagram form did not prove whether an earlier document had submitted.
 - recognized forms offer Retry signup with an explicit resubmission warning. the user's click authorizes one attempt with the same email and birthday, pinned to tab, Chrome document and observed form. polling alone cannot authorize it, and attempts/approval consumption prevent automatic repeats.

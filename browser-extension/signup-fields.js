@@ -150,7 +150,7 @@ async function signupStep(input) {
     if (codeStep) {
       const emails = body.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/g) || [];
       const recipient = typeof input.email === 'string' && (emails.includes(input.email.toLowerCase()) || recognized.email.some(field => field.value.toLowerCase() === input.email.toLowerCase()));
-      if (!recipient || !/(?:email|e-mail|inbox)/.test(body)) return stop('unknown', 'the verification step does not show your signup email. check the recipient and complete that step yourself.');
+      if (!recipient || !codeSent) return stop('unknown', 'the verification step does not show your signup email. check the recipient and complete that step yourself.');
       if (recognized.code[0].value && recognized.code[0].value !== input.code && state.submittedCodeField !== recognized.code[0]) return stop('unknown', 'a code is already entered. finish that step in the platform tab, then continue here.');
     }
     const stage = blocked && !birthday ? 'birthday' : codeStep ? 'email-code' : 'details';
@@ -197,12 +197,31 @@ async function signupStep(input) {
     const filled = location.href === url.href && view.targets.every(({ key, element }) => visible(element) && element.value === values[key]);
     return { ...publicView(view), filled, submitted: false, message: filled ? 'details filled. choose your birthday and press submit in instagram, then continue here.' : 'the signup form changed. check its details before continuing.' };
   }
-  if (location.href !== url.href || !visible(view.button) || view.button.disabled || view.button.getAttribute('aria-disabled') === 'true' || view.targets.some(({ key, element }) => !visible(element) || element.value !== values[key] || (element.checkValidity && !element.checkValidity()))) return { ...publicView(view), submitted: false, message: 'check the signup fields and next button in the platform tab, then continue here.' };
-  if (all('input[type="checkbox"]').some(field => field.required && !field.checked)) return { ...publicView(view), submitted: false, message: 'review the required choice on the platform, then continue here.' };
-  if (view.birthday && !view.birthday.every(field => visible(field.element) && birthdayMatches(field))) return { ...publicView(view), submitted: false, message: 'the birthday changed. check the signup tab before continuing.' };
-  state.submitted.add(view.signature);
-  if (view.stage === 'email-code') state.submittedCodeField = view.targets[0].element;
-  view.button.click();
-  return { ...publicView(view), submitted: true, message: view.stage === 'email-code' ? 'email code sent. checking the next step…' : 'signup details sent. checking the next step…' };
+  // Validation can replace the button or inputs after change events. Observe
+  // the same form again without refilling, and allow a bounded readiness wait.
+  let pendingMessage = 'the signup form is still changing. check the signup tab.';
+  for (let check = 0; check < 31; check++) {
+    if (cancelled()) return { ...publicView(view), submitted: false, message: 'signup stopped.' };
+    if (location.href !== url.href) return { ...publicView(view), submitted: false, message: 'the signup page changed. check its tab.' };
+    const blocked = blockers();
+    if (blocked && !(view.birthday && blocked.stage === 'birthday')) return { ...publicView(blocked), submitted: false };
+    const current = inspect();
+    if (current.canSubmit) {
+      if (current.signature !== view.signature) return { ...publicView(view), submitted: false, message: 'the signup form changed. check its tab before continuing.' };
+      if (current.targets.some(({ key, element }) => element.value !== values[key])) return { ...publicView(view), submitted: false, message: 'a signup field changed after filling. check its details in the signup tab.' };
+      const invalid = current.targets.find(({ element }) => element.validity ? !element.validity.valid : element.checkValidity && !element.checkValidity());
+      if (all('input[type="checkbox"]').some(field => field.required && !field.checked)) return { ...publicView(view), submitted: false, message: 'review the required choice on the platform, then continue here.' };
+      if (current.birthday && !current.birthday.every(field => visible(field.element) && birthdayMatches(field))) return { ...publicView(view), submitted: false, message: 'the birthday changed. check the signup tab before continuing.' };
+      if (!invalid && !current.button.disabled && current.button.getAttribute('aria-disabled') !== 'true') {
+        state.submitted.add(current.signature);
+        if (current.stage === 'email-code') state.submittedCodeField = current.targets[0].element;
+        current.button.click();
+        return { ...publicView(current), submitted: true, message: current.stage === 'email-code' ? 'email code sent. checking the next step…' : 'signup details sent. checking the next step…' };
+      }
+      pendingMessage = invalid ? `the platform has not accepted the ${invalid.key === 'fullName' ? 'name' : invalid.key} field. check it in the signup tab.` : 'the platform has not enabled the next button yet. check the signup tab.';
+    } else pendingMessage = current.message || pendingMessage;
+    if (check < 30) await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return { ...publicView(view), submitted: false, message: pendingMessage };
 }
 if (typeof module !== 'undefined') module.exports = { signupStep };
