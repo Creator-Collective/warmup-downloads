@@ -195,6 +195,53 @@ async function recoverCommentDraft(request) {
   pendingDraft = false;
   return result.cleared ? 'skipped' : 'draft-retained';
 }
+async function verifyFollowOnFreshPost(request) {
+  assertRunning();
+  if (currentPlatform() !== 'instagram' || !request.author || !platformConfig().validPost(request.id)) return false;
+  let tabId;
+  const until = Math.min(Date.now() + 8000, job.deadline);
+  try {
+    // The viewer can hide Follow after success without showing Following. A fresh
+    // post exposes that explicit state; this temporary tab never performs actions.
+    const tab = await chrome.tabs.create({ url: request.id, active: false });
+    tabId = tab.id;
+    while (Date.now() < until) {
+      assertRunning();
+      const current = await chrome.tabs.get(tabId);
+      if (current.pendingUrl && current.pendingUrl !== request.id) return false;
+      if (current.url !== request.id && current.url !== 'about:blank' && current.url) return false;
+      if (current.status === 'complete' && current.url === request.id && !current.pendingUrl) {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['instagram.js'] });
+        assertRunning();
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (request, deadline) => Date.now() < deadline ? globalThis.inspectInstagram({ ...request, action: 'verify-follow' }) : {},
+          args: [request, job.deadline]
+        });
+        assertRunning();
+        const result = results[0]?.result;
+        const committed = await chrome.tabs.get(tabId);
+        assertRunning();
+        if (committed.url !== request.id || committed.pendingUrl) return false;
+        if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
+        if (result?.confirmed) return true;
+      }
+      await sleep(500);
+    }
+    return false;
+  } catch {
+    assertRunning();
+    // An unavailable read-only confirmation is not another failed follow attempt.
+    return false;
+  } finally {
+    if (tabId !== undefined) {
+      try {
+        const current = await chrome.tabs.get(tabId);
+        if ((!current.pendingUrl || current.pendingUrl === request.id) && [request.id, 'about:blank', ''].includes(current.url || '')) await chrome.tabs.remove(tabId);
+      } catch { /* The user may already have closed the temporary tab. */ }
+    }
+  }
+}
 async function engage(action, post, comment) {
   assertRunning();
   const request = { id: post.id, author: post.author, comment, ...(action === 'comment' ? { caption: post.caption } : {}) };
@@ -254,8 +301,10 @@ async function engage(action, post, comment) {
     if (result.blocked) throw new Error(result.blocked);
     if (result.confirmed) { pendingEngagement = false; pendingDraft = false; return 'confirmed'; }
   }
+  const confirmed = action === 'follow' && await verifyFollowOnFreshPost(request);
   pendingEngagement = false;
   pendingDraft = false;
+  if (confirmed) return 'confirmed';
   return 'uncertain';
 }
 function render(state) {

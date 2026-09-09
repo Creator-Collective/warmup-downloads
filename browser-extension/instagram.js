@@ -116,9 +116,9 @@ function inspectInstagram(request = {}) {
   while (actionBar && actionBar !== scope && !control(actionBar, 'save') && !control(actionBar, 'unsave')) actionBar = actionBar.parentElement;
   if (actionBar === scope) actionBar = null;
   const like = actionBar ? control(actionBar, 'like') : null;
-  let follow = control(scope, 'follow');
   // Only the author's follow button near the post header, never suggestions or commenters.
-  if (!authorLink || !follow || Math.abs(follow.getBoundingClientRect().top - authorLink.getBoundingClientRect().top) > 48) follow = null;
+  const authorControl = name => control(scope, name, element => authorLink && Math.abs(element.getBoundingClientRect().top - authorLink.getBoundingClientRect().top) <= 48);
+  const follow = authorControl('follow');
   // Viewer navigation sits outside the article; carousel arrows sit inside it.
   const viewerNext = postDialog && scope !== postDialog ? control(postDialog, 'next', element => !scope.contains(element)) : null;
   const videos = [...scope.querySelectorAll('video')].filter(visible);
@@ -162,10 +162,7 @@ function inspectInstagram(request = {}) {
     return { cleared: Boolean(ownDraft && before.drafted && !before.submitted && textarea.value === '') };
   }
   if (request.action === 'verify-like') return { confirmed: Boolean(actionBar && control(actionBar, 'unlike')) };
-  if (request.action === 'verify-follow') return { confirmed: ['following', 'requested'].some(name => {
-    const button = control(scope, name);
-    return button && authorLink && Math.abs(button.getBoundingClientRect().top - authorLink.getBoundingClientRect().top) <= 48;
-  }) };
+  if (request.action === 'verify-follow') return { confirmed: ['following', 'requested'].some(name => Boolean(authorControl(name))) };
   if (request.action === 'verify-comment') {
     return { confirmed: confirmedOwnComment(globalThis.collectiveCommentBefore, commentRows(request.comment), textarea?.value, id) };
   }

@@ -153,6 +153,111 @@ test('runner waits for delayed follow confirmation before treating it as uncerta
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
 });
 
+async function runHiddenFollow(configure = () => {}) {
+ const viewer = commentComposer();
+ const fresh = commentComposer();
+ viewer.state.follow = 'Follow';
+ fresh.state.follow = 'Following';
+ let result;
+ let continued = false;
+ let now = Date.now();
+ const created = [];
+ const removed = [];
+ const confirmationTab = { id: 81, url: viewer.request.id, status: 'complete' };
+ const h = runnerContext('starting', async (settings, adapter) => {
+   result = await adapter.engage('follow', viewer.request);
+   await adapter.inspect();
+   continued = true;
+ });
+ h.ctx.Date = { now: () => now };
+ h.ctx.setTimeout = (fn, ms) => setTimeout(() => { if (ms < 3000) now += ms; fn(); }, ms >= 3000 ? 100 : 0);
+ h.chrome.tabs.get = async id => id === 81 ? confirmationTab : { id: 7, url: viewer.request.id };
+ h.chrome.tabs.create = async options => { created.push(options); return confirmationTab; };
+ h.chrome.tabs.remove = async id => { removed.push(id); };
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   const page = request.target.tabId === 81 ? fresh : viewer;
+   if (request.files) { page.load(); return [{ result: null }]; }
+   return [{ result: await page.inject(request.func, request.args) }];
+ };
+ configure({ viewer, fresh, h, confirmationTab });
+ h.start();
+ for (let i = 0; i < 300 && !h.calls.some(call => call.patch); i++) await new Promise(resolve => setTimeout(resolve, 2));
+ assert.ok(h.calls.some(call => call.patch), 'follow confirmation must settle');
+ return { viewer, fresh, h, created, removed, result, continued };
+}
+
+test('a hidden viewer follow is confirmed from the same fresh post without another follow click', async () => {
+ for (const state of ['Following', 'Requested']) {
+   const { viewer, fresh, h, created, removed, result, continued } = await runHiddenFollow(({ fresh }) => { fresh.state.follow = state; });
+   assert.equal(result, 'confirmed');
+   assert.equal(viewer.followClicks, 1);
+   assert.equal(fresh.followClicks, 0);
+   assert.deepEqual(JSON.parse(JSON.stringify(created)), [{ url: viewer.request.id, active: false }]);
+   assert.deepEqual(removed, [81]);
+   assert.equal(continued, true);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ }
+});
+
+test('missing follow confirmation or a different author remains uncertain and never retries the follow', async () => {
+ for (const change of [fresh => { fresh.state.follow = null; }, fresh => { fresh.author.href = 'https://www.instagram.com/someone-else/'; }]) {
+   const { viewer, fresh, removed, result, continued } = await runHiddenFollow(({ fresh }) => { change(fresh); });
+   assert.equal(result, 'uncertain');
+   assert.equal(viewer.followClicks, 1);
+   assert.equal(fresh.followClicks, 0);
+   assert.deepEqual(removed, [81]);
+   assert.equal(continued, true);
+ }
+});
+
+test('failed read-only confirmation does not stop the session', async () => {
+ const { viewer, result, continued, removed } = await runHiddenFollow(({ h }) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (request.target.tabId === 81) throw new Error('temporary read error');
+     return execute(request);
+   };
+ });
+ assert.equal(result, 'uncertain');
+ assert.equal(viewer.followClicks, 1);
+ assert.equal(continued, true);
+ assert.deepEqual(removed, [81]);
+});
+
+test('Stop or the deadline during fallback closes only its temporary tab and prevents further inspection', async () => {
+ for (const expired of [false, true]) {
+   const { viewer, h, removed, continued } = await runHiddenFollow(({ h, confirmationTab }) => {
+     h.chrome.tabs.create = async () => {
+       if (expired) h.job.deadline = Date.now() - 1;
+       else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+       return confirmationTab;
+     };
+   });
+   assert.equal(viewer.followClicks, 1);
+   assert.deepEqual(removed, [81]);
+   assert.equal(continued, false);
+   assert.equal(h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'error' && /action may have gone through/.test(call.patch.message)));
+ }
+});
+
+test('a confirmation tab navigated elsewhere is neither trusted nor closed', async () => {
+ const { result, removed, continued } = await runHiddenFollow(({ confirmationTab }) => {
+   confirmationTab.url = 'https://example.com/';
+ });
+ assert.equal(result, 'uncertain');
+ assert.deepEqual(removed, []);
+ assert.equal(continued, true);
+});
+
+test('account restrictions found during follow confirmation still stop the session', async () => {
+ const { h, removed, continued } = await runHiddenFollow(({ fresh }) => { fresh.state.blocked = true; });
+ assert.equal(continued, false);
+ assert.deepEqual(removed, [81]);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'error'));
+});
+
 async function runComment(configure = () => {}) {
  const composer = commentComposer();
  let result;

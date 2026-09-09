@@ -1,7 +1,7 @@
 {
   "name": "creator-collective-warmup-web",
   "private": true,
-  "version": "0.6.18",
+  "version": "0.6.19",
   "scripts": {
     "check": "node --test tests/*.test.cjs",
     "package:extension": "node scripts/package-extension.mjs"
