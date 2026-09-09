@@ -34,6 +34,7 @@ test('comment history renders complete readable text, labelled outcomes and safe
   const meta = list.children[0].children[0].children;
   assert.equal(meta[0].tag, 'a');
   assert.equal(meta[0].href, entry().url);
+  assert.equal(meta[0].textContent, "@creator's post");
   assert.equal(meta[0].target, '_blank');
   assert.match(meta[0].rel, /noopener/);
   assert.equal(meta[1].textContent, 'posted');

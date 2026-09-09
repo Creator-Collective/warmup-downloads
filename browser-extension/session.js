@@ -40,6 +40,28 @@ function contextualComment(caption, terms) {
   return `this part stood out: “${sentence.replace(/[.!]+$/u, '')}”`;
 }
 
+function engagementMessage(action, post, comment, result) {
+  let account = typeof post.author === 'string' ? post.author.match(/^\/?@?([\w.]{1,30})\/?$/)?.[1] : null;
+  let reference = 'this post';
+  try {
+    const url = new URL(post.id);
+    if (url.protocol === 'https:' && !url.username && !url.password && !url.port) {
+      const instagram = ['www.instagram.com', 'instagram.com'].includes(url.hostname) && url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/);
+      const tiktok = ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && url.pathname.match(/^\/@([\w.]{1,30})\/video\/(\d+)\/?$/);
+      if (instagram) reference = `post ${instagram[1]}`;
+      if (tiktok) { account ||= tiktok[1]; reference = `video ${tiktok[2]}`; }
+    }
+  } catch { /* The account may still be available while the post URL is missing. */ }
+  const subject = action === 'follow' ? (account ? `@${account}` : `the author of ${reference}`) : (account ? `@${account}'s post` : reference);
+  const pending = `${{ like: 'liking', follow: 'following', comment: 'commenting on' }[action]} ${subject}`;
+  const details = action === 'comment' ? `: ${comment || ''}` : '';
+  if (result === 'pending') return `${pending}${details || '...'}`;
+  if (result === 'confirmed') return `${{ like: 'liked', follow: 'followed', comment: 'commented on' }[action]} ${subject}${details || '.'}`;
+  if (result === 'uncertain') return `couldn't confirm ${pending}${details || '. continuing.'}`;
+  if (action === 'comment' && result === 'draft-retained') return `comment skipped for ${subject}. a draft may remain; comments are off for this session. continuing warm-up.`;
+  return `${action} skipped for ${subject}. the post changed or its control wasn't available.`;
+}
+
 function pickAction(eligible, weights, random = Math.random) {
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0);
   const choices = [['scroll', 1], ['read', 1], ['scroll', 1]];
@@ -321,7 +343,7 @@ async function runSession(settings, adapter, signal, options = {}) {
           comment = commentText;
           usedComments.add(comment.toLocaleLowerCase());
         }
-        update(`${{ like: 'liking the post', follow: 'following the author', comment: 'posting a caption-based comment' }[action]}…`);
+        update(engagementMessage(action, post, comment, 'pending'));
         const result = await adapter.engage(action, post, comment, signal);
         if (action === 'comment' && ['confirmed', 'uncertain'].includes(result)) {
           comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result });
@@ -331,15 +353,12 @@ async function runSession(settings, adapter, signal, options = {}) {
         else if (result === 'uncertain') {
           unconfirmed[action] += 1;
           stats.skipped += 1;
-          update(`${action} may have gone through, but couldn’t confirm it. continuing.`);
         }
         else stats.skipped += 1;
         if (action === 'comment' && result === 'draft-retained') {
           pausedActions.add('comment');
-          update('comment skipped. a draft may remain; comments are off for this session. continuing warm-up.');
-        } else {
-          update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : result === 'uncertain' ? `${action} unconfirmed. continuing.` : `${action} skipped. the post changed or its control wasn’t available.`);
         }
+        update(engagementMessage(action, post, comment, result));
       }
     }
     await pause(pauseAfter);

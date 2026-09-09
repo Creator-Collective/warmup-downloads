@@ -113,7 +113,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return null;
     }
     const phase = ['running', 'stopped', 'complete', 'error'].includes(patch.phase) ? patch.phase : job.phase;
-    const text = typeof patch.message === 'string' ? patch.message.slice(0, 240) : job.message;
+    const text = typeof patch.message === 'string' ? patch.message.slice(0, 600) : job.message;
     const stats = { ...job.stats };
     for (const name of ['scroll','read','search','open','like','follow','comment','skipped']) if (Number.isInteger(patch.stats?.[name]) && patch.stats[name] >= 0) stats[name] = patch.stats[name];
     const activity = text !== job.message ? [{ time: Date.now(), message: text }, ...job.activity].slice(0, 12) : job.activity;
