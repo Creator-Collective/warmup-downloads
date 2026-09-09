@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.13 higher limits and longer watches
+- raise automatic 20-minute warm-up sessions to 40 likes, 15 follows and 5 instagram comments. tiktok comments stay disabled, so the same duration targets 40 likes, 15 follows and 0 comments there. manual limits remain editable with higher caps.
+- slow down normal video browsing from old quick watches to mostly 8-18 seconds, try full-video watches more often, and keep short breaks less rigid at about every 5-9 minutes.
+- files: plan.js, browser-extension/{plan,session,manifest}, dashboard/setup/store/readme/package metadata, tests and 0.6.13 archives.
+- verified: 199 automated checks pass. the beta and store packages match the reviewed extension source. no live high-engagement session has been run on this exact release.
+
 2026-09-09 | 0.6.12 tiktok warm-up
 - add tiktok as a warm-up platform alongside instagram. the dashboard and side panel choose the platform, list matching regular Chrome tabs, open that platform, and run the timed session against the selected site.
 - add a conservative tiktok observer for search-result videos, current video context, next-video movement, likes, follows and playback time. tiktok comments stay disabled until live controls are verified; instagram behavior is retained.

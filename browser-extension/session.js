@@ -50,7 +50,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const deadline = startedAt + settings.minutes * 60000;
   const nextAllowed = { like: startedAt + 30000, follow: startedAt + 120000, comment: startedAt + 180000 };
   let nextEngagement = startedAt + 30000;
-  let nextBreak = startedAt + randomBetween(360000, 540000, random);
+  let nextBreak = startedAt + randomBetween(300000, 540000, random);
   const termWindowMs = Math.max(10000, Math.min(120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
   let termIndex = 0;
@@ -67,22 +67,22 @@ async function runSession(settings, adapter, signal, options = {}) {
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
   const pause = async (action = 'browse') => {
     if (!running()) return;
-    const ranges = { transition: [1000, 3000], browse: [2000, 4000], watch: [3000, 7000], read: [6000, 10000], like: [18000, 35000], follow: [25000, 50000], comment: [30000, 60000] };
+    const ranges = { transition: [1200, 4200], browse: [3000, 7000], watch: [8000, 18000], read: [9000, 18000], like: [18000, 40000], follow: [25000, 55000], comment: [30000, 70000] };
     let [min, max] = ranges[action] || ranges.browse;
     let fullWatchMs = null;
     if (now() >= nextBreak) {
-      min = 15000; max = 25000;
-      nextBreak = now() + randomBetween(360000, 540000, random);
+      min = 20000; max = 45000;
+      nextBreak = now() + randomBetween(300000, 540000, random);
       update('taking a longer break…');
     } else if (action === 'watch') {
-      const tryFullWatch = !lastWatchWasFull && random() < 0.15;
+      const tryFullWatch = !lastWatchWasFull && random() < 0.35;
       lastWatchWasFull = false;
       if (tryFullWatch) {
         const page = await adapter.inspect(signal);
         if (!running()) return;
         if (page.blocked) throw new Error(page.blocked);
         const remaining = page.post?.viewer ? page.post.videoRemainingMs : null;
-        if (Number.isFinite(remaining) && remaining > 7000 * settings.pauseScale && remaining <= 120000 &&
+        if (Number.isFinite(remaining) && remaining > 12000 * settings.pauseScale && remaining <= 120000 &&
             remaining <= Math.min(deadline, nextTermAt) - now()) {
           fullWatchMs = remaining;
           lastWatchWasFull = true;
