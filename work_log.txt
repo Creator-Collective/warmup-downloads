@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.15 bursty browsing
+- use research-informed browsing shape from live feedback: quick skim bursts, slower watches and occasional full-video watches when playback data and remaining time allow it. full-watch attempts are spaced roughly every 16-24 videos, not every post.
+- raise automatic likes and slightly raise follows while keeping comments unchanged. a 30-minute auto instagram session now shows 90 likes, 27 follows and 8 comments. tiktok comments stay disabled.
+- files: plan.js, browser-extension/{plan,session,manifest}, dashboard/setup/store/readme/package metadata, tests and 0.6.15 archives.
+- verified: 200 automated checks pass. the beta and store packages match the reviewed extension source. no live high-engagement session has been run on this exact release.
+
 2026-09-09 | 0.6.14 like cadence
 - make likes pace toward the visible session goal sooner instead of waiting only on random action selection. a 30-minute auto session still shows 60 likes, but now corrects if likes fall behind in the first few minutes.
 - keep video watches between actions and keep likes from firing on every video. tiktok comments stay disabled; account creation remains shelved.

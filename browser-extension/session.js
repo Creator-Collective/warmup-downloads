@@ -83,29 +83,44 @@ async function runSession(settings, adapter, signal, options = {}) {
   let needsSearchScroll = false;
   let previousAction;
   let lastWatchWasFull = false;
+  let skimBurstRemaining = 0;
+  let videosSinceFullWatch = 0;
+  let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
+  const viewerPause = () => {
+    videosSinceFullWatch += 1;
+    if (!lastWatchWasFull && videosSinceFullWatch >= nextFullWatchAfter) return 'fullwatch';
+    if (skimBurstRemaining <= 0 && random() < 0.42 / settings.pauseScale) skimBurstRemaining = randomBetween(1, 3, random);
+    if (skimBurstRemaining > 0) {
+      skimBurstRemaining -= 1;
+      return 'skim';
+    }
+    return 'watch';
+  };
   const pause = async (action = 'browse') => {
     if (!running()) return;
-    const ranges = { transition: [1200, 4200], browse: [3000, 7000], watch: [8000, 18000], read: [9000, 18000], like: [18000, 40000], follow: [25000, 55000], comment: [30000, 70000] };
+    const ranges = { transition: [900, 3200], browse: [1800, 5200], skim: [700, 1800], watch: [6000, 16000], fullwatch: [14000, 26000], read: [7000, 16000], like: [12000, 30000], follow: [20000, 48000], comment: [30000, 70000] };
     let [min, max] = ranges[action] || ranges.browse;
     let fullWatchMs = null;
     if (now() >= nextBreak) {
       min = 20000; max = 45000;
       nextBreak = now() + randomBetween(300000, 540000, random);
       update('taking a longer break…');
-    } else if (action === 'watch') {
-      const tryFullWatch = !lastWatchWasFull && random() < 0.35;
+    } else if (action === 'watch' || action === 'fullwatch') {
+      const tryFullWatch = action === 'fullwatch' || (!lastWatchWasFull && random() < 0.25);
       lastWatchWasFull = false;
       if (tryFullWatch) {
         const page = await adapter.inspect(signal);
         if (!running()) return;
         if (page.blocked) throw new Error(page.blocked);
         const remaining = page.post?.viewer ? page.post.videoRemainingMs : null;
-        if (Number.isFinite(remaining) && remaining > 12000 * settings.pauseScale && remaining <= 120000 &&
+        if (Number.isFinite(remaining) && remaining > 10000 * settings.pauseScale && remaining <= 120000 &&
             remaining <= Math.min(deadline, nextTermAt) - now()) {
           fullWatchMs = remaining;
           lastWatchWasFull = true;
+          videosSinceFullWatch = 0;
+          nextFullWatchAfter = randomBetween(16, 24, random);
           update('staying for the rest of this video…');
         }
       }
@@ -151,7 +166,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       stats.open += 1;
       stepsSinceSearch += 1;
       update('watching a post from your search.');
-      pauseAfter = 'watch';
+      pauseAfter = viewerPause();
     } else {
       const post = page.post;
       const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms) : null;
@@ -183,7 +198,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (moved === 'login') throw new Error(`sign in to ${platform}, then start a new session.`);
         if (moved) { stats.scroll += 1; stalled = 0; } else { stats.skipped += 1; stalled += 1; }
         if (post && (!inViewer || !moved)) await adapter.leavePost(signal);
-        if (inViewer && moved) pauseAfter = 'watch';
+        if (inViewer && moved) pauseAfter = viewerPause();
         update(inViewer ? (moved ? 'watching the next post.' : 'reached the end of these results. finding more…') : (moved ? 'scrolled to more content.' : 'no visible movement. looking for another post…'));
       } else {
         const key = action === 'follow' ? post.author : post.id;

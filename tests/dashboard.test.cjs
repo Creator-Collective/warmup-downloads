@@ -50,12 +50,12 @@ test('side panel connects directly and retains activity when reopened',async()=>
 
 test('automatic amounts are editable values, including comments, not placeholders',()=>{
  const h=dashboard();
- for(const [action,amount] of Object.entries({like:'20',follow:'8',comment:'3'})) {
+ for(const [action,amount] of Object.entries({like:'30',follow:'9',comment:'3'})) {
   assert.equal(h.element(`limit-${action}`).value,amount);
   assert.equal(h.element(`limit-${action}`).placeholder,'');
   assert.equal(h.element(`limit-${action}`).disabled,false);
  }
- assert.deepEqual(h.settings().limits,{like:20,follow:8,comment:3});
+ assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
  assert.deepEqual(h.saved().customLimits,{});
 });
 
@@ -76,7 +76,7 @@ test('clearing and typing an amount is stable across activity polls',()=>{
 test('an empty amount returns to automatic on blur without treating invalid input as zero',()=>{
  const h=dashboard();
  h.edit('limit-follow','');h.element('limit-follow').listeners.blur();
- assert.equal(h.element('limit-follow').value,'8');
+ assert.equal(h.element('limit-follow').value,'9');
  assert.deepEqual(h.saved().customLimits,{});
  h.element('limit-follow').validity={badInput:true};
  h.edit('limit-follow','');h.element('limit-follow').listeners.blur();
@@ -87,23 +87,23 @@ test('an empty amount returns to automatic on blur without treating invalid inpu
 
 test('duration and pacing recalculate only automatic amounts, preserving typed zero',()=>{
  const h=dashboard();
- h.edit('minutes','20');assert.deepEqual(h.settings().limits,{like:40,follow:15,comment:5});
+ h.edit('minutes','20');assert.deepEqual(h.settings().limits,{like:60,follow:18,comment:5});
  h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
- h.edit('pace','slow');assert.deepEqual(h.settings().limits,{like:20,follow:0,comment:3});
- h.edit('minutes','60');assert.deepEqual(h.settings().limits,{like:60,follow:0,comment:8});
+ h.edit('pace','slow');assert.deepEqual(h.settings().limits,{like:30,follow:0,comment:3});
+ h.edit('minutes','60');assert.deepEqual(h.settings().limits,{like:90,follow:0,comment:8});
  assert.equal(h.element('limit-follow').value,'0');
  h.element('reset-limits').listeners.click();
- assert.deepEqual(h.settings().limits,{like:60,follow:23,comment:8});
+ assert.deepEqual(h.settings().limits,{like:90,follow:27,comment:8});
 });
 
 test('saved settings retain explicit overrides while automatic amounts keep following duration',()=>{
  const h=dashboard();
  h.edit('limit-comment','0');h.element('limit-comment').listeners.blur();
  const restored=dashboard(false,h.saved());restored.edit('minutes','20');
- assert.deepEqual(restored.settings().limits,{like:40,follow:15,comment:0});
+ assert.deepEqual(restored.settings().limits,{like:60,follow:18,comment:0});
  assert.deepEqual(restored.saved().customLimits,{comment:'0'});
  const legacy=dashboard(false,{minutes:'10','limit-like':'5','limit-follow':'','limit-comment':'',enableComments:false});
- assert.deepEqual(legacy.settings().limits,{like:5,follow:8,comment:3});
+ assert.deepEqual(legacy.settings().limits,{like:5,follow:9,comment:3});
 });
 
 test('comments can be edited directly and zero disables their session weight',()=>{
@@ -117,7 +117,7 @@ test('comments can be edited directly and zero disables their session weight',()
 
 test('out-of-range amounts and blank mix fields cannot start a session',async()=>{
  const h=dashboard(true);for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
- for(const value of ['-1','46','1.5']) {
+ for(const value of ['-1','61','1.5']) {
   h.edit('limit-follow',value);
   assert.equal(h.element('start').disabled,true,value);
   await h.element('session-form').listeners.submit({preventDefault(){}});
@@ -134,7 +134,7 @@ test('the submitted plan matches the visible automatic and custom amounts',async
  const request=h.requests.find(r=>r.type==='start');
  assert.equal(request.settings.enableComments,true);
  assert.equal(request.settings.customLimits.follow,0);
- assert.deepEqual(h.settings().limits,{like:20,follow:0,comment:3});
+ assert.deepEqual(h.settings().limits,{like:30,follow:0,comment:3});
  assert.equal(h.element('settings').disabled,true);
 });
 
@@ -146,7 +146,7 @@ test('tiktok switches the target tabs and disables comments',async()=>{
  assert.equal(h.element('open-instagram').textContent,'open tiktok to sign in ↗');
  assert.equal(h.element('limit-comment').value,'0');
  assert.equal(h.element('limit-comment').disabled,true);
- assert.deepEqual(h.settings().limits,{like:20,follow:8,comment:0});
+ assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:0});
  assert.equal(h.requests.at(-1).platform,'tiktok');
  await h.element('session-form').listeners.submit({preventDefault(){}});
  const request=h.requests.findLast(r=>r.type==='start');
@@ -198,7 +198,7 @@ test('reopened controls show the running plan and target without replacing their
 test('public running plan excludes runner tokens and unrelated stored data',()=>{
  const settings=validateSettings({niche:'branding',minutes:10,enableComments:true,customLimits:{follow:0,comment:0}});
  const state=publicState({token:'private-token',runnerTabId:90,tabId:7,phase:'running',settings:{...settings,privateData:'not public'},privateData:'not public'});
- assert.deepEqual(state.settings,{platform:'instagram',minutes:10,terms:['branding'],pace:'auto',limits:{like:20,follow:0,comment:0},weights:{like:2,follow:0,comment:0}});
+ assert.deepEqual(state.settings,{platform:'instagram',minutes:10,terms:['branding'],pace:'auto',limits:{like:30,follow:0,comment:0},weights:{like:2,follow:0,comment:0}});
  assert.equal(state.tabId,7);assert.equal(state.token,undefined);assert.equal(state.runnerTabId,undefined);
  assert.equal(state.privateData,undefined);assert.equal(state.settings.privateData,undefined);
 });
