@@ -131,6 +131,26 @@ function harness(overrides = {}) {
   return { adapter, options, calls, updates, controller, time: () => time };
 }
 
+test('comment history keeps exact confirmed and uncertain text after browsing, without saving skipped drafts', async () => {
+  for (const outcome of ['confirmed', 'uncertain', 'skipped', 'draft-retained']) {
+    const h = harness({ engage: async (action, post, text) => { h.calls.push([action, post.id, text]); return outcome; } });
+    await runSession(validateSettings({ ...input, minutes: 2, customLimits: { like: 0, follow: 0, comment: 1 } }), h.adapter, h.controller.signal, h.options);
+    const attempt = h.calls.find(call => call[0] === 'comment');
+    assert.ok(attempt);
+    const history = h.updates.at(-1).comments;
+    assert.ok(Array.isArray(history));
+    if (['confirmed', 'uncertain'].includes(outcome)) {
+      assert.equal(history.length, 1);
+      assert.equal(history[0].text, attempt[2]);
+      assert.equal(history[0].url, attempt[1]);
+      assert.equal(history[0].author, 'author-1');
+      assert.equal(history[0].status, outcome);
+      assert.ok(history[0].time > 0);
+      assert.equal(h.updates.find(update => /posting a caption/.test(update.message || '')).comments.length, 0);
+    } else assert.equal(history.length, 0);
+  }
+});
+
 test('session obeys all action caps, deduplicates authors, and never repeats caption replies', async () => {
   const h = harness();
   const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);

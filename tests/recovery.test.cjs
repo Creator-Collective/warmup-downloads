@@ -61,6 +61,27 @@ async function until(check) {
   assert.fail('the expected recovery did not finish');
 }
 
+test('comment history survives activity turnover, acknowledgement retries, worker restart and completion', async () => {
+  const h = background(); await h.start();
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  const comment = { text: 'this part stood out: a useful personal branding idea', url: 'https://www.instagram.com/p/example/', author: '/creator/', status: 'confirmed', time: 100100, secret: 'omit this' };
+  const patch = { phase: 'running', comments: [comment], message: 'comment confirmed.' };
+  await h.message({ type: 'runner-update', token: job.token, patch }, sender);
+  await h.message({ type: 'runner-update', token: job.token, patch }, sender);
+  for (let i = 0; i < 20; i++) await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: `watching post ${i}` } }, sender);
+  const restarted = background(h.job());
+  await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'finished' } }, sender);
+  const state = (await restarted.message({ type: 'state' })).data;
+  assert.equal(state.comments?.length, 1);
+  assert.equal(state.comments[0].text, comment.text);
+  assert.equal(state.comments[0].secret, undefined);
+  assert.equal(state.activity.length, 12);
+  assert.ok(!state.activity.some(item => item.message === 'comment confirmed.'));
+  assert.equal((await restarted.start()).ok, true);
+  assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
+});
+
 test('stop keeps the lock during acknowledgement grace, then closes only the dead runner', async () => {
   const h = background(); await h.start();
   const previous = h.job();
