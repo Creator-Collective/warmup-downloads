@@ -100,7 +100,7 @@ test('specific activity retains the complete username and longest generated comm
   const h = background(); await h.start();
   const job = h.job();
   const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
-  const text = `commented on @${'a'.repeat(30)}'s post: this part stood out: "${'word '.repeat(35).trim()}"`;
+  const text = `commented on @${'a'.repeat(30)}'s post: this part stood out: "${'something '.repeat(18).trim()}"`;
   assert.ok(text.length > 240 && text.length < 600);
   await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: text } }, sender);
   const state = (await h.message({ type: 'state' })).data;
