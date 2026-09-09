@@ -3,7 +3,7 @@
 Status: package prepared; not submitted or approved. Complete browser installation and fixture verification before submitting. A developer account, registration payment, policy attestations and final submission must be completed by the account owner.
 
 Name: Creator Collective Warm-up
-Summary: Run a timed niche browsing session on Instagram or TikTok, with limits and activity you control.
+Summary: Run a timed niche browsing session on Instagram or TikTok, with targets and activity you control.
 Single purpose: User-started, timed niche browsing sessions in a selected Instagram or TikTok tab.
 Homepage: https://creator-collective-warmup.vercel.app/
 Privacy policy: https://creator-collective-warmup.vercel.app/privacy.html
@@ -23,8 +23,8 @@ Permissions justification:
 - dashboard content script: connect only the exact Creator Collective warm-up origin to the extension. Other websites and iframes cannot use the bridge.
 
 Data disclosures to review accurately in the store form:
-Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation is paused in 0.6.15. The release no longer exposes signup controls, accepts new signup credentials or accesses the email service. Earlier active signup jobs are stopped and their temporary passwords cleared. Previous local mailbox history and access keys are retained; earlier server email records are not deleted. Do not claim the extension never handles website content.
+Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation is paused in 0.6.16. The release no longer exposes signup controls, accepts new signup credentials or accesses the email service. Earlier active signup jobs are stopped and their temporary passwords cleared. Previous local mailbox history and access keys are retained; earlier server email records are not deleted. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.15.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.16.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
-Version 0.6.15 makes browsing more varied with quick skim bursts, slower watches and occasional full-video watches when time and playback data allow it. A 30-minute auto session now shows 90 likes, 27 follows and 8 Instagram comments; TikTok keeps comments disabled. Signup source and regression coverage remain shelved for future work, with a disabled bundled feature flag. No live high-engagement session has been run on this exact release; retain the existing beta and store-review caveats.
+Version 0.6.16 makes the visible amounts target-driven instead of loose caps. The session tracks expected progress for likes, follows and comments and skims faster when supported actions fall behind, while still skipping unsafe actions. TikTok keeps comments disabled. Signup source and regression coverage remain shelved for future work, with a disabled bundled feature flag. No live high-engagement session has been run on this exact release; retain the existing beta and store-review caveats.
