@@ -15,9 +15,9 @@ test('settings validate niche, timer, and pace', () => {
 });
 
 test('duration determines bounded limits and ignores retired manual tuning', () => {
-  assert.deepEqual(validateSettings({ ...input, minutes: 1 }).limits, { like: 2, follow: 1, comment: 1 });
-  assert.deepEqual(validateSettings(input).limits, { like: 20, follow: 8, comment: 3 });
-  assert.deepEqual(validateSettings({ ...input, minutes: 120, comments: 'one\ntwo\nthree\nfour', limits: { like: 999, follow: 999, comment: 999 }, minPause: 0, maxPause: 0 }).limits, { like: 120, follow: 45, comment: 20 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 1 }).limits, { like: 3, follow: 1, comment: 1 });
+  assert.deepEqual(validateSettings(input).limits, { like: 30, follow: 9, comment: 3 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 120, comments: 'one\ntwo\nthree\nfour', limits: { like: 999, follow: 999, comment: 999 }, minPause: 0, maxPause: 0 }).limits, { like: 180, follow: 60, comment: 20 });
 });
 
 test('automatic comments require explicit opt-in, not a saved list', () => {
@@ -81,7 +81,7 @@ test('session obeys all action caps, deduplicates authors, and never repeats cap
   const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
   assert.equal(stats.comment, 1);
   assert.equal(stats.follow, 1);
-  assert.ok(stats.like > 0 && stats.like <= 20);
+  assert.ok(stats.like > 0 && stats.like <= 30);
   const comments = h.calls.filter(call => call[0] === 'comment').map(call => call[2]);
   assert.equal(new Set(comments).size, comments.length);
   assert.equal(h.time(), 600000);
@@ -146,7 +146,7 @@ test('automatic pacing spaces engagement and includes longer breaks', async () =
   await runSession(validateSettings({ ...input, minutes: 30 }), h.adapter, h.controller.signal, h.options);
   assert.ok(times.length > 2);
   assert.ok(times[0].time >= 30000);
-  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 20000);
+  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 12000);
   for (const action of ['like', 'follow', 'comment']) {
     const filtered = times.filter(item => item.action === action);
     const minimum = { like: 16000, follow: 180000, comment: 360000 }[action];
@@ -165,7 +165,7 @@ test('comments off or no caption means no automatic comment attempts', async () 
 });
 
 test('relaxed and slow pacing increase pauses while respecting the deadline', async () => {
-  for (const [pace, firstPause] of [['auto', 7000], ['relaxed', 10500], ['slow', 14000]]) {
+  for (const [pace, firstPause] of [['auto', 5200], ['relaxed', 7800], ['slow', 10400]]) {
     const h = harness();
     const waits = [];
     const sleep = h.options.sleep;
@@ -178,11 +178,11 @@ test('relaxed and slow pacing increase pauses while respecting the deadline', as
 });
 
 test('twenty-minute allowances respond to pace and keep comments opt-in', () => {
-  assert.deepEqual(validateSettings({ ...input, minutes: 20 }).limits, { like: 40, follow: 15, comment: 5 });
-  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'relaxed' }).limits, { like: 27, follow: 10, comment: 4 });
-  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'slow' }).limits, { like: 20, follow: 8, comment: 3 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 20 }).limits, { like: 60, follow: 18, comment: 5 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'relaxed' }).limits, { like: 40, follow: 12, comment: 4 });
+  assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'slow' }).limits, { like: 30, follow: 9, comment: 3 });
   assert.equal(validateSettings({ ...input, minutes: 20, enableComments: false }).limits.comment, 0);
-  assert.deepEqual(validateSettings({ ...input, platform: 'tiktok', minutes: 20 }).limits, { like: 40, follow: 15, comment: 0 });
+  assert.deepEqual(validateSettings({ ...input, platform: 'tiktok', minutes: 20 }).limits, { like: 60, follow: 18, comment: 0 });
 });
 
 test('high-like sessions do not wait several minutes before the first like', async () => {
@@ -196,7 +196,7 @@ test('high-like sessions do not wait several minutes before the first like', asy
   h.options.random = () => 0.5;
   await runSession(validateSettings({ ...input, minutes: 3, mix: { like: 2, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
   const likes = times.filter(item => item.action === 'like');
-  assert.ok(likes.length >= 4, `expected likes to stay close to cadence, got ${likes.length}`);
+  assert.ok(likes.length >= 5, `expected likes to stay close to cadence, got ${likes.length}`);
   assert.ok(likes[0].time <= 70000, `expected first like in about the first minute, got ${likes[0]?.time}`);
   for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 16000);
 });
@@ -209,7 +209,7 @@ test('slower pacing stretches the minimum gaps between engagement attempts', asy
   for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 40000);
   const likes = times.filter(item => item.action === 'like');
   assert.ok(likes.length > 1);
-  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 60000);
+  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 40000);
 });
 
 test('live activity clears each pause before the next operation and on completion', async () => {
@@ -227,7 +227,7 @@ test('custom limits and mix validate independently, preserving comment opt-in', 
   const custom = { ...input, customLimits: { like: 8, follow: 3, comment: 2 }, mix: { like: 0, follow: 5, comment: 1 } };
   assert.deepEqual(validateSettings(custom).limits, { like: 0, follow: 3, comment: 2 });
   assert.equal(validateSettings({ ...custom, enableComments: false }).limits.comment, 0);
-  for (const patch of [{ mix: { like: -1 } }, { mix: { follow: 11 } }, { mix: { comment: 0.5 } }, { customLimits: { like: 121 } }, { customLimits: { follow: 46 } }, { customLimits: { comment: 21 } }, { mix: [] }, { customLimits: 'bad' }]) assert.throws(() => validateSettings({ ...input, ...patch }));
+  for (const patch of [{ mix: { like: -1 } }, { mix: { follow: 11 } }, { mix: { comment: 0.5 } }, { customLimits: { like: 181 } }, { customLimits: { follow: 61 } }, { customLimits: { comment: 21 } }, { mix: [] }, { customLimits: 'bad' }]) assert.throws(() => validateSettings({ ...input, ...patch }));
 });
 
 test('relative shares control selection and zero shares never engage', () => {
@@ -310,13 +310,13 @@ test('posts watched through next are not reopened when returning to results',asy
  assert.equal(phase,3);
 });
 
-test('auto browsing watches videos longer instead of quickly scrolling every post',async()=>{
+test('auto browsing mixes quick skim bursts with slower holds',async()=>{
  let index=0;const moves=[];
  const h=harness({inspect:async()=>({post:{id:`viewer-${index}`,text:'study tips',viewer:true,next:true}}),advance:async()=>{moves.push(h.time());index++;return true}});
- h.options.random=()=>0.5;
+ h.options.random=()=>0;
  await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(moves.length<=6,`expected less frantic browsing, got ${moves.length} advances`);
- for(let i=1;i<moves.length;i++)assert.ok(moves[i]-moves[i-1]>=8000);
+ assert.ok(moves.length>=12,`expected more browsing movement, got ${moves.length} advances`);
+ assert.ok(moves.slice(1,4).every((time,i)=>time-moves[i]<=1800));
  assert.ok(!h.updates.some(u=>u.message==='taking a reading pause…'));
  assert.equal(h.time(),60000);
 });
@@ -344,7 +344,7 @@ test('occasional full watches use remaining video time and never occur back to b
  const sleep=h.options.sleep;
  h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
  await runSession(validateSettings({...input,niche:'study tips',minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.includes(20000));assert.ok(waits.includes(8000));
+ assert.ok(waits.includes(20000));assert.ok(waits.some(ms=>ms>=700&&ms<=1800));
  for(let i=1;i<waits.length;i++)assert.ok(!(waits[i]===20000&&waits[i-1]===20000));
  assert.equal(h.time(),120000);
 });
@@ -363,6 +363,7 @@ test('unknown video duration falls back to normal viewing pauses',async()=>{
  h.options.random=()=>0;
  const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
  await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.some(ms=>ms>=8000&&ms<=18000));
- assert.ok(waits.every((ms,index)=>ms>=8000&&ms<=18000 || (index===waits.length-1&&ms>=0&&ms<8000)));
+ assert.ok(waits.some(ms=>ms>=700&&ms<=1800));
+ assert.ok(waits.some(ms=>ms>=14000&&ms<=26000));
+ assert.ok(waits.every((ms,index)=>(ms>=700&&ms<=1800)||(ms>=6000&&ms<=26000)||(index===waits.length-1&&ms>=0&&ms<6000)));
 });
