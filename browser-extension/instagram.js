@@ -108,7 +108,8 @@ function inspectInstagram(request = {}) {
     }
     return [];
   });
-  const textarea = [...scope.querySelectorAll('textarea')].find(element => visible(element) && /comment/i.test(element.placeholder || element.getAttribute('aria-label') || ''));
+  const commentFields = [...scope.querySelectorAll('textarea')].filter(element => visible(element) && /comment/i.test(element.placeholder || element.getAttribute('aria-label') || ''));
+  const textarea = commentFields.length === 1 ? commentFields[0] : null;
   // A comment's heart also says Like. Only use the post toolbar, identified by
   // its Comment and Save/Unsave controls, so comment hearts can never be selected.
   const commentButton = control(scope, 'comment');
@@ -130,30 +131,39 @@ function inspectInstagram(request = {}) {
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
   const post = { id, author, videoRemainingMs, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
   if (!request.action) return { posts, sequence, post };
-  if (request.id !== id || (request.author && request.author !== author)) return { changed: true };
-  if (['comment-field', 'comment-ready', 'comment-submit'].includes(request.action) && request.caption !== post.caption) return { changed: true };
+  if (request.id !== id || (request.author && request.author !== author)) return { changed: true, reason: 'post-or-author-changed' };
+  if (['comment-field', 'comment-ready', 'comment-submit'].includes(request.action) && request.caption !== post.caption) return { changed: true, reason: 'caption-changed' };
   if (request.action === 'next') return { point: point(viewerNext) };
   if (request.action === 'like') return { point: point(like) };
   if (request.action === 'follow') return { point: point(follow) };
   if (request.action === 'comment-field') {
     if (!ownProfile || !textarea || textarea.value.trim()) return { point: null };
     globalThis.collectiveCommentBefore?.release?.();
-    const before = { postId: id, author: ownProfile, text: request.comment, composer: textarea, drafted: false, submitted: false, interrupted: false, ids: commentRows(request.comment).map(row => row.id) };
+    const before = { postId: id, author: ownProfile, caption: post.caption, text: request.comment, composer: textarea, drafted: false, submitted: false, interrupted: false, ids: commentRows(request.comment).map(row => row.id) };
     // A real edit or manual Post click revokes ownership even if the text is unchanged.
-    const composer = textarea.closest('form') || textarea;
     const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
-    const interrupt = event => { if (event.isTrusted) before.interrupted = true; };
-    for (const type of events) composer.addEventListener(type, interrupt, true);
-    before.release = () => { for (const type of events) composer.removeEventListener(type, interrupt, true); };
+    const interrupt = event => {
+      if (!event.isTrusted) return;
+      const form = event.target?.closest?.('form');
+      if (event.target === before.composer || form?.querySelector('textarea[placeholder*="comment" i],textarea[aria-label*="comment" i]')) before.interrupted = true;
+    };
+    // Instagram replaces the textarea on input. Document capture protects the
+    // replacement too, including edits made before the next inspection.
+    for (const type of events) document.addEventListener(type, interrupt, true);
+    before.release = () => { for (const type of events) document.removeEventListener(type, interrupt, true); };
     globalThis.collectiveCommentBefore = before;
     return { point: point(textarea) };
   }
   const before = globalThis.collectiveCommentBefore;
+  const sameDraft = ownProfile && before?.postId === id && before.author === ownProfile && before.caption === post.caption && before.text === request.comment && before.drafted && !before.submitted && !before.interrupted;
+  if (sameDraft && before.composer?.isConnected === false && textarea &&
+      (textarea.value === before.text || (request.action === 'comment-cleared' && before.clearing && textarea.value === ''))) before.composer = textarea;
   const ownDraft = Boolean(ownProfile && before?.postId === id && before.author === ownProfile && before.text === request.comment && textarea && before.composer === textarea && !before.interrupted);
   if (request.action === 'comment-ready') return { ready: Boolean(ownDraft && !before.drafted && !before.submitted && document.activeElement === textarea && textarea.value === '') };
   if (request.action === 'comment-submit') {
     const form = textarea?.closest('form');
-    return { point: ownDraft && before.drafted && !before.submitted && textarea.value === request.comment && form ? point(control(form, 'post')) : null };
+    const issue = !ownProfile ? 'account-unresolved' : !textarea ? 'composer-hidden' : before?.composer !== textarea ? 'composer-replaced' : before?.interrupted ? 'manual-edit-detected' : !ownDraft ? 'draft-not-owned' : textarea.value !== request.comment ? 'draft-text-changed' : !form ? 'form-missing' : 'post-control-unavailable';
+    return { point: ownDraft && before.drafted && !before.submitted && textarea.value === request.comment && form ? point(control(form, 'post')) : null, reason: issue };
   }
   if (request.action === 'comment-clear') {
     return { point: ownDraft && before.drafted && !before.submitted && textarea.value === request.comment ? point(textarea) : null };

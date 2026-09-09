@@ -422,6 +422,27 @@ test('a retained or edited draft pauses comments without stopping the session or
  }
 });
 
+test('a replaced draft is submitted once and counted only after confirmation', async () => {
+ const { composer, result, continued } = await runComment(composer => {
+   composer.state.onInput = field => { const text = field.value; composer.replaceField().value = text; };
+ });
+ assert.equal(result, 'confirmed');
+ assert.equal(composer.submitted, 1);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
+test('an unavailable Post control clears an untouched draft through textarea replacements', async () => {
+ const { composer, result, continued } = await runComment(composer => {
+   composer.submit.ariaDisabled = 'true';
+   composer.state.onInput = field => { const text = field.value; composer.replaceField().value = text; };
+ });
+ assert.equal(result, 'skipped');
+ assert.equal(composer.submitted, 0);
+ assert.equal(composer.field.value, '');
+ assert.equal(continued, true);
+});
+
 test('an unconfirmed submitted comment is never clicked twice or cleared', async () => {
  const { composer, result, continued } = await runComment(composer => { composer.state.confirm = false; });
  assert.equal(result, 'uncertain');

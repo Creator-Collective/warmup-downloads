@@ -1,9 +1,11 @@
-recover from temporary warm-up interruptions
+enable short-session engagement and usable caption replies
 
 warm-up:
-- recover empty searches, unavailable posts and transient frame replacement
-- retry activity acknowledgements without replaying page actions
-- preserve action allowances when a result is uncertain
+- scale initial engagement delays and target warmups for short sessions
+- preserve exact owned drafts across Instagram's textarea replacement
+- protect replacement composers from manual edits and reserve confirmation time
+- accept safe sentences from captions with niche context elsewhere
+- retain instruction, draft, duplicate and action-allowance guards
 
 misc:
-- publish version 0.6.20 with full-session recovery coverage
+- publish version 0.6.21 with full-action verification

@@ -23,7 +23,7 @@ module.exports = function commentComposer() {
   const heading = element(caption, rect(20, 60, 400));
   const state = { blocked: false, onInput() {}, onSubmit() {}, confirm: true, follow: null };
   class TextArea {
-    constructor() { this._value = ''; this.placeholder = 'Add a comment...'; }
+    constructor() { this._value = ''; this.placeholder = 'Add a comment...'; this.isConnected = true; }
     get value() { return this._value; }
     set value(value) { this._value = value; }
     getAttribute() { return null; }
@@ -47,10 +47,13 @@ module.exports = function commentComposer() {
   };
   const listeners = new Map();
   const form = {
+    querySelector: () => field,
     querySelectorAll: selector => selector === 'button, [role="button"]' ? [submit] : [],
     addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); },
     removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }
   };
+  document.addEventListener = form.addEventListener;
+  document.removeEventListener = form.removeEventListener;
   const row = { querySelectorAll: () => [profile, { href: `${id}c/123/` }] };
   const comment = { textContent: request.comment, children: [], parentElement: row };
   const scope = {
@@ -81,8 +84,8 @@ module.exports = function commentComposer() {
     context, request, document, submit, state, inputs, heading, author, inspect, load,
     get field() { return field; }, get submitted() { return submitted; },
     get followClicks() { return followClicks; },
-    replaceField() { field = new TextArea(); return field; },
-    interact(type, isTrusted = true) { for (const listener of listeners.get(type) || []) listener({ isTrusted }); },
+    replaceField() { field.isConnected = false; field = new TextArea(); return field; },
+    interact(type, isTrusted = true) { for (const listener of listeners.get(type) || []) listener({ isTrusted, target: field }); },
     prepare() {
       inspect('comment-field'); field.focus(); field.value = request.comment;
       context.collectiveCommentBefore.drafted = true;

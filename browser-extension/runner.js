@@ -223,6 +223,7 @@ async function recoverCommentDraft(request) {
     if (!target.point) return;
     const field = document.elementFromPoint(target.point.x, target.point.y);
     if (!(field instanceof HTMLTextAreaElement) || field !== globalThis.collectiveCommentBefore?.composer || field.value !== request.comment) return;
+    globalThis.collectiveCommentBefore.clearing = true;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '');
     field.dispatchEvent(new Event('input', { bubbles: true }));
   }, [request, job.deadline]);
@@ -333,7 +334,7 @@ async function performEngagement(action, post, comment) {
         if (Date.now() >= deadline) return false;
         const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
         if (target.blocked) throw new Error(target.blocked);
-        if (!target.point) return false;
+        if (!target.point) { console.warn('Warm-up comment not ready:', target.reason || 'unknown'); return false; }
         const button = document.elementFromPoint(target.point.x, target.point.y)?.closest('button,[role="button"]');
         if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
         globalThis.collectiveCommentBefore.submitted = true;
