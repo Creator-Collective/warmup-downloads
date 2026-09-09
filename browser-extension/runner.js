@@ -223,11 +223,14 @@ async function engage(action, post, comment) {
     if (!submitted) { pendingEngagement = false; throw new Error(`a comment draft remains in ${currentPlatform()}. review it before restarting.`); }
     pendingDraft = false;
   }
-  for (let i = 0; i < 4; i++) {
+  const confirmationAttempts = { like: 6, follow: 10, comment: 8 }[action] || 6;
+  for (let i = 0; i < confirmationAttempts; i++) {
     await sleep(750);
     const result = await inspect({ ...request, action: `verify-${action}` });
     if (result.confirmed) { pendingEngagement = false; pendingDraft = false; return 'confirmed'; }
   }
+  pendingEngagement = false;
+  pendingDraft = false;
   return 'uncertain';
 }
 function render(state) {
