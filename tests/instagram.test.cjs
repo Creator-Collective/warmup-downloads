@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../browser-extension/instagram.js'), 'utf8');
 const commentComposer = require('./fixtures/comment-composer.cjs');
 
-function postFixture({ saved = false, liked = false, bookmark = true, followState, unrelatedFollowState } = {}) {
+function postFixture({ saved = false, liked = false, bookmark = true, followState, unrelatedFollowState, viewer = false, closeCount = 1, extraDialog = false } = {}) {
   const id = 'https://www.instagram.com/p/example/';
   const clicks = [];
   const rect = (left = 0, top = 0, width = 40, height = 30) => ({ left, top, width, height, right: left + width, bottom: top + height });
@@ -36,15 +36,18 @@ function postFixture({ saved = false, liked = false, bookmark = true, followStat
   const toolbar = { querySelectorAll: selector => selector === 'button, [role="button"]' ? toolbarButtons : [] };
   const scope = {
     getBoundingClientRect: () => rect(0, 0, 600, 500),
-    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : selector === 'a[href]' ? [author] : [],
+    contains: element => allButtons.includes(element),
+    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : selector === 'a[href]' ? [author, ...(viewer ? [{ href: id }] : [])] : [],
   };
+  const closes = Array.from({ length: closeCount }, (_, i) => button('Close', 750 + i * 50, 20));
+  const dialog = { getBoundingClientRect: () => rect(0, 0, 1000, 800), innerText: '', querySelector: () => scope, querySelectorAll: () => [] };
   toolbar.parentElement = scope;
   for (const element of toolbarButtons) element.parentElement = toolbar;
   commentHeart.parentElement = scope;
   const document = {
-    querySelectorAll: selector => selector === 'article' ? [scope] : [],
+    querySelectorAll: selector => selector === 'article' ? [scope] : selector === '[role="dialog"], [role="alert"]' ? (viewer ? [dialog, ...(extraDialog ? [dialog] : [])] : []) : selector === 'button, [role="button"]' ? [...allButtons, ...closes] : [],
     querySelector: () => null,
-    elementFromPoint: (x, y) => allButtons.find(element => {
+    elementFromPoint: (x, y) => [...allButtons, ...closes].find(element => {
       const bounds = element.getBoundingClientRect();
       return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
     }) || null,
@@ -58,6 +61,26 @@ function postFixture({ saved = false, liked = false, bookmark = true, followStat
   vm.runInContext(source, context);
   return { id, clicks, like, save, commentHeart, follow, document, inspect: request => context.inspectInstagram(request) };
 }
+
+test('only the unique viewer close control is exposed, never an article button or another dialog', () => {
+  const valid = postFixture({ viewer: true });
+  assert.ok(valid.inspect({ id: valid.id, action: 'close' }).point);
+  for (const options of [{}, { viewer: true, closeCount: 0 }, { viewer: true, closeCount: 2 }, { viewer: true, extraDialog: true }]) {
+    const fixture = postFixture(options);
+    assert.equal(fixture.inspect({ id: fixture.id, action: 'close' }).point, null);
+  }
+  assert.equal(valid.inspect({ id: 'https://www.instagram.com/p/other/', action: 'close' }).changed, true);
+});
+
+test('Next sequence preserves repeated result tiles while open candidates stay deduplicated', () => {
+  const first = 'https://www.instagram.com/p/first/'; const second = 'https://www.instagram.com/p/second/';
+  const links = [first, second, first].map(href => ({ href, getBoundingClientRect: () => ({ width: 100, height: 100, left: 0, right: 100, top: 0, bottom: 100 }) }));
+  const context = vm.createContext({ URL, location: { hostname: 'www.instagram.com', origin: 'https://www.instagram.com', href: 'https://www.instagram.com/explore/search/keyword/?q=branding', pathname: '/explore/search/keyword/' }, innerWidth: 1000, innerHeight: 800, getComputedStyle: () => ({ visibility: 'visible', display: 'block' }), document: { querySelectorAll: selector => selector === 'main a[href],[role="main"] a[href]' ? links : [] } });
+  vm.runInContext(source, context);
+  const result = context.inspectInstagram();
+  assert.deepEqual(Array.from(result.sequence), [first, second, first]);
+  assert.deepEqual(Array.from(result.posts), [first, second]);
+});
 
 for (const saved of [false, true]) {
   test(`${saved ? 'saved' : 'unsaved'} posts can be liked and confirmed without changing their bookmark`, () => {

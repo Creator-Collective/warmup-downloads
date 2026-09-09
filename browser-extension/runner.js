@@ -158,7 +158,7 @@ async function openViewer(target) {
   if (!config.validPost(target)) throw new Error('invalid post address.');
   const page = await inspect();
   viewerSequence = page.sequence || page.posts || [];
-  if (!viewerSequence.includes(target)) return false;
+  if (!viewerSequence.some(id => sameDestination(id, target))) return false;
   expectedDestination = target;
   const clicked = await execute((target, deadline) => {
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
@@ -170,16 +170,22 @@ async function openViewer(target) {
     };
     const link = [...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].find(a => normalize(a.href) === target && a.getBoundingClientRect().width > 0);
     if (!link) return false;
+    link.scrollIntoView({ block: 'center', behavior: 'instant' });
     link.click(); return true;
   }, [target, job.deadline]);
   if (!clicked) return false;
   return waitForPost(target);
 }
-async function advanceViewer(post) {
+async function advanceViewer(post, hasSeen = () => false) {
   if (!post.viewer || !post.next) return false;
-  const index = viewerSequence.indexOf(post.id);
+  const page = await inspect();
+  if (page.blocked) throw new Error(page.blocked);
+  if (!sameDestination(page.post?.id, post.id)) return false;
+  if (page.sequence?.some(id => sameDestination(id, post.id))) viewerSequence = page.sequence;
+  if (viewerSequence.filter(id => sameDestination(id, post.id)).length !== 1) return false;
+  const index = viewerSequence.findIndex(id => sameDestination(id, post.id));
   const target = index >= 0 ? viewerSequence[index + 1] : null;
-  if (!target) return false;
+  if (!target || hasSeen(target)) return false;
   assertRunning();
   expectedDestination = target;
   const clicked = await execute((id, deadline) => {
@@ -193,6 +199,35 @@ async function advanceViewer(post) {
   }, [post.id, job.deadline]);
   if (!clicked) return false;
   return waitForPost(target);
+}
+async function returnToResults(post, searchURL) {
+  if (!searchURL) return false;
+  if (currentPlatform() !== 'instagram' || !post?.viewer) return navigate(searchURL);
+  // Closing the modal preserves the loaded results and scroll position. A full
+  // navigation would throw that progress away and start the same batch again.
+  expectedDestination = searchURL;
+  const clicked = await execute((id, deadline) => {
+    if (Date.now() >= deadline) return false;
+    const target = globalThis.inspectInstagram({ id, action: 'close' });
+    if (target.blocked) throw new Error(target.blocked);
+    if (!target.point) return false;
+    const button = document.elementFromPoint(target.point.x, target.point.y)?.closest('button,[role="button"]');
+    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
+    button.click(); return true;
+  }, [post.id, job.deadline]);
+  if (!clicked) return false;
+  const until = Math.min(Date.now() + 10000, job.deadline);
+  while (Date.now() < until) {
+    assertRunning();
+    const tab = await chrome.tabs.get(job.tabId);
+    if (sameDestination(tab.url, searchURL) && !tab.pendingUrl) {
+      const page = await inspect();
+      if (page.blocked) throw new Error(page.blocked);
+      if (!page.post && !page.unavailable) return true;
+    }
+    await sleep(400);
+  }
+  return false;
 }
 async function scroll() {
   try { return await execute(async deadline => {
@@ -427,10 +462,10 @@ async function start() {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
       update, inspect: () => inspect(), scroll, engage,
-      advance: post => recoverPageStep(() => advanceViewer(post)),
+      advance: (post, signal, hasSeen) => recoverPageStep(() => advanceViewer(post, hasSeen)),
       search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
       open: target => recoverPageStep(() => openViewer(target)),
-      leavePost: async () => { if (searchURL) return recoverPageStep(() => navigate(searchURL)); }
+      leavePost: post => recoverPageStep(() => returnToResults(post, searchURL))
     }, controller.signal);
     await messageQueue;
     controller.signal.throwIfAborted();

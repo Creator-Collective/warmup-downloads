@@ -51,7 +51,8 @@ function inspectInstagram(request = {}) {
   const postURL = value => {
     try { const url = new URL(value, location.href); return url.origin === location.origin && /^\/(p|reel)\/[\w-]+\/?$/.test(url.pathname) ? `${url.origin}${url.pathname.replace(/\/?$/, '/')}` : null; } catch { return null; }
   };
-  const sequence = [...new Set([...document.querySelectorAll('main a[href],[role="main"] a[href]')].map(link => postURL(link.href)).filter(Boolean))];
+  // Keep repeated tiles here: Next follows occurrences, not unique post IDs.
+  const sequence = [...document.querySelectorAll('main a[href],[role="main"] a[href]')].map(link => postURL(link.href)).filter(Boolean);
   const posts = [...new Set([...document.querySelectorAll('main a[href],[role="main"] a[href]')].filter(visible).map(link => postURL(link.href)).filter(Boolean))];
   if (!scope) return { posts, sequence, post: null };
   const locationPost = postURL(location.href);
@@ -132,6 +133,13 @@ function inspectInstagram(request = {}) {
   const post = { id, author, videoRemainingMs, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
   if (!request.action) return { posts, sequence, post };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, reason: 'post-or-author-changed' };
+  if (request.action === 'close') {
+    if (!postDialog || dialogs.length !== 1) return { point: null };
+    const buttons = [...document.querySelectorAll('button, [role="button"]')].filter(element =>
+      !scope.contains(element) && visible(element) && !element.disabled && element.getAttribute('aria-disabled') !== 'true' &&
+      (label(element).toLowerCase() === 'close' || [...element.querySelectorAll('svg[aria-label]')].some(icon => icon.getAttribute('aria-label').toLowerCase() === 'close' && icon.closest('button, [role="button"]') === element)));
+    return { point: buttons.length === 1 ? point(buttons[0]) : null };
+  }
   if (['comment-field', 'comment-ready', 'comment-submit'].includes(request.action) && request.caption !== post.caption) return { changed: true, reason: 'caption-changed' };
   if (request.action === 'next') return { point: point(viewerNext) };
   if (request.action === 'like') return { point: point(like) };

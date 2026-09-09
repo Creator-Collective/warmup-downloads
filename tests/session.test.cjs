@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController });
+const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
 for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
 const { matchesNiche, randomBetween, contextualComment, runSession, pickAction } = vm.runInContext('({ matchesNiche, randomBetween, contextualComment, runSession, pickAction })', ctx);
 const validateSettings = input => JSON.parse(JSON.stringify(ctx.sessionPlan.validateSettings(input)));
@@ -438,6 +438,92 @@ test('posts watched through next are not reopened when returning to results',asy
  h.options.random=()=>0;
  await runSession(validateSettings({...input,minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
  assert.equal(phase,3);
+});
+
+test('one keyword keeps its result position beyond eight scrolls without restarting search', async () => {
+  const opened = []; let scrolls = 0; let post = null;
+  const h = harness({
+    inspect: async () => post ? { post } : { posts: [`https://www.instagram.com/p/video${scrolls}/`] },
+    scroll: async () => { scrolls++; return true; },
+    open: async id => { opened.push(id); post = { id, viewer: true, text: 'study tips' }; return true; },
+    advance: async () => false,
+    leavePost: async () => { post = null; return true; }
+  });
+  h.options.random = () => 0;
+  await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 3, mix: { like: 0, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  assert.ok(scrolls > 8);
+  assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  assert.equal(new Set(opened).size, opened.length);
+});
+
+test('exhausted results wait for new content instead of reloading or replaying the first batch', async () => {
+  const a = 'https://www.instagram.com/p/a/'; const b = 'https://www.instagram.com/p/b/';
+  const opened = []; let post = null;
+  const h = harness({
+    inspect: async () => post ? { post } : { posts: [a], sequence: h.time() < 90000 ? [a] : [a, b] },
+    open: async id => { opened.push(id); post = { id, viewer: true, text: 'study tips' }; return true; },
+    advance: async () => false,
+    leavePost: async () => { post = null; return true; },
+    scroll: async () => false
+  });
+  h.options.random = () => 0;
+  await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 3, mix: { like: 0, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(opened, [a, b]);
+  assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  assert.ok(h.updates.some(update => /no new posts/.test(update.message)));
+  assert.equal(h.time(), 180000);
+});
+
+test('watched identities survive p/reel aliases and the next-video path receives the same history', async () => {
+  const first = 'https://www.instagram.com/p/a/'; const second = 'https://www.instagram.com/p/b/';
+  const opened = []; let post = null; let checkedHistory = false;
+  const h = harness({
+    inspect: async () => post ? { post } : { posts: [first, second], sequence: [first, second] },
+    open: async id => { opened.push(id); post = { id: id.replace('/p/', '/reel/'), viewer: true, text: 'study tips' }; return true; },
+    advance: async (current, signal, hasSeen) => {
+      assert.equal(hasSeen(first), true);
+      assert.equal(hasSeen(first.replace('/p/', '/reel/')), true);
+      checkedHistory = true;
+      return false;
+    },
+    leavePost: async () => { post = null; return true; }
+  });
+  h.options.random = () => .99;
+  await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 2, mix: { like: 0, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(opened, [first, second]);
+  assert.equal(checkedHistory, true);
+});
+
+test('a full all-action run traverses multiple batches without replaying posts or resetting its search', async () => {
+  const ids = Array.from({ length: 200 }, (_, i) => `https://www.instagram.com/p/video${i}/`);
+  const visits = []; let current = null; let loaded = 24;
+  const h = harness({
+    search: async term => { h.calls.push(['search', term]); await h.options.sleep(3000); },
+    inspect: async () => {
+      await h.options.sleep(150);
+      return current === null ? { posts: ids.slice(0, loaded) } : { post: {
+        id: ids[current], author: `author-${current}`, viewer: true, text: 'study tips',
+        caption: `Study tips work best when you practice a little every day number ${current}.`, like: true, follow: true, comment: true
+      } };
+    },
+    open: async id => { current = ids.indexOf(id); visits.push(id); await h.options.sleep(800); return true; },
+    scroll: async () => { if (visits.length >= loaded) loaded += 24; await h.options.sleep(600); return true; },
+    advance: async (post, signal, hasSeen) => {
+      if (current + 1 >= loaded || hasSeen(ids[current + 1])) return false;
+      visits.push(ids[++current]); await h.options.sleep(800); return true;
+    },
+    leavePost: async () => { current = null; await h.options.sleep(400); return true; },
+    engage: async action => { await h.options.sleep({ like: 800, follow: 6000, comment: 3000 }[action]); return 'confirmed'; }
+  });
+  h.options.random = () => .5;
+  const stats = await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 10 }), h.adapter, h.controller.signal, h.options);
+  assert.ok(visits.length > 48, `expected new batches, got ${visits.length} posts`);
+  assert.deepEqual(visits, ids.slice(0, visits.length));
+  assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  assert.ok(stats.like >= 25 && stats.like <= 30, `likes: ${stats.like}`);
+  assert.ok(stats.follow >= 7 && stats.follow <= 9, `follows: ${stats.follow}`);
+  assert.equal(stats.comment, 3);
+  assert.match(h.updates.at(-1).message, /time.s up/);
 });
 
 test('auto browsing mixes quick skim bursts with slower holds',async()=>{

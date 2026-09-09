@@ -6,6 +6,14 @@ function randomBetween(min, max, random = Math.random) {
   return min + Math.floor(Math.max(0, Math.min(0.999999, random())) * (max - min + 1));
 }
 
+function postIdentity(value) {
+  try {
+    const url = new URL(value);
+    const instagram = /^(www\.)?instagram\.com$/.test(url.hostname) && url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/);
+    return instagram ? `instagram:${instagram[1]}` : `${url.origin}${url.pathname.replace(/\/$/, '')}`;
+  } catch { return value; }
+}
+
 function matchesNiche(text, terms) {
   const normalize = value => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const haystack = ` ${normalize(text)} `;
@@ -122,11 +130,12 @@ async function runSession(settings, adapter, signal, options = {}) {
   const confirmationBudgetMs = { like: 8000, follow: 22000, comment: 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
   const seen = new Set();
+  const hasSeen = id => seen.has(postIdentity(id));
   const done = { like: new Set(), follow: new Set(), comment: new Set() };
   const pausedActions = new Set();
   const usedComments = new Set();
   let stalled = 0;
-  let stepsSinceSearch = 0;
+  let retrySearch = false;
   let needsSearchScroll = false;
   let previousAction;
   let lastWatchWasFull = false;
@@ -151,7 +160,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   };
   const pause = async (action = 'browse') => {
     if (!running()) return;
-    const ranges = { transition: [500, 1800], browse: [1800, 5200], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
+    const ranges = { transition: [500, 1800], browse: [1800, 5200], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[action] || ranges.browse;
     let fullWatchMs = null;
     if (now() >= nextBreak && totalEngagementDebt() < 3) {
@@ -190,6 +199,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     update(`searching for ${term}…`);
     const loaded = await adapter.search(term, signal);
     if (!running()) return;
+    retrySearch = loaded === false;
     if (loaded === false) {
       stats.skipped += 1;
       stalled = 2;
@@ -198,7 +208,6 @@ async function runSession(settings, adapter, signal, options = {}) {
     }
     stalled = 0;
     stats.search += 1;
-    stepsSinceSearch = 0;
     needsSearchScroll = true;
     previousAction = undefined;
     update(`opened search: ${term}`);
@@ -219,14 +228,14 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (running() && stalled >= 3) await search();
       continue;
     }
-    if (page.post?.id) seen.add(page.post.id);
-    if (now() >= nextTermAt || (stepsSinceSearch >= 8 && !page.post?.viewer) || stalled >= 2) {
+    if (page.post?.id) seen.add(postIdentity(page.post.id));
+    const candidates = [...new Set([...(page.sequence || []), ...(page.posts || [])])].filter(id => !hasSeen(id));
+    if (now() >= nextTermAt || retrySearch) {
       await search();
       pauseAfter = 'transition';
-    } else if (!needsSearchScroll && !page.post && page.posts?.some(post => !seen.has(post))) {
-      const candidates = page.posts.filter(post => !seen.has(post));
-      const target = candidates[randomBetween(0, candidates.length - 1, random)];
-      seen.add(target);
+    } else if (!needsSearchScroll && !page.post && candidates.length) {
+      const target = candidates[0];
+      seen.add(postIdentity(target));
       update('opening a matching post…');
       const opened = await adapter.open(target, signal);
       if (!running()) break;
@@ -238,7 +247,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         continue;
       }
       stats.open += 1;
-      stepsSinceSearch += 1;
+      stalled = 0;
       update('watching a post from your search.');
       pauseAfter = viewerPause();
     } else {
@@ -247,14 +256,14 @@ async function runSession(settings, adapter, signal, options = {}) {
       const eligible = [];
       if (post && matchesNiche(post.text, settings.terms)) {
         for (const action of ['like', 'follow', 'comment']) {
-          const key = action === 'follow' ? post.author : post.id;
+          const key = action === 'follow' ? post.author : postIdentity(post.id);
           if (!pausedActions.has(action) && deadline - now() >= confirmationBudgetMs[action] && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
               (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
             eligible.push(action);
           }
         }
       }
-      let action = needsSearchScroll ? 'scroll' : pickAction(eligible, settings.weights, random);
+      let action = needsSearchScroll || !post ? 'scroll' : pickAction(eligible, settings.weights, random);
       const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt, random);
       if (target) action = target;
       if (action === 'read' && (post?.viewer || previousAction === 'read')) action = 'scroll';
@@ -267,15 +276,16 @@ async function runSession(settings, adapter, signal, options = {}) {
         needsSearchScroll = false;
         const inViewer = Boolean(post?.viewer && adapter.advance);
         update(inViewer ? 'moving to the next post…' : 'scrolling for more posts…');
-        const moved = inViewer ? await adapter.advance(post, signal) : await adapter.scroll(signal);
+        const moved = inViewer ? await adapter.advance(post, signal, hasSeen) : await adapter.scroll(signal);
         if (!running()) break;
         if (moved === 'login') throw new Error(`sign in to ${platform}, then start a new session.`);
         if (moved) { stats.scroll += 1; stalled = 0; } else { stats.skipped += 1; stalled += 1; }
-        if (post && (!inViewer || !moved)) await adapter.leavePost(signal);
+        if (post && (!inViewer || !moved)) await adapter.leavePost(post, signal);
         if (inViewer && moved) pauseAfter = viewerPause();
-        update(inViewer ? (moved ? 'watching the next post.' : 'reached the end of these results. finding more…') : (moved ? 'scrolled to more content.' : 'no visible movement. looking for another post…'));
+        if (!post && !moved && stalled >= 2) pauseAfter = 'exhausted';
+        update(inViewer ? (moved ? 'watching the next post.' : 'continuing from your search results...') : (moved ? 'scrolled to more content.' : 'no new posts yet. waiting for more results...'));
       } else {
-        const key = action === 'follow' ? post.author : post.id;
+        const key = action === 'follow' ? post.author : postIdentity(post.id);
         if (post.viewer) pauseAfter = 'transition';
         done[action].add(key);
         const cadence = actionCadenceMs(settings, action);
@@ -306,7 +316,6 @@ async function runSession(settings, adapter, signal, options = {}) {
           update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : result === 'uncertain' ? `${action} unconfirmed. continuing.` : `${action} skipped. the post changed or its control wasn’t available.`);
         }
       }
-      stepsSinceSearch += 1;
     }
     await pause(pauseAfter);
   }
