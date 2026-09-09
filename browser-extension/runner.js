@@ -7,11 +7,40 @@ let viewerSequence = [];
 let pendingEngagement = false;
 let pendingDraft = false;
 let messageQueue = Promise.resolve();
+let terminalResult;
+let terminalAcknowledgement;
 const el = id => document.getElementById(id);
 async function send(type, extra = {}) {
-  const response = await chrome.runtime.sendMessage({ type, token, ...extra });
+  let timer;
+  const response = await Promise.race([
+    chrome.runtime.sendMessage({ type, token, ...extra }),
+    new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('extension stopped responding.')), 3000); })
+  ]).finally(() => clearTimeout(timer));
   if (!response?.ok) throw new Error(response?.error || 'extension disconnected.');
   return response.data;
+}
+async function finish(patch) {
+  // finish is reached only after startup or the engine has settled. Retain that
+  // outcome so Stop can recover without needing an open dashboard or new action.
+  terminalResult = patch;
+  if (terminalAcknowledgement) return terminalAcknowledgement;
+  terminalAcknowledgement = (async () => {
+    // Retry only the terminal acknowledgement, never an Instagram operation.
+    // This delay deliberately works after the session's abort signal is set.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await send('runner-update', { patch });
+        render({ ...job, ...patch, nextActionAt: null });
+        return true;
+      } catch { if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1))); }
+    }
+    el('message').textContent = `${patch.message} couldn’t confirm the stop. use stop session or close this session tab before restarting.`;
+    el('status').textContent = 'connection lost';
+    el('stop').disabled = false;
+    return false;
+  })();
+  try { return await terminalAcknowledgement; }
+  finally { terminalAcknowledgement = null; }
 }
 function assertRunning() {
   controller.signal.throwIfAborted();
@@ -194,16 +223,31 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes.job) return;
   const next = changes.job.newValue;
   if (!next || next.token !== token || next.stopRequested) controller.abort(new Error(next?.message || 'session stopped.'));
-  if (next?.token === token) { job = next; render(next); }
+  if (next?.token === token) {
+    job = next;
+    if (!terminalResult || !['starting','running','stopping'].includes(next.phase)) render(next);
+  }
 });
-el('stop').addEventListener('click', () => { controller.abort(new Error('session stopped. you have control.')); void send('runner-stop').catch(() => {}); });
+el('stop').addEventListener('click', () => {
+  controller.abort(new Error('session stopped. you have control.'));
+  if (terminalResult) { void finish(terminalResult); return; }
+  void send('runner-stop').catch(() => {});
+});
 el('show-instagram').addEventListener('click', () => { void send('runner-show').catch(error => { el('message').textContent = error.message; }); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') el('stop').click(); });
 async function start() {
   for (let attempt = 0; attempt < 8; attempt++) {
     try { job = await send('runner-job'); break; } catch (error) { if (attempt === 7) throw error; await sleep(250); }
   }
-  if (['running','stopping'].includes(job.phase)) { await send('runner-stop'); await send('runner-update', { patch: { phase: 'stopped', message: 'session stopped after its tab refreshed. check instagram before restarting.' } }); el('message').textContent = 'session stopped after this tab refreshed. start a new session from the dashboard.'; el('status').textContent = 'stopped'; el('stop').disabled = true; return; }
+  if (['running','stopping'].includes(job.phase)) {
+    controller.abort(new Error('session stopped after its tab refreshed.'));
+    await send('runner-stop');
+    if (await finish({ phase: 'stopped', message: 'session stopped after its tab refreshed. check instagram before restarting.' })) {
+      el('message').textContent = 'session stopped after this tab refreshed. start a new session from the dashboard.';
+      el('status').textContent = 'stopped'; el('stop').disabled = true;
+    }
+    return;
+  }
   if (job.stopRequested || job.phase !== 'starting') { render(job); return; }
   render(job);
   const remaining = () => { const seconds = Math.max(0, Math.ceil((job.deadline - Date.now()) / 1000)); el('remaining').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')}`; };
@@ -219,11 +263,17 @@ async function start() {
     }, controller.signal);
     await messageQueue;
     controller.signal.throwIfAborted();
-    await send('runner-update', { patch: { phase: 'complete', message: 'time’s up. your session is complete.' } });
+    await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });
   } catch (error) {
     await messageQueue;
     const finished = Date.now() >= job.deadline;
-    await send('runner-update', { patch: { phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? 'an action may have gone through. check instagram before restarting.' : pendingDraft ? 'a comment draft may remain in instagram. review it before restarting.' : error.message || 'session stopped. try again.' } }).catch(() => {});
+    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? 'an action may have gone through. check instagram before restarting.' : pendingDraft ? 'a comment draft may remain in instagram. review it before restarting.' : error.message || 'session stopped. try again.' });
   } finally { clearInterval(timer); remaining(); }
 }
-start().catch(error => { el('message').textContent = error.message; el('status').textContent = 'couldn’t start'; el('stop').disabled = true; });
+start().catch(async error => {
+  controller.abort(error);
+  const message = `${error.message || 'session couldn’t start.'} check instagram before restarting.`;
+  if (await finish({ phase: 'error', message })) {
+    el('message').textContent = message; el('status').textContent = 'couldn’t start'; el('stop').disabled = true;
+  }
+});

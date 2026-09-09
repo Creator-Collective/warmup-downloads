@@ -110,10 +110,10 @@ function inspectInstagram(request = {}) {
   });
   const textarea = [...scope.querySelectorAll('textarea')].find(element => visible(element) && /comment/i.test(element.placeholder || element.getAttribute('aria-label') || ''));
   // A comment's heart also says Like. Only use the post toolbar, identified by
-  // its Comment and Save controls, so comment hearts can never be selected.
+  // its Comment and Save/Unsave controls, so comment hearts can never be selected.
   const commentButton = control(scope, 'comment');
   let actionBar = commentButton?.parentElement;
-  while (actionBar && actionBar !== scope && !control(actionBar, 'save')) actionBar = actionBar.parentElement;
+  while (actionBar && actionBar !== scope && !control(actionBar, 'save') && !control(actionBar, 'unsave')) actionBar = actionBar.parentElement;
   if (actionBar === scope) actionBar = null;
   const like = actionBar ? control(actionBar, 'like') : null;
   let follow = control(scope, 'follow');

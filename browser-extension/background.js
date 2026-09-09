@@ -7,11 +7,33 @@ const putJob = job => chrome.storage.session.set({ job });
 const extensionOrigin = chrome.runtime.getURL('/');
 async function stopJob(message = 'session stopped. you have control.') {
   const job = await getJob();
-  if (job && ['starting', 'running'].includes(job.phase)) await putJob({ ...job, stopRequested: true, phase: 'stopping', nextActionAt: null, message });
+  if (job && ['starting', 'running'].includes(job.phase)) await putJob({ ...job, stopRequested: true, stopRequestedAt: Date.now(), phase: 'stopping', nextActionAt: null, message });
+}
+async function recoverStoppingJob(force = false) {
+  const job = await getJob();
+  if (!job || job.phase !== 'stopping' || (!force && Number.isFinite(job.stopRequestedAt) && Date.now() - job.stopRequestedAt < 3000)) return job;
+  // A missing acknowledgement cannot release the action lock while the old
+  // runner is still alive. Close only that runner before allowing another run.
+  try {
+    const tabs = await chrome.tabs.query({});
+    const runner = tabs.find(tab => tab.id === job.runnerTabId);
+    if (runner) {
+      const expected = chrome.runtime.getURL(`runner.html#${job.token}`);
+      if (runner.url === expected) await chrome.tabs.remove(runner.id);
+      else if (!runner.url || runner.pendingUrl === expected) throw new Error('session tab is still loading');
+    }
+    const stopped = { ...job, phase: 'error', stopRequested: true, nextActionAt: null, message: 'session stopped after its tab stopped responding. an action already sent may still complete. check instagram before restarting.' };
+    await putJob(stopped);
+    return stopped;
+  } catch {
+    const stopping = { ...job, message: 'couldn’t finish stopping. close the session tab, then check instagram before restarting.' };
+    await putJob(stopping);
+    return stopping;
+  }
 }
 async function dashboardCommand(message, fromPanel = false) {
-  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, state: publicState(await getJob()) };
-  if (message.type === 'state') return publicState(await getJob());
+  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, state: publicState(await recoverStoppingJob()) };
+  if (message.type === 'state') return publicState(await recoverStoppingJob());
   if (message.type === 'tabs') {
     const tabs = await chrome.tabs.query({ url: ['https://www.instagram.com/*', 'https://instagram.com/*'] });
     return tabs.filter(tab => !tab.incognito && instagramURL(tab.url)).map(tab => ({ id: tab.id, title: tab.title || 'instagram' }));
@@ -20,7 +42,11 @@ async function dashboardCommand(message, fromPanel = false) {
     const tab = await chrome.tabs.create({ url: 'https://www.instagram.com/' });
     return { tabId: tab.id };
   }
-  if (message.type === 'stop') { await stopJob(); return publicState(await getJob()); }
+  if (message.type === 'stop') {
+    const wasStopping = (await getJob())?.phase === 'stopping';
+    await stopJob();
+    return publicState(await recoverStoppingJob(wasStopping));
+  }
   if (message.type !== 'start') throw new Error('unknown dashboard action.');
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
@@ -74,6 +100,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'runner-stop') { await stopJob(); return null; }
     if (message.type === 'runner-show') { await chrome.tabs.update(job.tabId, { active: true }); return null; }
     if (message.type !== 'runner-update') throw new Error('unknown session action.');
+    // Repeated terminal acknowledgements are harmless; late updates must never
+    // revive a finished session or overwrite its uncertain-action warning.
+    if (!['starting', 'running', 'stopping'].includes(job.phase)) return null;
     const patch = message.patch || {};
     if (job.stopRequested && !['stopped','complete','error'].includes(patch.phase)) return null;
     const phase = ['running', 'stopped', 'complete', 'error'].includes(patch.phase) ? patch.phase : job.phase;

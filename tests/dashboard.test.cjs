@@ -3,16 +3,18 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
+const { publicState } = require('../browser-extension/guards.js');
+const { validateSettings } = require('../plan.js');
 function dashboard(panel = false, saved = null) {
   const requests = [];
   const nodes = new Map();
   let stored = saved === null ? null : JSON.stringify(saved);
   const defaults = { niche:'personal branding', minutes:'10', pace:'auto', 'mix-like':'2', 'mix-follow':'1', 'mix-comment':'1', 'instagram-tab':'7' };
   const element = id => {
-    if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(){}, append(){} });
+    if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, options:[], listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(...children){this.options=children}, add(option){this.options.push(option)}, append(){} });
     return nodes.get(id);
   };
-  const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);return {ok:true,data:message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:7,title:'instagram'}]:message.type==='start'?{running:true,message:'started',activity:[]}:null}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(){},Option:function(){},console });
+  const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);return {ok:true,data:message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:7,title:'instagram'}]:message.type==='start'?{running:true,message:'started',activity:[]}:null}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(){},Option:function(text,value){this.text=text;this.value=value},console });
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../plan.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../dashboard.js'),'utf8'),context);
   return {context,element,requests,saved:()=>JSON.parse(stored),edit(id,value){element(id).value=value;element(id).listeners.input()},settings:()=>JSON.parse(vm.runInContext('JSON.stringify(sessionPlan.validateSettings(input()))',context))};
@@ -151,4 +153,37 @@ test('warm-up markup has no comments toggle, instructional hints or footer links
   const tag=html.match(new RegExp(`<input id="limit-${action}"[^>]*>`))[0];
   assert.match(tag,/type="number"/);assert.match(tag,/required/);assert.doesNotMatch(tag,/placeholder|disabled/);
  }
+});
+
+test('reopened controls show the running plan and target without replacing their saved draft',async()=>{
+ const h=dashboard(true);
+ for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
+ h.edit('niche','my next session');h.edit('minutes','20');
+ h.edit('limit-comment','0');h.element('limit-comment').listeners.blur();
+ const saved=h.saved();
+ h.context.live=publicState({phase:'running',tabId:42,settings:validateSettings({niche:'photography, lighting',minutes:2,pace:'slow',enableComments:true,customLimits:{like:3,follow:0,comment:0}}),stats:{scroll:1},activity:[],message:'watching'});
+ vm.runInContext('render(live)',h.context);
+ assert.equal(h.element('niche').value,'photography, lighting');
+ assert.equal(h.element('minutes').value,'2');assert.equal(h.element('pace').value,'slow');
+ assert.equal(h.element('limit-like').value,'3');assert.equal(h.element('limit-follow').value,'0');assert.equal(h.element('limit-comment').value,'0');
+ assert.equal(h.element('instagram-tab').value,'42');
+ assert.equal(h.element('settings').disabled,true);
+ assert.deepEqual(h.saved(),saved);
+ await vm.runInContext('tabs()',h.context);
+ vm.runInContext('render({...live,phase:"stopping"})',h.context);
+ assert.equal(h.element('instagram-tab').value,'42');assert.equal(h.element('limit-comment').value,'0');
+ assert.equal(h.element('instagram-tab').options.filter(o=>o.value==='42').length,1);
+ assert.deepEqual(h.saved(),saved);
+ vm.runInContext('render({...live,running:false,phase:"stopped"})',h.context);
+ assert.equal(h.element('niche').value,'my next session');assert.equal(h.element('minutes').value,'20');
+ assert.equal(h.element('instagram-tab').value,'7');assert.equal(h.element('limit-comment').value,'0');
+ assert.equal(h.element('settings').disabled,false);assert.deepEqual(h.saved(),saved);
+});
+
+test('public running plan excludes runner tokens and unrelated stored data',()=>{
+ const settings=validateSettings({niche:'branding',minutes:10,enableComments:true,customLimits:{follow:0,comment:0}});
+ const state=publicState({token:'private-token',runnerTabId:90,tabId:7,phase:'running',settings:{...settings,privateData:'not public'},privateData:'not public'});
+ assert.deepEqual(state.settings,{minutes:10,terms:['branding'],pace:'auto',limits:{like:10,follow:0,comment:0},weights:{like:2,follow:0,comment:0}});
+ assert.equal(state.tabId,7);assert.equal(state.token,undefined);assert.equal(state.runnerTabId,undefined);
+ assert.equal(state.privateData,undefined);assert.equal(state.settings.privateData,undefined);
 });

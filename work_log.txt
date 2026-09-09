@@ -1,3 +1,10 @@
+2026-09-09 | 0.6.11 warm-up reliability
+- fix lost startup/completion acknowledgements and sessions stuck stopping; retry terminal status only, keep failed-stop recovery usable without the dashboard, close only the pinned unresponsive runner after stop, and reject late attempts to revive finished sessions.
+- show the actual running keywords, duration, pacing, action limits and target across reopened controls; restore each surface's saved next-session draft afterward. recognize saved-post Like controls without selecting Unlike, Unsave or comment hearts.
+- files: browser-extension/{background,runner,guards,instagram,dashboard,manifest}, dashboard.js, tests/{recovery,instagram,dashboard}, package/setup/readme/store metadata, 0.6.11 archives and this log.
+- verified: 194 automated checks pass; code/javascript/security reviews; both 24-file archives exactly match reviewed source, generated shared files match, diff-check clean. no app build. live website and ZIP verification follow the authorized feature-branch/PR release.
+- follow-ups: exact installed 0.6.11 live browsing, stop and engagement remain unverified. Chrome is signed out of Instagram and the test-account choice is pending. account creation remains shelved; no live likes, follows, comments, signup or mailbox changes.
+
 2026-09-08 | 0.6.10 simplify warm-up amounts and controls
 - user's screenshots showed default follows as a placeholder that could not be deleted. show actual calculated amounts, keep edit drafts stable across polls, and separate explicit saved overrides from automatic duration/pace-based limits. empty fields return to automatic on blur; malformed/out-of-range values cannot start.
 - remove the comments toggle and include comments in the visible automatic plan. a 10-minute auto session defaults to 10 likes, 2 follows and 1 comment; explicit 0 overrides remain off. the new panel passes the existing engine's comment opt-in when starting, without changing its pacing or validation rules for older clients.

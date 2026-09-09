@@ -15,6 +15,7 @@ function runnerSender(sender, job, extensionOrigin) {
 }
 function publicState(job) {
   if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, activity: [] };
-  return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, activity: job.activity, tabId: job.tabId };
+  return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, activity: job.activity, tabId: job.tabId,
+    settings: job.settings ? { minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights } : undefined };
 }
 if (typeof module !== 'undefined') module.exports = { instagramURL, dashboardSender, panelSender, runnerSender, publicState };
