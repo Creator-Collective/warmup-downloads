@@ -83,6 +83,19 @@ test('comment history survives activity turnover, acknowledgement retries, worke
   assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
 });
 
+test('a comment confirmed during Stop remains reviewable without reviving the session', async () => {
+  const h = background(); await h.start();
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  await h.message({ type: 'stop' });
+  const comment = { text: 'the comment that finished while stopping', url: 'https://www.instagram.com/p/example/', author: '/creator/', time: 100100, status: 'confirmed' };
+  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: 'comment confirmed.', comments: [comment] } }, sender);
+  assert.equal(h.job().phase, 'stopping');
+  assert.match(h.job().message, /session stopped/);
+  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'stopped' } }, sender);
+  assert.equal((await h.message({ type: 'state' })).data.comments?.[0]?.text, comment.text);
+});
+
 test('stop keeps the lock during acknowledgement grace, then closes only the dead runner', async () => {
   const h = background(); await h.start();
   const previous = h.job();
