@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.16 active engagement targets
+- change the visible amounts from loose caps into active targets. likes, follows and comments now each track expected progress, and the session skims faster when supported engagement falls behind.
+- rename the dashboard/panel section from session limits to session targets. unsupported or unsafe actions still skip, so targets are still dependent on instagram exposing safe controls and captions.
+- files: browser-extension/{session,manifest}, index/setup/store/readme/package metadata, tests and 0.6.16 archives.
+- verified: 201 automated checks pass. the beta and store packages match the reviewed extension source. no live high-engagement session has been run on this exact release.
+
 2026-09-09 | 0.6.15 bursty browsing
 - use research-informed browsing shape from live feedback: quick skim bursts, slower watches and occasional full-video watches when playback data and remaining time allow it. full-watch attempts are spaced roughly every 16-24 videos, not every post.
 - raise automatic likes and slightly raise follows while keeping comments unchanged. a 30-minute auto instagram session now shows 90 likes, 27 follows and 8 comments. tiktok comments stay disabled.

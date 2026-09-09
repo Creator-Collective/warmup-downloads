@@ -139,20 +139,20 @@ test('an already stopped session cannot start a search', async () => {
   assert.equal(h.calls.length, 0);
 });
 
-test('automatic pacing spaces engagement and includes longer breaks', async () => {
+test('automatic pacing spaces engagement and defers longer breaks while behind', async () => {
   const h = harness();
   const times = [];
   h.adapter.engage = async action => { times.push({ action, time: h.time() }); return 'confirmed'; };
   await runSession(validateSettings({ ...input, minutes: 30 }), h.adapter, h.controller.signal, h.options);
   assert.ok(times.length > 2);
-  assert.ok(times[0].time >= 30000);
-  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 12000);
+  assert.ok(times[0].time >= 12000);
+  for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 5000);
   for (const action of ['like', 'follow', 'comment']) {
     const filtered = times.filter(item => item.action === action);
-    const minimum = { like: 16000, follow: 180000, comment: 360000 }[action];
+    const minimum = { like: 5000, follow: 18000, comment: 60000 }[action];
     for (let i = 1; i < filtered.length; i++) assert.ok(filtered[i].time - filtered[i - 1].time >= minimum);
   }
-  assert.ok(h.updates.some(item => item.message === 'taking a longer break…'));
+  assert.equal(h.updates.some(item => item.message === 'taking a longer break…'), false);
   assert.equal(h.time(), 1800000);
 });
 
@@ -198,7 +198,24 @@ test('high-like sessions do not wait several minutes before the first like', asy
   const likes = times.filter(item => item.action === 'like');
   assert.ok(likes.length >= 5, `expected likes to stay close to cadence, got ${likes.length}`);
   assert.ok(likes[0].time <= 70000, `expected first like in about the first minute, got ${likes[0]?.time}`);
-  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 16000);
+  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 5000);
+});
+
+test('ten-minute target sessions get close when enough safe actions are available', async () => {
+  let index = 0;
+  const times = [];
+  const h = harness({
+    inspect: async () => ({ post: { id: `v-${index}`, author: `author-${index}`, text: 'study tips', caption: `Study tips work best when you practice a little every day number ${index}.`, viewer: true, next: true, like: true, follow: true, comment: true } }),
+    advance: async () => { index++; return true },
+    engage: async action => { times.push({ action, time: h.time() }); return 'confirmed'; }
+  });
+  h.options.random = () => .5;
+  const stats = await runSession(validateSettings({ ...input, minutes: 10 }), h.adapter, h.controller.signal, h.options);
+  assert.ok(stats.like >= 28, `expected likes close to 30, got ${stats.like}`);
+  assert.ok(stats.follow >= 8, `expected follows close to 9, got ${stats.follow}`);
+  assert.equal(stats.comment, 3);
+  assert.ok(stats.scroll > stats.like);
+  assert.equal(h.time(), 600000);
 });
 
 test('slower pacing stretches the minimum gaps between engagement attempts', async () => {
@@ -344,7 +361,7 @@ test('occasional full watches use remaining video time and never occur back to b
  const sleep=h.options.sleep;
  h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
  await runSession(validateSettings({...input,niche:'study tips',minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.includes(20000));assert.ok(waits.some(ms=>ms>=700&&ms<=1800));
+ assert.ok(waits.includes(20000));assert.ok(waits.some(ms=>ms>=350&&ms<=1400));
  for(let i=1;i<waits.length;i++)assert.ok(!(waits[i]===20000&&waits[i-1]===20000));
  assert.equal(h.time(),120000);
 });
@@ -363,7 +380,7 @@ test('unknown video duration falls back to normal viewing pauses',async()=>{
  h.options.random=()=>0;
  const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
  await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.some(ms=>ms>=700&&ms<=1800));
+ assert.ok(waits.some(ms=>ms>=350&&ms<=1400));
  assert.ok(waits.some(ms=>ms>=14000&&ms<=26000));
- assert.ok(waits.every((ms,index)=>(ms>=700&&ms<=1800)||(ms>=6000&&ms<=26000)||(index===waits.length-1&&ms>=0&&ms<6000)));
+ assert.ok(waits.every((ms,index)=>(ms>=350&&ms<=1400)||(ms>=4000&&ms<=26000)||(index===waits.length-1&&ms>=0&&ms<4000)));
 });

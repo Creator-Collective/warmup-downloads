@@ -34,8 +34,8 @@ function validateSettings(input) {
       if (input.mix[action] !== undefined) weights[action] = integer(input.mix[action], 0, 10, `${action} share`);
     }
     if (input.customLimits != null) {
-      if (typeof input.customLimits !== 'object' || Array.isArray(input.customLimits)) throw new Error('choose valid session limits.');
-      if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 180, follow: 60, comment: 20 }[action], `${action} limit`);
+      if (typeof input.customLimits !== 'object' || Array.isArray(input.customLimits)) throw new Error('choose valid session targets.');
+      if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 180, follow: 60, comment: 20 }[action], `${action} target`);
     }
     if (platform === 'tiktok' && action === 'comment' && limits[action] > 0) throw new Error('tiktok comments are not supported yet.');
     if (!weights[action] || (action === 'comment' && input.enableComments !== true)) limits[action] = 0;

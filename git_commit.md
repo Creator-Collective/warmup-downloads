@@ -1,9 +1,9 @@
-make warm-up browsing burstier
+make engagement targets active
 
 warm-up:
-- mix quick skim bursts with slower watches and occasional full-video watches
-- raise a 30-minute auto session to 90 likes and 27 follows while keeping comments at 8
-- keep likes target-aware without liking every video
+- treat visible likes, follows and comments as active targets instead of loose caps
+- skim faster when any supported engagement type falls behind
+- rename the visible section from session limits to session targets
 
 misc:
-- publish version 0.6.15 with focused burst, full-watch and cadence checks
+- publish version 0.6.16 with focused target-progress checks

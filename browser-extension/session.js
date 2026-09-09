@@ -40,24 +40,63 @@ function pickAction(eligible, weights, random = Math.random) {
   return 'scroll';
 }
 
-function likeCadenceMs(settings) {
-  return settings.limits.like > 0 ? settings.minutes * 60000 / settings.limits.like : Infinity;
+function actionCadenceMs(settings, action) {
+  return settings.limits[action] > 0 ? settings.minutes * 60000 / settings.limits[action] : Infinity;
 }
 
-function likeDebt(settings, stats, elapsedMs) {
-  if (!settings.weights.like || !Number.isFinite(likeCadenceMs(settings))) return 0;
-  const cadence = likeCadenceMs(settings);
-  const warmup = Math.min(45000, Math.max(20000, cadence));
+function actionDebt(settings, stats, action, elapsedMs) {
+  const cadence = actionCadenceMs(settings, action);
+  if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
+  const warmups = { like: [12000, 30000], follow: [35000, 60000], comment: [60000, 120000] };
+  const [minWarmup, maxWarmup] = warmups[action] || warmups.like;
+  const warmup = Math.min(maxWarmup, Math.max(minWarmup, cadence * .75));
   if (elapsedMs < warmup) return 0;
-  const expected = Math.min(settings.limits.like, Math.floor((elapsedMs - warmup) / cadence) + 1);
-  return Math.max(0, expected - stats.like);
+  const expected = Math.min(settings.limits[action], Math.floor((elapsedMs - warmup) / cadence) + 1);
+  return Math.max(0, expected - stats[action]);
 }
 
-function likeSpacing(settings) {
-  const cadence = likeCadenceMs(settings);
-  const min = Math.max(16000, Math.round(cadence * 0.55));
+function expectedActions(settings, action, elapsedMs) {
+  const cadence = actionCadenceMs(settings, action);
+  if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
+  const warmups = { like: [12000, 30000], follow: [35000, 60000], comment: [60000, 120000] };
+  const [minWarmup, maxWarmup] = warmups[action] || warmups.like;
+  const warmup = Math.min(maxWarmup, Math.max(minWarmup, cadence * .75));
+  if (elapsedMs < warmup) return 0;
+  return Math.min(settings.limits[action], Math.floor((elapsedMs - warmup) / cadence) + 1);
+}
+
+function actionSpacing(settings, action) {
+  const cadence = actionCadenceMs(settings, action);
+  if (action === 'like') {
+    const min = Math.max(5000, Math.round(cadence * .25));
+    return [min, Math.max(min + 1500, Math.round(cadence * .6))];
+  }
+  if (action === 'follow') {
+    const min = Math.max(18000, Math.round(cadence * .35));
+    return [min, Math.max(min + 4000, Math.round(cadence * .8))];
+  }
+  if (action === 'comment') {
+    const min = Math.max(60000, Math.round(cadence * .35));
+    return [min, Math.max(min + 7000, Math.round(cadence * .8))];
+  }
+  const min = Math.max(9000, Math.round(cadence * .55));
   const max = Math.max(min + 3000, Math.round(cadence * 1.1));
   return [min, max];
+}
+
+function targetAction(eligible, settings, stats, elapsedMs, random = Math.random) {
+  const debts = eligible.map(action => {
+    const expected = expectedActions(settings, action, elapsedMs);
+    const debt = Math.max(0, expected - stats[action]);
+    return { action, debt, score: expected > 0 ? debt / expected : 0 };
+  }).filter(item => item.debt > 0);
+  if (!debts.length) return null;
+  debts.sort((a, b) => b.score - a.score || b.debt - a.debt || actionCadenceMs(settings, a.action) - actionCadenceMs(settings, b.action));
+  const strongest = debts[0];
+  const probability = strongest.debt >= 2 ? .95 : .82;
+  if (random() >= probability) return null;
+  if (debts.length === 1 || strongest.debt >= 2) return strongest.action;
+  return debts[randomBetween(0, debts.length - 1, random)].action;
 }
 
 // One awaited action at a time. No action begins after cancellation or the deadline.
@@ -68,8 +107,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   const random = options.random || Math.random;
   const startedAt = now();
   const deadline = startedAt + settings.minutes * 60000;
-  const nextAllowed = { like: startedAt + 30000, follow: startedAt + 120000, comment: startedAt + 180000 };
-  let nextEngagement = startedAt + 30000;
+  const nextAllowed = { like: startedAt + 12000, follow: startedAt + 35000, comment: startedAt + 60000 };
+  let nextEngagement = startedAt + 12000;
   let nextBreak = startedAt + randomBetween(300000, 540000, random);
   const termWindowMs = Math.max(10000, Math.min(120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
@@ -88,8 +127,12 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
+  const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + actionDebt(settings, stats, action, now() - startedAt), 0);
   const viewerPause = () => {
     videosSinceFullWatch += 1;
+    const totalDebt = totalEngagementDebt();
+    if (totalDebt >= 4 && random() < .9) return 'skim';
+    if (totalDebt >= 2 && random() < .65) return 'skim';
     if (!lastWatchWasFull && videosSinceFullWatch >= nextFullWatchAfter) return 'fullwatch';
     if (skimBurstRemaining <= 0 && random() < 0.42 / settings.pauseScale) skimBurstRemaining = randomBetween(1, 3, random);
     if (skimBurstRemaining > 0) {
@@ -100,13 +143,15 @@ async function runSession(settings, adapter, signal, options = {}) {
   };
   const pause = async (action = 'browse') => {
     if (!running()) return;
-    const ranges = { transition: [900, 3200], browse: [1800, 5200], skim: [700, 1800], watch: [6000, 16000], fullwatch: [14000, 26000], read: [7000, 16000], like: [12000, 30000], follow: [20000, 48000], comment: [30000, 70000] };
+    const ranges = { transition: [500, 1800], browse: [1800, 5200], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[action] || ranges.browse;
     let fullWatchMs = null;
-    if (now() >= nextBreak) {
+    if (now() >= nextBreak && totalEngagementDebt() < 3) {
       min = 20000; max = 45000;
       nextBreak = now() + randomBetween(300000, 540000, random);
       update('taking a longer break…');
+    } else if (now() >= nextBreak) {
+      nextBreak = now() + randomBetween(45000, 90000, random);
     } else if (action === 'watch' || action === 'fullwatch') {
       const tryFullWatch = action === 'fullwatch' || (!lastWatchWasFull && random() < 0.25);
       lastWatchWasFull = false;
@@ -181,8 +226,8 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
       }
       let action = needsSearchScroll ? 'scroll' : pickAction(eligible, settings.weights, random);
-      const debt = eligible.includes('like') ? likeDebt(settings, stats, now() - startedAt) : 0;
-      if (!needsSearchScroll && debt > 0 && random() < (debt >= 2 ? 0.9 : 0.7)) action = 'like';
+      const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt, random);
+      if (target) action = target;
       if (action === 'read' && (post?.viewer || previousAction === 'read')) action = 'scroll';
       previousAction = action;
       pauseAfter = action;
@@ -204,10 +249,12 @@ async function runSession(settings, adapter, signal, options = {}) {
         const key = action === 'follow' ? post.author : post.id;
         if (post.viewer) pauseAfter = 'transition';
         done[action].add(key);
-        const engagementSpacing = action === 'like' ? [Math.max(10000, Math.round(likeCadenceMs(settings) * 0.35)), Math.max(14000, Math.round(likeCadenceMs(settings) * 0.75))] : [20000, 45000];
+        const cadence = actionCadenceMs(settings, action);
+        const engagementSpacing = action === 'like' ? [Math.max(3000, Math.round(cadence * .15)), Math.max(7000, Math.round(cadence * .45))] :
+          action === 'follow' ? [8000, 18000] :
+          action === 'comment' ? [10000, 22000] : [20000, 45000];
         nextEngagement = now() + randomBetween(...engagementSpacing, random) * settings.pauseScale;
-        const spacing = { like: [30000, 60000], follow: [180000, 300000], comment: [360000, 540000] };
-        nextAllowed[action] = now() + randomBetween(...(action === 'like' ? likeSpacing(settings) : spacing[action]), random) * settings.pauseScale;
+        nextAllowed[action] = now() + randomBetween(...actionSpacing(settings, action), random) * settings.pauseScale;
         let comment;
         if (action === 'comment') {
           comment = commentText;
