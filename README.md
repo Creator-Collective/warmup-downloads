@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.18 recovers from comment drafts that cannot be submitted. The same unchanged, extension-owned composer can submit after losing focus, with up to eight readiness checks before one click. Unavailable controls clear only the exact unsent draft and skip that comment. If cleanup cannot be confirmed, further comments pause while browsing, likes and follows continue; paused comments no longer influence pacing debt. Stop, deadlines, account restrictions, identity checks and no-replay behavior remain enforced. Live DOM inspection confirmed a populated textarea and enabled Post control with focus elsewhere; the exact release has not posted a live comment.
+
 0.6.17 keeps a warm-up running when Instagram accepts an action but the app cannot confirm it immediately. Follow confirmation now waits longer, and unconfirmed actions are logged without retrying the same person or ending the session. Counts still include only confirmed actions. Account creation remains disabled; live high-engagement sessions remain unverified.
 
 0.6.16 changes the visible amounts from loose caps into target-driven behavior. Likes, follows and comments now each track their own expected progress and the session skims faster when any supported action falls behind. A 10-minute fixture with enough safe actions lands close to the visible 30 likes, 9 follows and 3 Instagram comments instead of passively browsing. Unsupported or unsafe actions still skip. TikTok keeps comments disabled. Account creation remains disabled; live high-engagement sessions remain unverified.

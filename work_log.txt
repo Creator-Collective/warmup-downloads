@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.18 comment draft recovery
+- the user's screenshot showed a fatal draft warning after an attempted comment. read-only live inspection found an unchanged populated composer and enabled role=button Post control with focus elsewhere; the old submit guard required textarea focus and threw after one readiness check.
+- bind each draft to its composer, post, signed-in author and exact text. tolerate lost focus, wait up to eight readiness checks and click at most once. clear only the exact unchanged unsent draft if Post stays unavailable; if cleanup cannot be confirmed, pause comments only and continue warm-up without comment pacing debt.
+- preserve Stop, deadlines, platform restrictions, post/caption checks, user-edited drafts and no-replay behavior. trusted manual composer interaction revokes automation ownership even if text stays unchanged. no live comments, likes or follows performed during this repair.
+- verified: all 214 automated checks pass, including actual injected runner/observer execution against a live-shaped composer and full-session continuation after draft recovery. both 25-file release archives match source byte-for-byte; diff check passes. production verification follows the feature PR merge; a real engagement session on this exact release remains unverified.
+
 2026-09-09 | 0.6.16 active engagement targets
 - change the visible amounts from loose caps into active targets. likes, follows and comments now each track expected progress, and the session skims faster when supported engagement falls behind.
 - rename the dashboard/panel section from session limits to session targets. unsupported or unsafe actions still skip, so targets are still dependent on instagram exposing safe controls and captions.
