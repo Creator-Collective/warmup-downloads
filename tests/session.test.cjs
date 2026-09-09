@@ -146,9 +146,41 @@ test('comment history keeps exact confirmed and uncertain text after browsing, w
       assert.equal(history[0].author, 'author-1');
       assert.equal(history[0].status, outcome);
       assert.ok(history[0].time > 0);
-      assert.equal(h.updates.find(update => /posting a caption/.test(update.message || '')).comments.length, 0);
+      assert.equal(h.updates.find(update => /commenting on /.test(update.message || '')).comments.length, 0);
     } else assert.equal(history.length, 0);
   }
+});
+
+test('real session updates name the observed account for each action and include exact comment text', async () => {
+  const post = { id: 'https://www.instagram.com/p/example/', author: '/Creator.Name/', viewer: true, text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true };
+  const comment = contextualComment(post.caption, ['study tips']);
+  const pending = { like: "liking @Creator.Name's post...", follow: 'following @Creator.Name...', comment: `commenting on @Creator.Name's post: ${comment}` };
+  const confirmed = { like: "liked @Creator.Name's post.", follow: 'followed @Creator.Name.', comment: `commented on @Creator.Name's post: ${comment}` };
+  const h = harness({ inspect: async () => ({ post }), engage: async action => {
+    assert.equal(h.updates.at(-1).message, pending[action]);
+    h.calls.push([action]); return 'confirmed';
+  } });
+  await runSession(validateSettings({ ...input, minutes: 2, customLimits: { like: 1, follow: 1, comment: 1 } }), h.adapter, h.controller.signal, h.options);
+  for (const action of ['like', 'follow', 'comment']) assert.ok(h.updates.some(update => update.message === confirmed[action]), action);
+});
+
+test('specific activity distinguishes uncertainty and skips without claiming success or inventing usernames', () => {
+  const format = vm.runInContext('engagementMessage', ctx);
+  const post = { author: '/Creator.Name/', id: 'https://www.instagram.com/p/example/' };
+  for (const action of ['like', 'follow', 'comment']) {
+    const uncertain = format(action, post, 'exact comment text', 'uncertain');
+    assert.match(uncertain, /couldn.t confirm/);
+    assert.match(uncertain, /@Creator\.Name/);
+    assert.doesNotMatch(uncertain, /^(liked|followed|commented)/);
+    assert.match(format(action, post, 'exact comment text', 'skipped'), /skipped.*@Creator\.Name/);
+  }
+  assert.match(format('comment', post, 'exact comment text', 'uncertain'), /exact comment text$/);
+  assert.match(format('comment', post, 'draft text', 'draft-retained'), /comment skipped.*@Creator\.Name.*draft may remain/);
+  assert.doesNotMatch(format('comment', post, 'draft text', 'draft-retained'), /draft text/);
+  assert.equal(format('follow', { author: '@Creator.Name' }, null, 'confirmed'), 'followed @Creator.Name.');
+  assert.equal(format('like', { author: '<script>fake</script>', id: post.id }, null, 'confirmed'), 'liked post example.');
+  assert.equal(format('like', { author: null, id: 'https://evil.test/p/example/' }, null, 'confirmed'), 'liked this post.');
+  assert.equal(format('like', { author: null, id: 'https://www.tiktok.com/@video.creator/video/123456789/' }, null, 'confirmed'), "liked @video.creator's post.");
 });
 
 test('session obeys all action caps, deduplicates authors, and never repeats caption replies', async () => {
