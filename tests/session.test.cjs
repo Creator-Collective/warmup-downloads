@@ -4,7 +4,10 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
-for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
+for (const file of ['plan.js', 'session.js']) {
+  const filename = path.join(__dirname, '../browser-extension', file);
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), ctx, { filename });
+}
 const { matchesNiche, randomBetween, contextualComment, runSession, pickAction } = vm.runInContext('({ matchesNiche, randomBetween, contextualComment, runSession, pickAction })', ctx);
 const validateSettings = input => JSON.parse(JSON.stringify(ctx.sessionPlan.validateSettings(input)));
 const input = { minutes: 10, niche: 'study tips, how to study', enableComments: true };
@@ -339,7 +342,7 @@ test('due likes are selected reliably and the full target is due with time left 
 });
 
 test('ten-minute sessions reach 30 likes despite mixed eligibility, real action delays and long videos', async () => {
-  for (const seed of [1, 7, 42, 95, 333]) {
+  for (const seed of Array.from({ length: 100 }, (_, i) => i + 1)) {
     let state = seed; let index = 0;
     const likes = new Set(); const follows = new Set(); const comments = new Set();
     const attempts = [];
@@ -360,6 +363,8 @@ test('ten-minute sessions reach 30 likes despite mixed eligibility, real action 
         return 'confirmed';
       }
     });
+    const sleep = h.options.sleep;
+    h.options.sleep = ms => sleep(Math.min(ms, Math.max(0, 600000 - h.time())));
     h.options.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
     const stats = await runSession(validateSettings({ ...input, niche: 'study tips' }), h.adapter, h.controller.signal, h.options);
     assert.equal(stats.like, 30, `seed ${seed}: ${stats.like} likes`);
@@ -371,8 +376,36 @@ test('ten-minute sessions reach 30 likes despite mixed eligibility, real action 
     assert.ok(likeAttempts.every(attempt => attempt.index % 3 !== 0));
     for (let i = 1; i < likeAttempts.length; i++) assert.ok(likeAttempts[i].time - likeAttempts[i - 1].time >= 5000);
     assert.ok(attempts.every(attempt => attempt.time < 600000 - { like: 8000, follow: 22000, comment: 20000 }[attempt.action]));
-    assert.ok(h.time() <= 600100);
+    assert.equal(h.time(), 600000);
     assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  }
+});
+
+test('a held like opportunity is rechecked after waiting and cannot outlive Stop or account restrictions', async () => {
+  for (const outcome of ['stop', 'blocked', 'off-niche']) {
+    let index = 0; let interrupted = false; let heldIndex; let heldAttempts;
+    const liked = new Set(); const attempts = [];
+    const h = harness({
+      search: async () => h.options.sleep(40000),
+      inspect: async () => interrupted && outcome === 'blocked' ? { blocked: 'account check' } : { post: { id: `post-${index}`, viewer: true, text: interrupted ? 'travel diary' : 'study tips', like: !liked.has(index) } },
+      advance: async () => { index++; return true; },
+      engage: async () => { attempts.push(index); liked.add(index); return 'confirmed'; }
+    });
+    const sleep = h.options.sleep;
+    h.options.sleep = async ms => {
+      if (!interrupted && h.updates.some(update => update.message === 'watching this post...')) {
+        interrupted = true; heldIndex = index; heldAttempts = attempts.length;
+        if (outcome === 'stop') h.controller.abort();
+      }
+      await sleep(ms);
+    };
+    const running = runSession(validateSettings({ ...input, niche: 'study tips', minutes: 2, customLimits: { like: 6, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+    if (outcome === 'blocked') await assert.rejects(running, /account check/);
+    else await running;
+    assert.equal(interrupted, true, `${outcome}: should exercise the cooldown hold`);
+    assert.equal(attempts.length, heldAttempts);
+    assert.equal(liked.has(heldIndex), false);
+    assert.ok(h.time() <= 120000);
   }
 });
 
