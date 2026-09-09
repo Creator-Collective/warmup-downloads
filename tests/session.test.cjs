@@ -331,6 +331,51 @@ test('ten-minute target sessions get close when enough safe actions are availabl
   assert.equal(h.time(), 600000);
 });
 
+test('due likes are selected reliably and the full target is due with time left to confirm', () => {
+  const { targetAction, expectedActions } = vm.runInContext('({ targetAction, expectedActions })', ctx);
+  const settings = validateSettings(input);
+  assert.equal(targetAction(['like', 'follow'], settings, { like: 10, follow: 0, comment: 0 }, 300000, () => .999), 'like');
+  assert.equal(expectedActions(settings, 'like', 540000), 30);
+});
+
+test('ten-minute sessions reach 30 likes despite mixed eligibility, real action delays and long videos', async () => {
+  for (const seed of [1, 7, 42, 95, 333]) {
+    let state = seed; let index = 0;
+    const likes = new Set(); const follows = new Set(); const comments = new Set();
+    const attempts = [];
+    const h = harness({
+      search: async term => { h.calls.push(['search', term]); await h.options.sleep(5000); },
+      inspect: async () => {
+        await h.options.sleep(100);
+        return { post: { id: `video-${index}`, author: `author-${index}`, viewer: true, next: true,
+          text: index % 4 === 0 ? 'travel diary' : 'study tips',
+          caption: `Study tips work best when you practice a little every day number ${index}.`,
+          like: index % 3 !== 0 && !likes.has(index), follow: !follows.has(index), comment: !comments.has(index), videoRemainingMs: 90000 } };
+      },
+      advance: async () => { index++; await h.options.sleep(800); return true; },
+      engage: async action => {
+        attempts.push({ action, index, time: h.time() });
+        ({ like: likes, follow: follows, comment: comments })[action].add(index);
+        await h.options.sleep({ like: 1000, follow: 12000, comment: 4000 }[action]);
+        return 'confirmed';
+      }
+    });
+    h.options.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+    const stats = await runSession(validateSettings({ ...input, niche: 'study tips' }), h.adapter, h.controller.signal, h.options);
+    assert.equal(stats.like, 30, `seed ${seed}: ${stats.like} likes`);
+    assert.ok(stats.follow > 0 && stats.comment > 0, 'other enabled actions must remain active');
+    assert.ok(stats.follow <= 9 && stats.comment <= 3);
+    assert.equal(likes.size, 30);
+    assert.ok(attempts.every(attempt => attempt.index % 4 !== 0));
+    const likeAttempts = attempts.filter(attempt => attempt.action === 'like');
+    assert.ok(likeAttempts.every(attempt => attempt.index % 3 !== 0));
+    for (let i = 1; i < likeAttempts.length; i++) assert.ok(likeAttempts[i].time - likeAttempts[i - 1].time >= 5000);
+    assert.ok(attempts.every(attempt => attempt.time < 600000 - { like: 8000, follow: 22000, comment: 20000 }[attempt.action]));
+    assert.ok(h.time() <= 600100);
+    assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  }
+});
+
 test('slower pacing stretches the minimum gaps between engagement attempts', async () => {
   const h = harness();
   const times = [];
