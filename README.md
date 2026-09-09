@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.14 keeps the higher automatic limits and makes likes pace toward the visible session goal sooner instead of waiting on random action selection. A 30-minute auto session shows 60 likes and now starts correcting if likes fall behind in the first few minutes, while still watching videos between actions and avoiding a like on every video. TikTok comments remain disabled. Account creation remains disabled; live high-engagement sessions remain unverified.
+
 0.6.13 raises automatic engagement limits and slows down video browsing. A 20-minute auto session now defaults to 40 likes, 15 follows and 5 comments on Instagram. TikTok keeps comments disabled, so a 20-minute TikTok auto session defaults to 40 likes, 15 follows and 0 comments. Auto pacing now mostly watches videos for 8-18 seconds and tries full-video watches more often. Manual limits remain editable. Account creation remains disabled; live high-engagement sessions remain unverified.
 
 0.6.12 adds TikTok warm-up sessions alongside Instagram. The dashboard and side panel now choose Instagram or TikTok, list tabs for that platform, open the selected platform, and run the timed browsing session against the right site. TikTok supports searching, scrolling/video watching, likes and follows; TikTok comments remain disabled until their live controls are verified. Account creation remains disabled. 199 automated checks pass; exact live TikTok warm-up remains unverified.

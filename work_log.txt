@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.14 like cadence
+- make likes pace toward the visible session goal sooner instead of waiting only on random action selection. a 30-minute auto session still shows 60 likes, but now corrects if likes fall behind in the first few minutes.
+- keep video watches between actions and keep likes from firing on every video. tiktok comments stay disabled; account creation remains shelved.
+- files: browser-extension/session.js, version/setup/store/readme metadata, tests and 0.6.14 archives.
+- verified: 200 automated checks pass. the beta and store packages match the reviewed extension source. no live high-engagement session has been run on this exact release.
+
 2026-09-09 | 0.6.13 higher limits and longer watches
 - raise automatic 20-minute warm-up sessions to 40 likes, 15 follows and 5 instagram comments. tiktok comments stay disabled, so the same duration targets 40 likes, 15 follows and 0 comments there. manual limits remain editable with higher caps.
 - slow down normal video browsing from old quick watches to mostly 8-18 seconds, try full-video watches more often, and keep short breaks less rigid at about every 5-9 minutes.
