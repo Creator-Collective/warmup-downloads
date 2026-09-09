@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.13 raises automatic engagement limits and slows down video browsing. A 20-minute auto session now defaults to 40 likes, 15 follows and 5 comments on Instagram. TikTok keeps comments disabled, so a 20-minute TikTok auto session defaults to 40 likes, 15 follows and 0 comments. Auto pacing now mostly watches videos for 8-18 seconds and tries full-video watches more often. Manual limits remain editable. Account creation remains disabled; live high-engagement sessions remain unverified.
+
 0.6.12 adds TikTok warm-up sessions alongside Instagram. The dashboard and side panel now choose Instagram or TikTok, list tabs for that platform, open the selected platform, and run the timed browsing session against the right site. TikTok supports searching, scrolling/video watching, likes and follows; TikTok comments remain disabled until their live controls are verified. Account creation remains disabled. 199 automated checks pass; exact live TikTok warm-up remains unverified.
 
 0.6.11 retries session completion messages and recovers unresponsive sessions after Stop, without replaying Instagram actions. Active settings and the selected tab appear consistently across reopened controls, while each surface keeps its saved next-session settings. Saved posts now expose their post Like control correctly. Account creation remains disabled. Focused regression checks and live release results are recorded in work_log.txt.

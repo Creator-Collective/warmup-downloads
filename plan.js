@@ -1,9 +1,9 @@
 'use strict';
 // Shared by the local panel and trusted session validation.
 const paces = Object.freeze({
-  auto: { label: 'auto', scale: 1, description: 'mostly 3–7 second viewing pauses, with an occasional full video watch when it fits. 2–4 seconds between grid scrolls. short 15–25 second breaks about every 6–9 minutes. rotates keywords in order.' },
-  relaxed: { label: 'relaxed', scale: 1.5, description: 'mostly 5–11 second viewing pauses, with an occasional full video watch when it fits. 3–6 seconds between grid scrolls. occasional 23–38 second breaks. rotates keywords in order.' },
-  slow: { label: 'slow', scale: 2, description: 'mostly 6–14 second viewing pauses, with an occasional full video watch when it fits. 4–8 seconds between grid scrolls. occasional 30–50 second breaks. rotates keywords in order.' }
+  auto: { label: 'auto', scale: 1, description: 'mostly 8-18 second video watches, with regular full-video watches when they fit. short result-grid pauses. short 20-45 second breaks about every 5-9 minutes. rotates keywords in order.' },
+  relaxed: { label: 'relaxed', scale: 1.5, description: 'mostly 12-27 second video watches, with regular full-video watches when they fit. 5-11 seconds between grid scrolls. occasional 30-68 second breaks. rotates keywords in order.' },
+  slow: { label: 'slow', scale: 2, description: 'mostly 16-36 second video watches, with regular full-video watches when they fit. 6-14 seconds between grid scrolls. occasional 40-90 second breaks. rotates keywords in order.' }
 });
 function validateSettings(input) {
   if (!input || typeof input !== 'object') throw new Error('choose your session settings first.');
@@ -23,9 +23,9 @@ function validateSettings(input) {
   if (!Object.hasOwn(paces, pace)) throw new Error('choose auto, relaxed, or slow pacing.');
   const activeMinutes = minutes / paces[pace].scale;
   const limits = {
-    like: Math.min(60, Math.ceil(activeMinutes)),
-    follow: Math.min(12, Math.floor(activeMinutes / 5)),
-    comment: platform === 'tiktok' ? 0 : input.enableComments === true ? Math.min(6, Math.floor(activeMinutes / 10)) : 0
+    like: Math.min(120, Math.ceil(activeMinutes * 2)),
+    follow: Math.min(45, Math.ceil(activeMinutes * .75)),
+    comment: platform === 'tiktok' ? 0 : input.enableComments === true ? Math.min(20, Math.ceil(activeMinutes / 4)) : 0
   };
   const weights = { like: 2, follow: 1, comment: 1 };
   for (const action of Object.keys(weights)) {
@@ -35,7 +35,7 @@ function validateSettings(input) {
     }
     if (input.customLimits != null) {
       if (typeof input.customLimits !== 'object' || Array.isArray(input.customLimits)) throw new Error('choose valid session limits.');
-      if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 60, follow: 12, comment: 6 }[action], `${action} limit`);
+      if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 120, follow: 45, comment: 20 }[action], `${action} limit`);
     }
     if (platform === 'tiktok' && action === 'comment' && limits[action] > 0) throw new Error('tiktok comments are not supported yet.');
     if (!weights[action] || (action === 'comment' && input.enableComments !== true)) limits[action] = 0;
