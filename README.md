@@ -6,6 +6,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 
 ## Current release status
 
+0.6.17 keeps a warm-up running when Instagram accepts an action but the app cannot confirm it immediately. Follow confirmation now waits longer, and unconfirmed actions are logged without retrying the same person or ending the session. Counts still include only confirmed actions. Account creation remains disabled; live high-engagement sessions remain unverified.
+
 0.6.16 changes the visible amounts from loose caps into target-driven behavior. Likes, follows and comments now each track their own expected progress and the session skims faster when any supported action falls behind. A 10-minute fixture with enough safe actions lands close to the visible 30 likes, 9 follows and 3 Instagram comments instead of passively browsing. Unsupported or unsafe actions still skip. TikTok keeps comments disabled. Account creation remains disabled; live high-engagement sessions remain unverified.
 
 0.6.15 makes browsing more varied after live testing feedback. Auto pacing now mixes quick skim bursts, slower watches and occasional full-video watches when playback and remaining time allow it. A 30-minute auto session now shows 90 likes, 27 follows and 8 Instagram comments; TikTok keeps comments disabled. Likes still pace toward the visible goal without liking every video. Account creation remains disabled; live high-engagement sessions remain unverified.

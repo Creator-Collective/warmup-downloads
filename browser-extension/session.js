@@ -264,9 +264,12 @@ async function runSession(settings, adapter, signal, options = {}) {
         const result = await adapter.engage(action, post, comment, signal);
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
-        else if (result === 'uncertain') throw new Error(`${action} may have gone through, but couldn’t be confirmed. check ${platform} before restarting.`);
+        else if (result === 'uncertain') {
+          stats.skipped += 1;
+          update(`${action} may have gone through, but couldn’t confirm it. continuing.`);
+        }
         else stats.skipped += 1;
-        update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : `${action} skipped. the post changed or its control wasn’t available.`);
+        update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : result === 'uncertain' ? `${action} unconfirmed. continuing.` : `${action} skipped. the post changed or its control wasn’t available.`);
       }
       stepsSinceSearch += 1;
     }
