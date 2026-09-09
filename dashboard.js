@@ -12,6 +12,7 @@ let validPlan = false;
 const actions = ['like','follow','comment'];
 let limitOverrides = {};
 let editingLimit = null;
+let savedDraft = null;
 const fields = ['niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
@@ -47,6 +48,11 @@ function input() {
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
 function error(message) { requestError = message; showError(message); }
 function plan() {
+  if (running && currentState?.settings) {
+    showError(requestError);
+    $('start').disabled = true;
+    return;
+  }
   let valid = false;
   try {
     const automatic = sessionPlan.validateSettings({ ...input(), customLimits: {} });
@@ -72,16 +78,44 @@ function connection(value) {
   plan();
 }
 async function tabs() {
-  const selected = $('instagram-tab').value;
   const list = await request('tabs');
+  const selected = running ? String(currentState.tabId) : $('instagram-tab').value;
   $('instagram-tab').replaceChildren(new Option(list.length ? 'choose an instagram tab' : 'open instagram, then refresh', ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id))));
-  if (list.some(tab => String(tab.id) === selected)) $('instagram-tab').value = selected;
+  if (running) selectActiveTab(currentState.tabId);
+  else if (list.some(tab => String(tab.id) === selected)) $('instagram-tab').value = selected;
   else if (list.length === 1) $('instagram-tab').value = String(list[0].id);
   plan();
+}
+function selectActiveTab(tabId) {
+  const select = $('instagram-tab');
+  const value = String(tabId);
+  if (![...select.options].some(option => option.value === value)) select.add(new Option('active instagram tab', value));
+  select.value = value;
+}
+function displayPlan(state) {
+  if (state.running && state.settings) {
+    if (!savedDraft) savedDraft = { values: Object.fromEntries(fields.map(field => [field, $(field).value])), limits: { ...limitOverrides }, tabId: $('instagram-tab').value };
+    editingLimit = null;
+    const settings = state.settings;
+    $('niche').value = settings.terms.join(', ');
+    $('minutes').value = String(settings.minutes);
+    $('pace').value = settings.pace;
+    for (const action of actions) {
+      $(`limit-${action}`).value = String(settings.limits[action]);
+      $(`mix-${action}`).value = String(settings.weights[action]);
+    }
+    selectActiveTab(state.tabId);
+  } else if (!state.running && savedDraft) {
+    for (const field of fields) $(field).value = savedDraft.values[field];
+    limitOverrides = savedDraft.limits;
+    $('instagram-tab').value = savedDraft.tabId;
+    savedDraft = null;
+  }
 }
 function render(state) {
   currentState = state;
   running = state.running;
+  displayPlan(state);
   $('start').hidden = running; $('stop').hidden = !running;
   $('settings').disabled = running || busy;
   $('minutes').disabled = running || busy;
