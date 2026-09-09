@@ -595,6 +595,67 @@ test('stop during viewer advance prevents clicking next',async()=>{
  assert.ok(h.calls.some(x=>x.patch?.phase==='stopped'));
 });
 
+test('viewer next refreshes its sequence, matches canonical ids and refuses previously watched targets', async () => {
+ for (const seen of [false, true]) {
+  const first = 'https://www.instagram.com/p/first/'; const second = 'https://www.instagram.com/p/second/';
+  let current = first; let clicks = 0; let result;
+  const h = runnerContext('starting', async (settings, adapter) => {
+   vm.runInContext(`viewerSequence = ['${first}']`, h.ctx);
+   result = await adapter.advance({ id: first.replace('/p/', '/reel/'), viewer: true, next: true }, null, target => seen && target === second);
+  });
+  h.chrome.scripting.executeScript = async request => {
+   if (request.files) return [{ result: null }];
+   if (typeof request.args?.[1] === 'number') { clicks++; current = second; return [{ result: true }]; }
+   return [{ result: { sequence: [first, second], post: { id: current, viewer: true, next: true } } }];
+  };
+  await finishRunner(h);
+  assert.equal(result, !seen);
+  assert.equal(clicks, seen ? 0 : 1);
+ }
+});
+
+test('returning from Instagram viewer closes the modal and never reloads the search', async () => {
+ const search = 'https://www.instagram.com/explore/search/keyword/?q=branding';
+ const post = { id: 'https://www.instagram.com/p/first/', viewer: true };
+ let current = search; let closes = 0; const navigations = [];
+ const h = runnerContext('starting', async (settings, adapter, signal) => {
+  await adapter.search('branding');
+  current = post.id;
+  assert.equal(await adapter.leavePost(post, signal), true);
+  assert.equal(signal.aborted, false);
+ });
+ h.chrome.tabs.get = async () => ({ url: current, status: 'complete' });
+ h.chrome.tabs.update = async (id, options) => { navigations.push(options.url); current = options.url; };
+ h.chrome.scripting.executeScript = async request => {
+  if (request.files) return [{ result: null }];
+  if (request.args?.[0] === post.id) {
+   assert.match(request.func.toString(), /action: 'close'/);
+   closes++; current = search;
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: search });
+   return [{ result: true }];
+  }
+  return [{ result: { posts: [post.id], post: current === post.id ? post : null } }];
+ };
+ await finishRunner(h);
+ assert.deepEqual(navigations, [search]);
+ assert.equal(closes, 1);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
+test('missing close control does not reload the search or click a different control', async () => {
+ const post = { id: 'https://www.instagram.com/p/first/', viewer: true };
+ const search = 'https://www.instagram.com/explore/search/keyword/?q=branding';
+ let navigations = 0; let result;
+ const h = runnerContext('starting', async () => {
+  result = await vm.runInContext(`returnToResults(${JSON.stringify(post)}, '${search}')`, h.ctx);
+ });
+ h.chrome.tabs.update = async () => { navigations++; };
+ h.chrome.scripting.executeScript = async () => [{ result: false }];
+ await finishRunner(h);
+ assert.equal(result, false);
+ assert.equal(navigations, 0);
+});
+
 test('viewer waits for content identity when the address changes before the modal',()=>{
  for(const hrefs of [[],['https://www.instagram.com/p/old/c/123/']]){
    const rect=()=>({width:600,height:500,left:0,top:0,right:600,bottom:500});
