@@ -107,7 +107,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     // revive a finished session or overwrite its uncertain-action warning.
     if (!['starting', 'running', 'stopping'].includes(job.phase)) return null;
     const patch = message.patch || {};
-    if (job.stopRequested && !['stopped','complete','error'].includes(patch.phase)) return null;
+    if (job.stopRequested && !['stopped','complete','error'].includes(patch.phase)) {
+      // Retain an in-flight comment result without changing Stop or its message.
+      if (Array.isArray(patch.comments)) await putJob({ ...job, comments: commentHistory.normalize(patch.comments) });
+      return null;
+    }
     const phase = ['running', 'stopped', 'complete', 'error'].includes(patch.phase) ? patch.phase : job.phase;
     const text = typeof patch.message === 'string' ? patch.message.slice(0, 240) : job.message;
     const stats = { ...job.stats };
