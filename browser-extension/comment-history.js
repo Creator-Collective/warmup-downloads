@@ -30,7 +30,7 @@
       const meta = document.createElement('div'); meta.className = 'comment-meta';
       const link = document.createElement('a');
       link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.title = 'open post';
-      link.textContent = item.author ? `@${item.author}` : 'view post';
+      link.textContent = item.author ? `@${item.author}'s post` : 'view post';
       const status = document.createElement('span'); status.className = 'comment-status';
       status.dataset.status = item.status; status.textContent = item.status === 'confirmed' ? 'posted' : 'not confirmed';
       const time = document.createElement('time'); time.dateTime = new Date(item.time).toISOString();
