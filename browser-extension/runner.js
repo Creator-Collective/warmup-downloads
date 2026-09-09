@@ -394,6 +394,7 @@ async function performEngagement(action, post, comment) {
   return 'uncertain';
 }
 function render(state) {
+  commentHistory.render(document, state.comments);
   el('message').textContent = state.message;
   el('status').textContent = state.phase;
   el('stop').disabled = !['starting','running'].includes(state.phase);

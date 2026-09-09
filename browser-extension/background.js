@@ -1,5 +1,5 @@
 'use strict';
-importScripts('features.js', 'plan.js', 'guards.js', 'signup-fields.js', 'signup.js');
+importScripts('features.js', 'plan.js', 'comment-history.js', 'guards.js', 'signup-fields.js', 'signup.js');
 let queue = Promise.resolve();
 const serial = operation => { const result = queue.then(operation); queue = result.catch(() => {}); return result; };
 const getJob = async () => (await chrome.storage.session.get('job')).job;
@@ -61,7 +61,7 @@ async function dashboardCommand(message, fromPanel = false) {
   if (!platformURL(tab.url, platform)) throw new Error(`that tab is no longer on ${platforms[platform].label}. choose it again.`);
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
   const token = crypto.randomUUID();
-  const job = { token, tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, activity: [], message: 'starting your session…', nextActionAt: null };
+  const job = { token, tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, activity: [], comments: [], message: 'starting your session…', nextActionAt: null };
   await putJob(job);
   try {
     const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: !fromPanel, windowId: tab.windowId });
@@ -113,7 +113,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const stats = { ...job.stats };
     for (const name of ['scroll','read','search','open','like','follow','comment','skipped']) if (Number.isInteger(patch.stats?.[name]) && patch.stats[name] >= 0) stats[name] = patch.stats[name];
     const activity = text !== job.message ? [{ time: Date.now(), message: text }, ...job.activity].slice(0, 12) : job.activity;
-    await putJob({ ...job, phase, stats, activity, message: text, nextActionAt: Number.isFinite(patch.nextActionAt) ? Math.min(patch.nextActionAt, job.deadline) : null });
+    const comments = Array.isArray(patch.comments) ? commentHistory.normalize(patch.comments) : job.comments || [];
+    await putJob({ ...job, phase, stats, activity, comments, message: text, nextActionAt: Number.isFinite(patch.nextActionAt) ? Math.min(patch.nextActionAt, job.deadline) : null });
     return null;
   }).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
   return true;

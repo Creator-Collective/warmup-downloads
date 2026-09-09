@@ -116,8 +116,9 @@ function runnerContext(phase = 'starting', operation) {
  const elements=new Map(); const calls=[];
  const job={token:'test-token',tabId:7,runnerTabId:90,deadline:Date.now()+600000,phase,settings:{minutes:10},stats:{},activity:[],message:'starting'};
  const chrome={runtime:{sendMessage:async message=>{calls.push(message);return {ok:true,data:message.type==='runner-job'?job:null}}},tabs:{get:async()=>({url:'https://www.instagram.com/'}),update:async()=>({}),onUpdated:event()},storage:{onChanged:event()},scripting:{executeScript:async request=>{calls.push({injection:request});return [{result:{posts:[],post:null}}]}}};
- const node=()=>({textContent:'',disabled:false,addEventListener(){},replaceChildren(){},append(){},click(){},classList:{toggle(){}}});
+ const node=()=>({textContent:'',disabled:false,dataset:{},scrollTop:0,addEventListener(){},replaceChildren(){},append(){},click(){},classList:{toggle(){}}});
  const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,Date,location:{hash:'#test-token'},platforms,validPlatform:require('../browser-extension/guards.js').validPlatform,platformURL,instagramURL,document:{getElementById:id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id)},createElement:node,body:{classList:{toggle(){}}},addEventListener(){}},sessionEngine:{runSession:operation || (async()=>{})}});
+ ctx.commentHistory = require('../comment-history.js');
  return {ctx,calls,chrome,job,elements,start(){vm.runInContext(fs.readFileSync(path.join(extension,'runner.js'),'utf8'),ctx)}};
 }
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve))};

@@ -40,7 +40,7 @@ function runner(operation = async () => {}, respond) {
   const calls = [];
   const nodes = new Map();
   const job = { token: 'token', tabId: 7, runnerTabId: 90, phase: 'starting', deadline: Date.now() + 600000, settings, stats: {}, activity: [], message: 'starting' };
-  const node = () => ({ textContent: '', disabled: false, listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; }, append() {}, replaceChildren() {}, classList: { toggle() {} } });
+  const node = () => ({ textContent: '', disabled: false, dataset: {}, scrollTop: 0, listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; }, append() {}, replaceChildren() {}, classList: { toggle() {} } });
   const chrome = {
     runtime: { sendMessage: async message => { calls.push(message); return respond ? respond(message, job) : { ok: true, data: message.type === 'runner-job' ? job : null }; } },
     tabs: { onUpdated: event() }, storage: { onChanged: event() }
@@ -50,6 +50,7 @@ function runner(operation = async () => {}, respond) {
     document: { getElementById: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }, createElement: node, body: { classList: { toggle() {} } }, addEventListener() {} },
     sessionEngine: { runSession: operation }
   });
+  context.commentHistory = require('../comment-history.js');
   return { calls, nodes, context, start: () => vm.runInContext(fs.readFileSync(path.join(extension, 'runner.js'), 'utf8'), context) };
 }
 
