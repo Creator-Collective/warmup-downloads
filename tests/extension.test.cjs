@@ -128,6 +128,29 @@ test('runner does not pass AbortSignal into Chrome script arguments',async()=>{
  assert.deepEqual(JSON.parse(JSON.stringify(injections[1].args)),['inspectInstagram',{}]);
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
 });
+test('runner waits for delayed follow confirmation before treating it as uncertain',async()=>{
+ let verifications=0;
+ const h=runnerContext('starting',async(settings,adapter)=>{
+   const result=await adapter.engage('follow',{id:'https://www.instagram.com/p/example/',author:'/creator/'});
+   assert.equal(result,'confirmed');
+ });
+ h.ctx.setTimeout=(fn)=>setTimeout(fn,0);
+ h.chrome.scripting.executeScript=async request=>{
+   h.calls.push({injection:request});
+   if(request.files)return [{result:null}];
+   if(request.args?.[0]==='inspectInstagram'){
+     const requested=request.args[1]||{};
+     if(requested.action==='verify-follow')return [{result:{confirmed:++verifications>=5}}];
+     return [{result:{}}];
+   }
+   if(request.args?.[0]==='follow')return [{result:true}];
+   return [{result:{}}];
+ };
+ h.start();
+ for(let i=0;i<40&&!h.calls.some(x=>x.patch);i++)await new Promise(resolve=>setTimeout(resolve,1));
+ assert.equal(verifications,5);
+ assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
+});
 test('stop during tab lookup prevents function injection',async()=>{
  const h=runnerContext('starting',async(settings,adapter,signal)=>{await adapter.inspect(signal)});
  h.chrome.tabs.get=async()=>{vm.runInContext("controller.abort(new Error('stopped'))",h.ctx);return {url:'https://www.instagram.com/'}};

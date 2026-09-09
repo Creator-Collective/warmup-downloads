@@ -112,10 +112,22 @@ test('stop during inspection prevents a pending engagement', async () => {
   assert.deepEqual(h.calls.map(call => call[0]), ['search']);
 });
 
-test('uncertain results stop the session instead of retrying or claiming success', async () => {
-  const h = harness({ engage: async () => 'uncertain' });
-  await assert.rejects(runSession(validateSettings(input), h.adapter, h.controller.signal, h.options), /may have gone through/);
-  assert.equal(h.updates.at(-1).stats.comment, 0);
+test('uncertain engagement is skipped once and the session keeps running', async () => {
+  let attempts = 0;
+  const h = harness({
+    engage: async (action, post) => {
+      attempts += 1;
+      h.calls.push([action, post.id]);
+      return 'uncertain';
+    }
+  });
+  h.options.random = () => 0.5;
+  const stats = await runSession(validateSettings({ ...input, minutes: 1, enableComments: false, customLimits: { like: 0, follow: 1, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  assert.equal(attempts, 1);
+  assert.equal(stats.follow, 0);
+  assert.equal(stats.skipped, 1);
+  assert.equal(h.time(), 60000);
+  assert.ok(h.updates.some(update => /couldn.t confirm/.test(update.message)));
 });
 
 test('login or activity restrictions stop further actions', async () => {
