@@ -182,6 +182,7 @@ async function advanceViewer(post, hasSeen = () => false) {
   if (page.blocked) throw new Error(page.blocked);
   if (!sameDestination(page.post?.id, post.id)) return false;
   if (page.sequence?.some(id => sameDestination(id, post.id))) viewerSequence = page.sequence;
+  if (viewerSequence.filter(id => sameDestination(id, post.id)).length !== 1) return false;
   const index = viewerSequence.findIndex(id => sameDestination(id, post.id));
   const target = index >= 0 ? viewerSequence[index + 1] : null;
   if (!target || hasSeen(target)) return false;

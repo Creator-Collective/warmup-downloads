@@ -72,6 +72,16 @@ test('only the unique viewer close control is exposed, never an article button o
   assert.equal(valid.inspect({ id: 'https://www.instagram.com/p/other/', action: 'close' }).changed, true);
 });
 
+test('Next sequence preserves repeated result tiles while open candidates stay deduplicated', () => {
+  const first = 'https://www.instagram.com/p/first/'; const second = 'https://www.instagram.com/p/second/';
+  const links = [first, second, first].map(href => ({ href, getBoundingClientRect: () => ({ width: 100, height: 100, left: 0, right: 100, top: 0, bottom: 100 }) }));
+  const context = vm.createContext({ URL, location: { hostname: 'www.instagram.com', origin: 'https://www.instagram.com', href: 'https://www.instagram.com/explore/search/keyword/?q=branding', pathname: '/explore/search/keyword/' }, innerWidth: 1000, innerHeight: 800, getComputedStyle: () => ({ visibility: 'visible', display: 'block' }), document: { querySelectorAll: selector => selector === 'main a[href],[role="main"] a[href]' ? links : [] } });
+  vm.runInContext(source, context);
+  const result = context.inspectInstagram();
+  assert.deepEqual(Array.from(result.sequence), [first, second, first]);
+  assert.deepEqual(Array.from(result.posts), [first, second]);
+});
+
 for (const saved of [false, true]) {
   test(`${saved ? 'saved' : 'unsaved'} posts can be liked and confirmed without changing their bookmark`, () => {
     const fixture = postFixture({ saved });

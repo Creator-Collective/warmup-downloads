@@ -642,6 +642,24 @@ test('returning from Instagram viewer closes the modal and never reloads the sea
  assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
 });
 
+test('repeated tiles cannot make Next replay a watched post or guess an ambiguous occurrence', async () => {
+ const first = 'https://www.instagram.com/p/first/'; const second = 'https://www.instagram.com/p/second/'; const third = 'https://www.instagram.com/p/third/';
+ for (const id of [first, second]) {
+  let clicks = 0; let result;
+  const h = runnerContext('starting', async (settings, adapter, signal) => {
+   result = await adapter.advance({ id, viewer: true, next: true }, signal, target => target === first || target === second);
+  });
+  h.chrome.scripting.executeScript = async request => {
+   if (request.files) return [{ result: null }];
+   if (typeof request.args?.[1] === 'number') { clicks++; return [{ result: true }]; }
+   return [{ result: { sequence: [first, second, first, third], post: { id, viewer: true, next: true } } }];
+  };
+  await finishRunner(h);
+  assert.equal(result, false);
+  assert.equal(clicks, 0);
+ }
+});
+
 test('missing close control does not reload the search or click a different control', async () => {
  const post = { id: 'https://www.instagram.com/p/first/', viewer: true };
  const search = 'https://www.instagram.com/explore/search/keyword/?q=branding';
