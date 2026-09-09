@@ -63,6 +63,26 @@ function assertRunning() {
   controller.signal.throwIfAborted();
   if (!job || Date.now() >= job.deadline) throw new Error('time’s up. your session is complete.');
 }
+function sameDestination(actual, expected) {
+  if (actual === expected) return true;
+  try {
+    const a = new URL(actual); const b = new URL(expected);
+    const post = url => url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/)?.[1];
+    if (a.origin === b.origin && a.search === b.search && a.hash === b.hash && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return true;
+    return a.origin === b.origin && !a.search && !b.search && !a.hash && !b.hash && Boolean(post(a)) && post(a) === post(b);
+  } catch { return false; }
+}
+function transientPageError(error) {
+  return error?.transientPage === true || /frame (?:with id .*|.*was )removed|no frame with id|document (?:was )?unloaded|execution context (?:was )?destroyed|cannot find context/i.test(error?.message || '');
+}
+async function recoverPageStep(operation) {
+  try { return await operation(); }
+  catch (error) {
+    assertRunning();
+    if (!transientPageError(error)) throw error;
+    return false;
+  }
+}
 const sleep = ms => new Promise((resolve, reject) => {
   if (controller.signal.aborted) return reject(controller.signal.reason);
   const abort = () => { clearTimeout(timer); reject(controller.signal.reason); };
@@ -71,22 +91,36 @@ const sleep = ms => new Promise((resolve, reject) => {
 });
 async function execute(func, args = []) {
   assertRunning();
+  await messageQueue;
+  assertRunning();
   const config = platformConfig();
   const tab = await chrome.tabs.get(job.tabId);
   if (!platformURL(tab.url, config.platform)) throw new Error(`the selected tab left ${config.label}.`);
   assertRunning();
   const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId }, func, args });
   assertRunning();
-  if (!result[0]) throw new Error(`${config.label} stopped responding.`);
+  if (!result[0]) throw Object.assign(new Error(`${config.label} is still loading.`), { transientPage: true });
   return result[0].result;
 }
 async function inspect(request = {}) {
-  assertRunning();
   const config = platformConfig();
-  await chrome.scripting.executeScript({ target: { tabId: job.tabId }, files: [config.script] });
-  return execute((inspector, request) => globalThis[inspector](request), [config.inspector, request]);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assertRunning();
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: job.tabId }, files: [config.script] });
+      const page = await execute((inspector, request) => typeof globalThis[inspector] === 'function' ? globalThis[inspector](request) : null, [config.inspector, request]);
+      if (page && typeof page === 'object') return page;
+    } catch (error) {
+      assertRunning();
+      if (!transientPageError(error)) throw error;
+    }
+    if (attempt < 2) await sleep(400 * (attempt + 1));
+  }
+  return { posts: [], post: null, unavailable: true };
 }
 async function navigate(url) {
+  assertRunning();
+  await messageQueue;
   assertRunning();
   const config = platformConfig();
   if (!platformURL(url, config.platform)) throw new Error(`only ${config.label} pages are supported.`);
@@ -97,35 +131,34 @@ async function navigate(url) {
     assertRunning();
     const tab = await chrome.tabs.get(job.tabId);
     if (!platformURL(tab.url, config.platform)) throw new Error(`${config.label} needs your attention.`);
-    if (tab.status === 'complete' && tab.url === url && !tab.pendingUrl) {
+    if (tab.status === 'complete' && sameDestination(tab.url, url) && !tab.pendingUrl) {
       const page = await inspect();
       if (page.blocked) throw new Error(page.blocked);
       const committed = await chrome.tabs.get(job.tabId);
       assertRunning();
-      if (committed.url === url && committed.status === 'complete' && !committed.pendingUrl && (page.post || page.posts?.length)) return;
+      if (sameDestination(committed.url, url) && committed.status === 'complete' && !committed.pendingUrl && (page.post || page.posts?.length)) return true;
     }
     await sleep(500);
   }
-  throw new Error(`posts didn’t load. check ${config.label} and try another keyword.`);
+  return false;
 }
 async function waitForPost(target) {
-  const config = platformConfig();
   const until = Math.min(Date.now() + 15000, job.deadline);
   while (Date.now() < until) {
     assertRunning();
     const page = await inspect();
     if (page.blocked) throw new Error(page.blocked);
-    if (page.post?.id === target && page.post.viewer) return true;
+    if (sameDestination(page.post?.id, target) && page.post?.viewer) return true;
     await sleep(400);
   }
-  throw new Error(`the next post didn’t load. check ${config.label} before restarting.`);
+  return false;
 }
 async function openViewer(target) {
   const config = platformConfig();
   if (!config.validPost(target)) throw new Error('invalid post address.');
   const page = await inspect();
   viewerSequence = page.sequence || page.posts || [];
-  if (!viewerSequence.includes(target)) throw new Error('that search result changed. start a new session.');
+  if (!viewerSequence.includes(target)) return false;
   expectedDestination = target;
   const clicked = await execute((target, deadline) => {
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
@@ -139,8 +172,8 @@ async function openViewer(target) {
     if (!link) return false;
     link.click(); return true;
   }, [target, job.deadline]);
-  if (!clicked) throw new Error('the search result isn’t available. start a new session.');
-  await waitForPost(target);
+  if (!clicked) return false;
+  return waitForPost(target);
 }
 async function advanceViewer(post) {
   if (!post.viewer || !post.next) return false;
@@ -159,11 +192,10 @@ async function advanceViewer(post) {
     button.click(); return true;
   }, [post.id, job.deadline]);
   if (!clicked) return false;
-  await waitForPost(target);
-  return true;
+  return waitForPost(target);
 }
 async function scroll() {
-  return execute(async deadline => {
+  try { return await execute(async deadline => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     const page = inspector();
@@ -177,6 +209,11 @@ async function scroll() {
     await new Promise(resolve => setTimeout(resolve, 500));
     return markers.some(({ e, rect }) => { const next = e.getBoundingClientRect(); return e.isConnected && rect.top - next.top >= Math.min(100, innerHeight * .15) && Math.abs(rect.height - next.height) < 2; });
   }, [job.deadline]);
+  } catch (error) {
+    assertRunning();
+    if (!transientPageError(error)) throw error;
+    return false;
+  }
 }
 async function recoverCommentDraft(request) {
   await execute((request, deadline) => {
@@ -243,10 +280,23 @@ async function verifyFollowOnFreshPost(request) {
   }
 }
 async function engage(action, post, comment) {
+  try { return await performEngagement(action, post, comment); }
+  catch (error) {
+    assertRunning();
+    if (!transientPageError(error)) throw error;
+    // A lost action result is never replayed. Keep browsing and suspend comments
+    // if an unsent draft could remain in the replaced document.
+    const result = pendingDraft ? 'draft-retained' : pendingEngagement ? 'uncertain' : 'skipped';
+    pendingDraft = false; pendingEngagement = false;
+    return result;
+  }
+}
+async function performEngagement(action, post, comment) {
   assertRunning();
   const request = { id: post.id, author: post.author, comment, ...(action === 'comment' ? { caption: post.caption } : {}) };
   const page = await inspect();
   if (page.blocked) throw new Error(page.blocked);
+  if (page.unavailable) return 'skipped';
   assertRunning();
   pendingDraft = action === 'comment';
   pendingEngagement = action !== 'comment';
@@ -322,10 +372,18 @@ function render(state) {
 }
 function update(patch) {
   const next = { ...patch, phase: 'running' };
-  messageQueue = messageQueue.then(() => send('runner-update', { patch: next })).catch(error => { controller.abort(error); });
+  messageQueue = messageQueue.then(async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { await send('runner-update', { patch: next }); return; }
+      catch (error) {
+        if (attempt === 2 || controller.signal.aborted) throw error;
+        await sleep(250 * (attempt + 1));
+      }
+    }
+  }).catch(error => { controller.abort(error); });
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (job?.tabId === tabId && change.url && change.url !== expectedDestination) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
+  if (job?.tabId === tabId && change.url && !sameDestination(change.url, expectedDestination)) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes.job) return;
@@ -367,10 +425,11 @@ async function start() {
   try {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
-      update, inspect: () => inspect(), scroll, engage, advance: advanceViewer,
-      search: async term => { searchURL = config.searchURL(term); await navigate(searchURL); },
-      open: openViewer,
-      leavePost: async () => { if (searchURL) await navigate(searchURL); }
+      update, inspect: () => inspect(), scroll, engage,
+      advance: post => recoverPageStep(() => advanceViewer(post)),
+      search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
+      open: target => recoverPageStep(() => openViewer(target)),
+      leavePost: async () => { if (searchURL) return recoverPageStep(() => navigate(searchURL)); }
     }, controller.signal);
     await messageQueue;
     controller.signal.throwIfAborted();

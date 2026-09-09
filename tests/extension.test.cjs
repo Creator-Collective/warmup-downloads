@@ -121,6 +121,90 @@ function runnerContext(phase = 'starting', operation) {
  return {ctx,calls,chrome,job,elements,start(){vm.runInContext(fs.readFileSync(path.join(extension,'runner.js'),'utf8'),ctx)}};
 }
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve))};
+
+async function finishRunner(h) {
+ h.start();
+ for (let i = 0; i < 400 && !h.calls.some(call => call.patch && ['complete','stopped','error'].includes(call.patch.phase)); i++) await new Promise(resolve => setTimeout(resolve, 2));
+ assert.ok(h.calls.some(call => call.patch && ['complete','stopped','error'].includes(call.patch.phase)), 'runner must settle');
+}
+
+test('temporary page replacement is retried for reads, while persistent unreadability returns unavailable', async () => {
+ for (const failures of [2, 5]) {
+   let attempts = 0; let page;
+   const h = runnerContext('starting', async (settings, adapter) => { page = await adapter.inspect(); });
+   h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+   h.chrome.scripting.executeScript = async request => {
+     if (request.files && ++attempts <= failures) throw new Error('Frame with ID 0 was removed.');
+     return [{ result: { post: null, posts: [] } }];
+   };
+   await finishRunner(h);
+   assert.equal(attempts, 3);
+   assert.equal(Boolean(page.unavailable), failures > 2);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ }
+});
+
+test('empty searches and posts that never load return recoverable results without ending the session', async () => {
+ for (const operation of ['search', 'open']) {
+   let now = Date.now(); let result;
+   const target = 'https://www.instagram.com/p/example/';
+   const search = 'https://www.instagram.com/explore/search/keyword/?q=branding';
+   const h = runnerContext('starting', async (settings, adapter) => { result = await adapter[operation](operation === 'search' ? 'branding' : target); });
+   h.ctx.Date = { now: () => now };
+   h.ctx.setTimeout = (fn, ms) => setTimeout(() => { if (ms < 3000) now += ms; fn(); }, ms >= 3000 ? 100 : 0);
+   h.chrome.tabs.get = async () => ({ url: operation === 'search' ? search : target, status: 'complete' });
+   h.chrome.scripting.executeScript = async request => {
+     if (request.args?.[0] === target) return [{ result: true }];
+     return [{ result: { posts: operation === 'open' ? [target] : [], sequence: [target], post: null } }];
+   };
+   await finishRunner(h);
+   assert.equal(result, false);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ }
+});
+
+test('a missing search result is skipped without clicking an unrelated post', async () => {
+ let result;
+ const h = runnerContext('starting', async (settings, adapter) => { result = await adapter.open('https://www.instagram.com/p/missing/'); });
+ await finishRunner(h);
+ assert.equal(result, false);
+ assert.equal(h.calls.filter(call => call.injection?.args?.[0] === 'https://www.instagram.com/p/missing/').length, 0);
+});
+
+test('canonical post addresses do not cancel the session, but a different post still does', async () => {
+ const h = runnerContext('starting', async (settings, adapter, signal) => {
+   vm.runInContext("expectedDestination = 'https://www.instagram.com/reel/example/'", h.ctx);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.instagram.com/p/example/' });
+   assert.equal(signal.aborted, false);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.instagram.com/p/other/' });
+   assert.equal(signal.aborted, true);
+ });
+ await finishRunner(h);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'stopped'));
+ assert.equal(vm.runInContext("sameDestination('https://www.tiktok.com/@creator/video/123', 'https://www.tiktok.com/@creator/video/123/')", h.ctx), true);
+ assert.equal(vm.runInContext("sameDestination('https://www.instagram.com/p/example/?different=1', 'https://www.instagram.com/reel/example/')", h.ctx), false);
+});
+
+test('lost activity acknowledgements retry only status and hold the next page action until recovered', async () => {
+ let acknowledgements = 0;
+ const h = runnerContext('starting', async (settings, adapter) => {
+   adapter.update({ message: 'running' });
+   await adapter.inspect();
+ });
+ h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+ h.chrome.runtime.sendMessage = async message => {
+   h.calls.push(message);
+   if (message.patch?.phase === 'running' && ++acknowledgements < 3) throw new Error('temporary connection error');
+   return { ok: true, data: message.type === 'runner-job' ? h.job : null };
+ };
+ h.chrome.scripting.executeScript = async request => {
+   if (request.func) assert.equal(acknowledgements, 3);
+   return [{ result: { post: null, posts: [] } }];
+ };
+ await finishRunner(h);
+ assert.equal(acknowledgements, 3);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
 test('runner does not pass AbortSignal into Chrome script arguments',async()=>{
  const h=runnerContext('starting',async(settings,adapter,signal)=>{await adapter.inspect(signal)});
  h.start();await settle();
@@ -223,6 +307,21 @@ test('failed read-only confirmation does not stop the session', async () => {
  assert.equal(viewer.followClicks, 1);
  assert.equal(continued, true);
  assert.deepEqual(removed, [81]);
+});
+
+test('a follow result lost during page replacement is not retried and does not end the session', async () => {
+ const { viewer, result, continued, created } = await runHiddenFollow(({ h }) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     const result = await execute(request);
+     if (request.args?.[0] === 'follow') throw new Error('Frame with ID 0 was removed.');
+     return result;
+   };
+ });
+ assert.equal(viewer.followClicks, 1);
+ assert.equal(result, 'uncertain');
+ assert.equal(continued, true);
+ assert.deepEqual(created, []);
 });
 
 test('Stop or the deadline during fallback closes only its temporary tab and prevents further inspection', async () => {
@@ -334,6 +433,21 @@ test('an unconfirmed submitted comment is never clicked twice or cleared', async
 test('a manual Post interaction is never followed by another submit or draft deletion', async () => {
  const { composer, result, continued } = await runComment(composer => {
    composer.state.onInput = () => { composer.interact('click'); };
+ });
+ assert.equal(result, 'draft-retained');
+ assert.equal(composer.submitted, 0);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
+test('a lost draft result pauses only comments without filling or submitting again', async () => {
+ const { composer, result, continued } = await runComment((composer, h) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     const result = await execute(request);
+     if (request.args?.[0] === 'comment') throw new Error('Frame with ID 0 was removed.');
+     return result;
+   };
  });
  assert.equal(result, 'draft-retained');
  assert.equal(composer.submitted, 0);

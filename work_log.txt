@@ -1,3 +1,9 @@
+2026-09-09 | 0.6.20 session resilience and installed verification
+- user requested direct assurance and asked not to be the repeated manual tester. Chrome's native extension details showed installed version 0.6.17 at ~/Downloads/creator-collective-extension 12, so neither published follow/comment repair was installed yet.
+- recover empty/slow searches, stale result links, viewer load timeouts and transient frame replacement. retry read-only observations and status acknowledgements; keep unknown engagement non-replayable. equivalent permalink forms retain the session while real navigation, restrictions, Stop and deadlines still stop it.
+- uncertain results now consume their action allowance without inflating confirmed counters, preventing extra follows/comments beyond the selected target while verification is unclear.
+- verified: all 232 automated checks pass, including a full-duration mixed-failure session, actual injected comment/follow recovery, load timeouts and status retry ordering. packaging, production and installed live checks follow. live comment/follow permission was requested separately because those make real public changes; do not infer approval from elapsed time.
+
 2026-09-09 | 0.6.19 follow confirmation
 - user asked whether following also needed fixes. read-only live inspection confirmed the author from the screenshot is currently followed. the previous viewer had hidden Follow, while the same standalone post exposes Following in its header. this proves the current relationship, not when it was created.
 - after an unconfirmed Instagram follow, inspect the same exact post in a temporary inactive tab for the exact author's Following or Requested control. never click follow again, close the temporary tab after checking, and keep unknown results uncounted without ending warm-up. Stop, deadlines, navigation and account restrictions remain enforced.
