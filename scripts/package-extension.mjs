@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const extension = path.join(root, 'browser-extension');
-const files = ['manifest.json','features.js','background.js','bridge.js','guards.js','signup.js','signup-fields.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
+const files = ['manifest.json','features.js','background.js','bridge.js','guards.js','signup.js','signup-fields.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
 await copyFile(path.join(root,'dashboard.js'),path.join(extension,'dashboard.js'));
 await copyFile(path.join(root,'signup-ui.js'),path.join(extension,'signup-ui.js'));
+await copyFile(path.join(root,'plan.js'),path.join(extension,'plan.js'));
 const origin = 'https://creator-collective-warmup.vercel.app';
 let panel = (await readFile(path.join(root,'index.html'),'utf8'))
   .replace('<body>', '<body class="side-panel">')

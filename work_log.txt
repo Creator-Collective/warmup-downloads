@@ -1,8 +1,14 @@
+2026-09-09 | 0.6.12 tiktok warm-up
+- add tiktok as a warm-up platform alongside instagram. the dashboard and side panel choose the platform, list matching regular Chrome tabs, open that platform, and run the timed session against the selected site.
+- add a conservative tiktok observer for search-result videos, current video context, next-video movement, likes, follows and playback time. tiktok comments stay disabled until live controls are verified; instagram behavior is retained.
+- files: browser-extension/{background,guards,runner,session,tiktok,manifest,dashboard,plan,sidepanel}, dashboard.js, plan.js, index/setup/store/readme/package metadata, 0.6.12 archives and focused platform tests.
+- verified: 199 automated checks pass. exact live tiktok browsing, stop, likes and follows remain unverified; account creation remains shelved.
+
 2026-09-09 | 0.6.11 warm-up reliability
 - fix lost startup/completion acknowledgements and sessions stuck stopping; retry terminal status only, keep failed-stop recovery usable without the dashboard, close only the pinned unresponsive runner after stop, and reject late attempts to revive finished sessions.
 - show the actual running keywords, duration, pacing, action limits and target across reopened controls; restore each surface's saved next-session draft afterward. recognize saved-post Like controls without selecting Unlike, Unsave or comment hearts.
 - files: browser-extension/{background,runner,guards,instagram,dashboard,manifest}, dashboard.js, tests/{recovery,instagram,dashboard}, package/setup/readme/store metadata, 0.6.11 archives and this log.
-- verified: 194 automated checks pass; code/javascript/security reviews; both 24-file archives exactly match reviewed source, generated shared files match, diff-check clean. no app build. live website and ZIP verification follow the authorized feature-branch/PR release.
+- verified: 194 automated checks pass; code/javascript/security reviews; both 24-file archives exactly match reviewed source, generated shared files match, diff-check clean. no app build. PR #14 merged as f74ccc4; production Vercel status success. live index/dashboard/setup and 0.6.11 ZIP match reviewed source byte-for-byte. Chrome page reconnects and lists the Instagram tab.
 - follow-ups: exact installed 0.6.11 live browsing, stop and engagement remain unverified. Chrome is signed out of Instagram and the test-account choice is pending. account creation remains shelved; no live likes, follows, comments, signup or mailbox changes.
 
 2026-09-08 | 0.6.10 simplify warm-up amounts and controls

@@ -7,6 +7,8 @@ const paces = Object.freeze({
 });
 function validateSettings(input) {
   if (!input || typeof input !== 'object') throw new Error('choose your session settings first.');
+  const platform = input.platform == null || input.platform === '' ? 'instagram' : input.platform;
+  if (!['instagram', 'tiktok'].includes(platform)) throw new Error('choose instagram or tiktok.');
   const integer = (value, min, max, label) => {
     if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${label} must be between ${min} and ${max}.`);
     return value;
@@ -23,7 +25,7 @@ function validateSettings(input) {
   const limits = {
     like: Math.min(60, Math.ceil(activeMinutes)),
     follow: Math.min(12, Math.floor(activeMinutes / 5)),
-    comment: input.enableComments === true ? Math.min(6, Math.floor(activeMinutes / 10)) : 0
+    comment: platform === 'tiktok' ? 0 : input.enableComments === true ? Math.min(6, Math.floor(activeMinutes / 10)) : 0
   };
   const weights = { like: 2, follow: 1, comment: 1 };
   for (const action of Object.keys(weights)) {
@@ -35,10 +37,11 @@ function validateSettings(input) {
       if (typeof input.customLimits !== 'object' || Array.isArray(input.customLimits)) throw new Error('choose valid session limits.');
       if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 60, follow: 12, comment: 6 }[action], `${action} limit`);
     }
+    if (platform === 'tiktok' && action === 'comment' && limits[action] > 0) throw new Error('tiktok comments are not supported yet.');
     if (!weights[action] || (action === 'comment' && input.enableComments !== true)) limits[action] = 0;
     if (limits[action] === 0) weights[action] = 0;
   }
-  return { minutes, terms, limits, weights, pace, pauseScale: paces[pace].scale };
+  return { platform, minutes, terms, limits, weights, pace, pauseScale: paces[pace].scale };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { validateSettings, paces };

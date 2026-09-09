@@ -13,7 +13,7 @@ const actions = ['like','follow','comment'];
 let limitOverrides = {};
 let editingLimit = null;
 let savedDraft = null;
-const fields = ['niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
+const fields = ['platform','niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
   const callback = pending.get(event.data.id);
@@ -41,7 +41,7 @@ try {
 } catch { /* defaults remain usable */ }
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
-  return { niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
+  return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
     mix: Object.fromEntries(actions.map(name => [name, numeric($(`mix-${name}`).value)])),
     customLimits: Object.fromEntries(Object.entries(limitOverrides).map(([name, value]) => [name, numeric(value)])) };
 }
@@ -62,6 +62,7 @@ function plan() {
     const result = sessionPlan.validateSettings(input());
     // Polling and recalculation must not replace a number while it is edited.
     for (const action of actions) if (editingLimit !== action) $(`limit-${action}`).value = String(result.limits[action]);
+    $('limit-comment').disabled = result.platform === 'tiktok';
     showError(requestError); valid = true;
   } catch (e) { showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message); }
   validPlan = valid;
@@ -75,12 +76,14 @@ function connection(value) {
   $('setup').hidden = value;
   $('open-instagram').disabled = !value || running;
   $('refresh-tabs').disabled = !value || running;
+  platformChanged();
   plan();
 }
 async function tabs() {
-  const list = await request('tabs');
+  const platform = $('platform').value;
+  const list = await request('tabs', { platform });
   const selected = running ? String(currentState.tabId) : $('instagram-tab').value;
-  $('instagram-tab').replaceChildren(new Option(list.length ? 'choose an instagram tab' : 'open instagram, then refresh', ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id))));
+  $('instagram-tab').replaceChildren(new Option(list.length ? `choose a ${platform} tab` : `open ${platform}, then refresh`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id))));
   if (running) selectActiveTab(currentState.tabId);
   else if (list.some(tab => String(tab.id) === selected)) $('instagram-tab').value = selected;
   else if (list.length === 1) $('instagram-tab').value = String(list[0].id);
@@ -89,14 +92,30 @@ async function tabs() {
 function selectActiveTab(tabId) {
   const select = $('instagram-tab');
   const value = String(tabId);
-  if (![...select.options].some(option => option.value === value)) select.add(new Option('active instagram tab', value));
+  const platform = currentState?.settings?.platform || $('platform').value;
+  if (![...select.options].some(option => option.value === value)) select.add(new Option(`active ${platform} tab`, value));
   select.value = value;
+}
+function platformChanged() {
+  const platform = $('platform').value;
+  $('tab-label').textContent = `${platform} tab`;
+  $('open-instagram').textContent = `open ${platform} to sign in ↗`;
+  if (platform === 'tiktok') {
+    delete limitOverrides.comment;
+    if (editingLimit === 'comment') editingLimit = null;
+    $('limit-comment').value = '0';
+    $('limit-comment').disabled = true;
+  } else {
+    $('limit-comment').disabled = false;
+  }
 }
 function displayPlan(state) {
   if (state.running && state.settings) {
     if (!savedDraft) savedDraft = { values: Object.fromEntries(fields.map(field => [field, $(field).value])), limits: { ...limitOverrides }, tabId: $('instagram-tab').value };
     editingLimit = null;
     const settings = state.settings;
+    $('platform').value = settings.platform || 'instagram';
+    platformChanged();
     $('niche').value = settings.terms.join(', ');
     $('minutes').value = String(settings.minutes);
     $('pace').value = settings.pace;
@@ -110,6 +129,7 @@ function displayPlan(state) {
     limitOverrides = savedDraft.limits;
     $('instagram-tab').value = savedDraft.tabId;
     savedDraft = null;
+    platformChanged();
   }
 }
 function render(state) {
@@ -143,6 +163,7 @@ $('session-form').addEventListener('submit', async event => {
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
 for (const field of fields.filter(field => !field.startsWith('limit-'))) $(field).addEventListener('input', edited);
+$('platform').addEventListener('change', () => { $('instagram-tab').value = ''; platformChanged(); edited(); if (connected && !running) tabs().catch(e => error(e.message)); });
 for (const action of actions) {
   const field = $(`limit-${action}`);
   field.addEventListener('focus', () => { editingLimit = action; });
@@ -157,7 +178,7 @@ $('instagram-tab').addEventListener('change', edited);
 $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
 $('reset-mix').addEventListener('click', () => { for (const action of actions) $(`mix-${action}`).value = action === 'like' ? '2' : '1'; edited(); });
 $('refresh-tabs').addEventListener('click', () => tabs().catch(e => error(e.message)));
-$('open-instagram').addEventListener('click', () => request('open-instagram').then(tabs).catch(e => error(e.message)));
+$('open-instagram').addEventListener('click', () => request('open-platform', { platform: $('platform').value }).then(tabs).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => request('stop').then(render).catch(e => error(e.message)));
 async function connect() {
   try { const hello = await request('hello'); error(''); connection(true); render(hello.state); await tabs(); }

@@ -2,9 +2,11 @@
 
 Website: https://creator-collective-warmup.vercel.app/
 
-The current product is a Chrome side panel plus a public web dashboard. Clicking the extension icon opens the packaged panel. Panel requests use an exact extension-origin sender check; web requests keep their existing origin bridge. The dashboard configures one user-started session against one explicitly selected Instagram tab. A dedicated extension tab owns the timer and displays activity; panel starts leave this tab inactive. Closing the panel keeps the session alive; closing it stops the session. The web dashboard does not handle Instagram cookies or credentials.
+The current product is a Chrome side panel plus a public web dashboard. Clicking the extension icon opens the packaged panel. Panel requests use an exact extension-origin sender check; web requests keep their existing origin bridge. The dashboard configures one user-started session against one explicitly selected Instagram or TikTok tab. A dedicated extension tab owns the timer and displays activity; panel starts leave this tab inactive. Closing the panel keeps the session alive; closing it stops the session. The web dashboard does not handle platform cookies or credentials.
 
 ## Current release status
+
+0.6.12 adds TikTok warm-up sessions alongside Instagram. The dashboard and side panel now choose Instagram or TikTok, list tabs for that platform, open the selected platform, and run the timed browsing session against the right site. TikTok supports searching, scrolling/video watching, likes and follows; TikTok comments remain disabled until their live controls are verified. Account creation remains disabled. 199 automated checks pass; exact live TikTok warm-up remains unverified.
 
 0.6.11 retries session completion messages and recovers unresponsive sessions after Stop, without replaying Instagram actions. Active settings and the selected tab appear consistently across reopened controls, while each surface keeps its saved next-session settings. Saved posts now expose their post Like control correctly. Account creation remains disabled. Focused regression checks and live release results are recorded in work_log.txt.
 
@@ -40,7 +42,7 @@ The email service is the separate native endpoint on the existing student backen
 
 `npm run check` runs extension authorization, cancellation, persistence and runner regression tests using Node's built-in test runner. `npm run package:extension` creates both a beta ZIP containing the extension folder and a root-layout ZIP for store submission. The packaging allowlist intentionally excludes environment files, browser profiles, tests and repository metadata.
 
-The Instagram observer and session planner began from the desktop implementation. They are bundled locally in the extension and require no remote executable code. Keep desktop and browser pacing changes synchronized deliberately; browser-specific cancellation and navigation are handled by runner.js and background.js.
+The Instagram observer and session planner began from the desktop implementation. TikTok uses a separate conservative observer. They are bundled locally in the extension and require no remote executable code. Keep desktop and browser pacing changes synchronized deliberately; browser-specific cancellation and navigation are handled by runner.js and background.js.
 
 ## Deployment
 
