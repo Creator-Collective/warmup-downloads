@@ -22,11 +22,11 @@ async function recoverStoppingJob(force = false) {
       if (runner.url === expected) await chrome.tabs.remove(runner.id);
       else if (!runner.url || runner.pendingUrl === expected) throw new Error('session tab is still loading');
     }
-    const stopped = { ...job, phase: 'error', stopRequested: true, nextActionAt: null, message: 'session stopped after its tab stopped responding. an action already sent may still complete. check instagram before restarting.' };
+    const stopped = { ...job, phase: 'error', stopRequested: true, nextActionAt: null, message: `session stopped after its tab stopped responding. an action already sent may still complete. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` };
     await putJob(stopped);
     return stopped;
   } catch {
-    const stopping = { ...job, message: 'couldn’t finish stopping. close the session tab, then check instagram before restarting.' };
+    const stopping = { ...job, message: `couldn’t finish stopping. close the session tab, then check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` };
     await putJob(stopping);
     return stopping;
   }
@@ -35,11 +35,13 @@ async function dashboardCommand(message, fromPanel = false) {
   if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, state: publicState(await recoverStoppingJob()) };
   if (message.type === 'state') return publicState(await recoverStoppingJob());
   if (message.type === 'tabs') {
-    const tabs = await chrome.tabs.query({ url: ['https://www.instagram.com/*', 'https://instagram.com/*'] });
-    return tabs.filter(tab => !tab.incognito && instagramURL(tab.url)).map(tab => ({ id: tab.id, title: tab.title || 'instagram' }));
+    const platform = validPlatform(message.platform);
+    const tabs = await chrome.tabs.query({ url: [...platforms[platform].patterns] });
+    return tabs.filter(tab => !tab.incognito && platformURL(tab.url, platform)).map(tab => ({ id: tab.id, title: tab.title || platforms[platform].label }));
   }
-  if (message.type === 'open-instagram') {
-    const tab = await chrome.tabs.create({ url: 'https://www.instagram.com/' });
+  if (message.type === 'open-instagram' || message.type === 'open-platform') {
+    const platform = validPlatform(message.platform);
+    const tab = await chrome.tabs.create({ url: platforms[platform].home });
     return { tabId: tab.id };
   }
   if (message.type === 'stop') {
@@ -51,11 +53,12 @@ async function dashboardCommand(message, fromPanel = false) {
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
   const settings = sessionPlan.validateSettings(message.settings);
-  if (!Number.isInteger(message.tabId)) throw new Error('choose an instagram tab first.');
+  const platform = validPlatform(settings.platform);
+  if (!Number.isInteger(message.tabId)) throw new Error(`choose a ${platforms[platform].label} tab first.`);
   const current = await getJob();
   if (current && ['starting', 'running', 'stopping'].includes(current.phase)) throw new Error('a session is already running. stop it before starting another.');
   const tab = await chrome.tabs.get(message.tabId);
-  if (!instagramURL(tab.url)) throw new Error('that tab is no longer on instagram. choose it again.');
+  if (!platformURL(tab.url, platform)) throw new Error(`that tab is no longer on ${platforms[platform].label}. choose it again.`);
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
   const token = crypto.randomUUID();
   const job = { token, tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, activity: [], message: 'starting your session…', nextActionAt: null };
@@ -122,8 +125,8 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
     const job = await getJob();
     if (!job || !['starting','running','stopping'].includes(job.phase)) return;
     if ((tabId === job.runnerTabId && change.url && change.url !== chrome.runtime.getURL(`runner.html#${job.token}`)) || ([job.runnerTabId,job.tabId].includes(tabId) && change.discarded)) {
-      await putJob({ ...job, stopRequested: true, phase: 'stopped', nextActionAt: null, message: 'session stopped because a session tab changed or unloaded. check instagram before restarting.' });
-    } else if (tabId === job.tabId && change.url && !instagramURL(change.url)) await stopJob('session stopped because the tab left instagram.');
+      await putJob({ ...job, stopRequested: true, phase: 'stopped', nextActionAt: null, message: `session stopped because a session tab changed or unloaded. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` });
+    } else if (tabId === job.tabId && change.url && !platformURL(change.url, job.settings?.platform)) await stopJob(`session stopped because the tab left ${platforms[validPlatform(job.settings?.platform)].label}.`);
   });
 });
 // Chrome handles the toolbar click directly, preserving its user gesture.

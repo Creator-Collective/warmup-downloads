@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 
 const extension = path.join(__dirname, '../browser-extension');
+const { platforms, validPlatform, platformURL, instagramURL } = require('../browser-extension/guards.js');
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); } });
 const settings = { minutes: 10, niche: 'personal branding', customLimits: { like: 0, follow: 0, comment: 0 } };
 const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
@@ -44,7 +45,7 @@ function runner(operation = async () => {}, respond) {
     runtime: { sendMessage: async message => { calls.push(message); return respond ? respond(message, job) : { ok: true, data: message.type === 'runner-job' ? job : null }; } },
     tabs: { onUpdated: event() }, storage: { onChanged: event() }
   };
-  const context = vm.createContext({ chrome, URL, console, Date, AbortController, location: { hash: '#token' },
+  const context = vm.createContext({ chrome, URL, console, Date, AbortController, platforms, validPlatform, platformURL, instagramURL, location: { hash: '#token' },
     setTimeout: (fn, delay) => setTimeout(fn, delay >= 3000 ? 20 : 1), clearTimeout, setInterval, clearInterval,
     document: { getElementById: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }, createElement: node, body: { classList: { toggle() {} } }, addEventListener() {} },
     sessionEngine: { runSession: operation }

@@ -6,26 +6,29 @@ const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const root = path.resolve(__dirname,'..');
 const extension = path.join(root,'browser-extension');
-const { instagramURL, dashboardSender, panelSender, runnerSender, publicState } = require('../browser-extension/guards.js');
+const { platforms, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, publicState } = require('../browser-extension/guards.js');
 const origin = 'https://creator-collective-warmup.vercel.app';
 const sender = { id:'extension-id',url:origin+'/',frameId:0,tab:{id:2} };
 const event = () => ({listeners:[],addListener(fn){this.listeners.push(fn)}});
 function background(initial) {
   let job = initial;
   const created = [];
-  const chrome = {sidePanel:{setPanelBehavior:async()=>{}},runtime:{id:'extension-id',getURL:p=>`chrome-extension://extension-id/${p.replace(/^\//,'')}`,getManifest:()=>({version:'0.4.2'}),onMessage:event()}, storage:{session:{get:async()=>({job:structuredClone(job)}),set:async value=>{job=structuredClone(value.job)}}},tabs:{query:async()=>[{id:7,title:'instagram',url:'https://www.instagram.com/'}],get:async id=>({id,url:'https://www.instagram.com/',windowId:1}),create:async options=>{created.push(options);return {id:90}},update:async()=>({}),onRemoved:event(),onUpdated:event()},action:{onClicked:event()},windows:{update:async()=>{}}};
+  const allTabs = [{id:7,title:'instagram',url:'https://www.instagram.com/'},{id:8,title:'tiktok',url:'https://www.tiktok.com/'}];
+  const chrome = {sidePanel:{setPanelBehavior:async()=>{}},runtime:{id:'extension-id',getURL:p=>`chrome-extension://extension-id/${p.replace(/^\//,'')}`,getManifest:()=>({version:'0.4.2'}),onMessage:event()}, storage:{session:{get:async()=>({job:structuredClone(job)}),set:async value=>{job=structuredClone(value.job)}}},tabs:{query:async request=>request.url?allTabs:allTabs,get:async id=>allTabs.find(tab=>tab.id===id) || {id,url:'https://www.instagram.com/',windowId:1},create:async options=>{created.push(options);return {id:90}},update:async()=>({}),remove:async()=>{},onRemoved:event(),onUpdated:event()},action:{onClicked:event()},windows:{update:async()=>{}}};
   const ctx=vm.createContext({chrome,console,URL,crypto:webcrypto,structuredClone});
   ctx.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx));
   vm.runInContext(fs.readFileSync(path.join(extension,'background.js'),'utf8'),ctx);
   const message=(request,source=sender)=>new Promise(resolve=>{const accepted=chrome.runtime.onMessage.listeners[0](request,source,resolve);if(!accepted)resolve(undefined)});
   return {message,created,chrome,job:()=>job};
 }
-test('only exact dashboard origin, top frame and intended Instagram hosts are accepted',()=>{
+test('only exact dashboard origin, top frame and intended platform hosts are accepted',()=>{
  assert.equal(dashboardSender(sender),true);
  for(const url of ['https://evil.example/','https://creator-collective-warmup.vercel.app.evil.example/','http://creator-collective-warmup.vercel.app/'])assert.equal(dashboardSender({...sender,url}),false);
  assert.equal(dashboardSender({...sender,frameId:1}),false);
  for(const url of ['http://www.instagram.com/','https://instagram.com.evil.example/','https://user:pass@instagram.com/','file:///tmp/test'])assert.equal(instagramURL(url),false);
  assert.equal(instagramURL('https://www.instagram.com/p/abc/'),true);
+ assert.equal(platformURL('https://www.tiktok.com/@creator/video/123','tiktok'),true);
+ assert.equal(platformURL('https://www.tiktok.com.evil.example/@creator/video/123','tiktok'),false);
  assert.equal(runnerSender({url:'chrome-extension://evil/runner.html#x',tab:{id:9}},{runnerTabId:9,token:'x'},'chrome-extension://extension-id/'),false);
 });
 test('manifest limits permissions and contains no remote code or cookie access',()=>{
@@ -33,7 +36,7 @@ test('manifest limits permissions and contains no remote code or cookie access',
  assert.deepEqual(manifest.permissions,['storage','scripting','sidePanel']);
  assert.deepEqual(manifest.content_scripts[0].matches,[origin+'/*']);
  assert.equal(manifest.content_scripts[0].all_frames,false);
- assert.deepEqual(manifest.host_permissions,['https://www.instagram.com/*','https://instagram.com/*']);
+ assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns,...platforms.tiktok.patterns]);
  for(const file of ['plan.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
  const ctx=vm.createContext({setTimeout,clearTimeout,AbortController});
  for(const file of ['plan.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
@@ -58,6 +61,16 @@ test('start validates settings, creates a dedicated runner and blocks duplicate 
  assert.equal(response.ok,true);assert.equal(h.job().settings.limits.like,25);assert.equal(h.job().settings.limits.comment,0);
  assert.equal(h.created.length,1);assert.equal(h.created[0].active,true);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,false);
+});
+test('tiktok tabs can be selected for warm-up and comments stay disabled',async()=>{
+ const h=background();
+ const tabs=await h.message({type:'tabs',platform:'tiktok'});
+ assert.deepEqual(tabs.data.map(tab=>tab.id),[8]);
+ const response=await h.message({type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',customLimits:{like:4,follow:1}}});
+ assert.equal(response.ok,true);
+ assert.equal(h.job().settings.platform,'tiktok');
+ assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:0});
+ assert.equal((await h.message({type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}})).ok,false);
 });
 test('stop blocks replacement until runner acknowledges and preserves uncertain outcomes',async()=>{
  const h=background();
@@ -103,7 +116,7 @@ function runnerContext(phase = 'starting', operation) {
  const job={token:'test-token',tabId:7,runnerTabId:90,deadline:Date.now()+600000,phase,settings:{minutes:10},stats:{},activity:[],message:'starting'};
  const chrome={runtime:{sendMessage:async message=>{calls.push(message);return {ok:true,data:message.type==='runner-job'?job:null}}},tabs:{get:async()=>({url:'https://www.instagram.com/'}),update:async()=>({}),onUpdated:event()},storage:{onChanged:event()},scripting:{executeScript:async request=>{calls.push({injection:request});return [{result:{posts:[],post:null}}]}}};
  const node=()=>({textContent:'',disabled:false,addEventListener(){},replaceChildren(){},append(){},click(){},classList:{toggle(){}}});
- const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,Date,location:{hash:'#test-token'},instagramURL,document:{getElementById:id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id)},createElement:node,body:{classList:{toggle(){}}},addEventListener(){}},sessionEngine:{runSession:operation || (async()=>{})}});
+ const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,Date,location:{hash:'#test-token'},platforms,validPlatform:require('../browser-extension/guards.js').validPlatform,platformURL,instagramURL,document:{getElementById:id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id)},createElement:node,body:{classList:{toggle(){}}},addEventListener(){}},sessionEngine:{runSession:operation || (async()=>{})}});
  return {ctx,calls,chrome,job,elements,start(){vm.runInContext(fs.readFileSync(path.join(extension,'runner.js'),'utf8'),ctx)}};
 }
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve))};
@@ -112,7 +125,7 @@ test('runner does not pass AbortSignal into Chrome script arguments',async()=>{
  h.start();await settle();
  const injections=h.calls.filter(x=>x.injection).map(x=>x.injection);
  assert.equal(injections.length,2);
- assert.deepEqual(JSON.parse(JSON.stringify(injections[1].args)),[{}]);
+ assert.deepEqual(JSON.parse(JSON.stringify(injections[1].args)),['inspectInstagram',{}]);
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
 });
 test('stop during tab lookup prevents function injection',async()=>{

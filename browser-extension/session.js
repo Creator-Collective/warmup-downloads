@@ -42,6 +42,7 @@ function pickAction(eligible, weights, random = Math.random) {
 
 // One awaited action at a time. No action begins after cancellation or the deadline.
 async function runSession(settings, adapter, signal, options = {}) {
+  const platform = settings.platform || 'instagram';
   const now = options.now || Date.now;
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
@@ -157,7 +158,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         update(inViewer ? 'moving to the next post…' : 'scrolling for more posts…');
         const moved = inViewer ? await adapter.advance(post, signal) : await adapter.scroll(signal);
         if (!running()) break;
-        if (moved === 'login') throw new Error('sign in to instagram, then start a new session.');
+        if (moved === 'login') throw new Error(`sign in to ${platform}, then start a new session.`);
         if (moved) { stats.scroll += 1; stalled = 0; } else { stats.skipped += 1; stalled += 1; }
         if (post && (!inViewer || !moved)) await adapter.leavePost(signal);
         if (inViewer && moved) pauseAfter = 'watch';
@@ -178,7 +179,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         const result = await adapter.engage(action, post, comment, signal);
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
-        else if (result === 'uncertain') throw new Error(`${action} may have gone through, but couldn’t be confirmed. check instagram before restarting.`);
+        else if (result === 'uncertain') throw new Error(`${action} may have gone through, but couldn’t be confirmed. check ${platform} before restarting.`);
         else stats.skipped += 1;
         update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : `${action} skipped. the post changed or its control wasn’t available.`);
       }

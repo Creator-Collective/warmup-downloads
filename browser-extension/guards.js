@@ -1,7 +1,33 @@
 'use strict';
 const DASHBOARD_ORIGIN = 'https://creator-collective-warmup.vercel.app';
+const platforms = Object.freeze({
+  instagram: Object.freeze({
+    label: 'instagram',
+    home: 'https://www.instagram.com/',
+    hosts: Object.freeze(['www.instagram.com', 'instagram.com']),
+    patterns: Object.freeze(['https://www.instagram.com/*', 'https://instagram.com/*'])
+  }),
+  tiktok: Object.freeze({
+    label: 'tiktok',
+    home: 'https://www.tiktok.com/',
+    hosts: Object.freeze(['www.tiktok.com', 'tiktok.com']),
+    patterns: Object.freeze(['https://www.tiktok.com/*', 'https://tiktok.com/*'])
+  })
+});
+function validPlatform(value) {
+  if (value == null || value === '') return 'instagram';
+  if (Object.hasOwn(platforms, value)) return value;
+  throw new Error('choose instagram or tiktok.');
+}
+function platformURL(value, platform) {
+  try {
+    const name = validPlatform(platform);
+    const u = new URL(value);
+    return u.protocol === 'https:' && platforms[name].hosts.includes(u.hostname) && !u.username && !u.password;
+  } catch { return false; }
+}
 function instagramURL(value) {
-  try { const u = new URL(value); return u.protocol === 'https:' && ['www.instagram.com', 'instagram.com'].includes(u.hostname) && !u.username && !u.password; } catch { return false; }
+  return platformURL(value, 'instagram');
 }
 function dashboardSender(sender) {
   try { return sender.frameId === 0 && new URL(sender.url).origin === DASHBOARD_ORIGIN && Boolean(sender.tab?.id); } catch { return false; }
@@ -16,6 +42,6 @@ function runnerSender(sender, job, extensionOrigin) {
 function publicState(job) {
   if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, activity: [] };
   return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, activity: job.activity, tabId: job.tabId,
-    settings: job.settings ? { minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights } : undefined };
+    settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights } : undefined };
 }
-if (typeof module !== 'undefined') module.exports = { instagramURL, dashboardSender, panelSender, runnerSender, publicState };
+if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, publicState };

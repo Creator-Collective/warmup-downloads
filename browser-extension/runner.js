@@ -10,6 +10,23 @@ let messageQueue = Promise.resolve();
 let terminalResult;
 let terminalAcknowledgement;
 const el = id => document.getElementById(id);
+function currentPlatform() {
+  return validPlatform(job?.settings?.platform);
+}
+function platformConfig() {
+  const platform = currentPlatform();
+  return {
+    platform,
+    label: platforms[platform].label,
+    script: platform === 'tiktok' ? 'tiktok.js' : 'instagram.js',
+    inspector: platform === 'tiktok' ? 'inspectTikTok' : 'inspectInstagram',
+    searchURL: term => platform === 'tiktok' ? `https://www.tiktok.com/search?q=${encodeURIComponent(term)}` : `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(term)}`,
+    validPost: url => {
+      const u = new URL(url);
+      return platformURL(url, platform) && (platform === 'tiktok' ? /^\/@[\w.-]+\/video\/\d+\/?$/.test(u.pathname) : /^\/(p|reel)\/[\w-]+\/$/.test(u.pathname)) && !u.search && !u.hash;
+    }
+  };
+}
 async function send(type, extra = {}) {
   let timer;
   const response = await Promise.race([
@@ -25,7 +42,7 @@ async function finish(patch) {
   terminalResult = patch;
   if (terminalAcknowledgement) return terminalAcknowledgement;
   terminalAcknowledgement = (async () => {
-    // Retry only the terminal acknowledgement, never an Instagram operation.
+    // Retry only the terminal acknowledgement, never a platform operation.
     // This delay deliberately works after the session's abort signal is set.
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -54,29 +71,32 @@ const sleep = ms => new Promise((resolve, reject) => {
 });
 async function execute(func, args = []) {
   assertRunning();
+  const config = platformConfig();
   const tab = await chrome.tabs.get(job.tabId);
-  if (!instagramURL(tab.url)) throw new Error('the selected tab left instagram.');
+  if (!platformURL(tab.url, config.platform)) throw new Error(`the selected tab left ${config.label}.`);
   assertRunning();
   const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId }, func, args });
   assertRunning();
-  if (!result[0]) throw new Error('instagram stopped responding.');
+  if (!result[0]) throw new Error(`${config.label} stopped responding.`);
   return result[0].result;
 }
 async function inspect(request = {}) {
   assertRunning();
-  await chrome.scripting.executeScript({ target: { tabId: job.tabId }, files: ['instagram.js'] });
-  return execute(request => globalThis.inspectInstagram(request), [request]);
+  const config = platformConfig();
+  await chrome.scripting.executeScript({ target: { tabId: job.tabId }, files: [config.script] });
+  return execute((inspector, request) => globalThis[inspector](request), [config.inspector, request]);
 }
 async function navigate(url) {
   assertRunning();
-  if (!instagramURL(url)) throw new Error('only instagram pages are supported.');
+  const config = platformConfig();
+  if (!platformURL(url, config.platform)) throw new Error(`only ${config.label} pages are supported.`);
   expectedDestination = url;
   await chrome.tabs.update(job.tabId, { url });
   const until = Math.min(Date.now() + 25000, job.deadline);
   while (Date.now() < until) {
     assertRunning();
     const tab = await chrome.tabs.get(job.tabId);
-    if (!instagramURL(tab.url)) throw new Error('instagram needs your attention.');
+    if (!platformURL(tab.url, config.platform)) throw new Error(`${config.label} needs your attention.`);
     if (tab.status === 'complete' && tab.url === url && !tab.pendingUrl) {
       const page = await inspect();
       if (page.blocked) throw new Error(page.blocked);
@@ -86,9 +106,10 @@ async function navigate(url) {
     }
     await sleep(500);
   }
-  throw new Error('posts didn’t load. check instagram and try another keyword.');
+  throw new Error(`posts didn’t load. check ${config.label} and try another keyword.`);
 }
 async function waitForPost(target) {
+  const config = platformConfig();
   const until = Math.min(Date.now() + 15000, job.deadline);
   while (Date.now() < until) {
     assertRunning();
@@ -97,18 +118,24 @@ async function waitForPost(target) {
     if (page.post?.id === target && page.post.viewer) return true;
     await sleep(400);
   }
-  throw new Error('the next post didn’t load. check instagram before restarting.');
+  throw new Error(`the next post didn’t load. check ${config.label} before restarting.`);
 }
 async function openViewer(target) {
-  const u = new URL(target);
-  if (!instagramURL(target) || !/^\/(p|reel)\/[\w-]+\/$/.test(u.pathname) || u.search || u.hash) throw new Error('invalid post address.');
+  const config = platformConfig();
+  if (!config.validPost(target)) throw new Error('invalid post address.');
   const page = await inspect();
   viewerSequence = page.sequence || page.posts || [];
   if (!viewerSequence.includes(target)) throw new Error('that search result changed. start a new session.');
   expectedDestination = target;
   const clicked = await execute((target, deadline) => {
-    if (Date.now() >= deadline || globalThis.inspectInstagram().blocked) return false;
-    const link = [...document.querySelectorAll('main a[href],[role="main"] a[href]')].find(a => a.href === target && a.getBoundingClientRect().width > 0);
+    const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    if (Date.now() >= deadline || inspector().blocked) return false;
+    const normalize = value => {
+      const url = new URL(value, location.href);
+      if (location.hostname.includes('tiktok')) return /^\/@[\w.-]+\/video\/\d+\/?$/.test(url.pathname) ? `https://www.tiktok.com${url.pathname.replace(/\/?$/, '/')}` : null;
+      return url.origin === location.origin && /^\/(p|reel)\/[\w-]+\/?$/.test(url.pathname) ? `${url.origin}${url.pathname.replace(/\/?$/, '/')}` : null;
+    };
+    const link = [...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].find(a => normalize(a.href) === target && a.getBoundingClientRect().width > 0);
     if (!link) return false;
     link.click(); return true;
   }, [target, job.deadline]);
@@ -124,7 +151,8 @@ async function advanceViewer(post) {
   expectedDestination = target;
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
-    const next = globalThis.inspectInstagram({id, action:'next'});
+    const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    const next = inspector({id, action:'next'});
     if (!next.point) return false;
     const button = document.elementFromPoint(next.point.x, next.point.y)?.closest('button,[role="button"]');
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
@@ -137,7 +165,8 @@ async function advanceViewer(post) {
 async function scroll() {
   return execute(async deadline => {
     if (Date.now() >= deadline) return false;
-    const page = globalThis.inspectInstagram();
+    const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    const page = inspector();
     if (page.blocked) throw new Error(page.blocked);
     const markers = [...document.querySelectorAll('video,img,a[href],h1,h2,p')].filter(e => {
       const r = e.getBoundingClientRect(); return r.width > 40 && r.height > 12 && r.bottom > 0 && r.top < innerHeight;
@@ -159,13 +188,14 @@ async function engage(action, post, comment) {
   pendingEngagement = action !== 'comment';
   const clicked = await execute((action, request, deadline) => {
     if (Date.now() >= deadline) return false;
-    const target = globalThis.inspectInstagram({ ...request, action: action === 'comment' ? 'comment-field' : action });
+    const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    const target = inspector({ ...request, action: action === 'comment' ? 'comment-field' : action });
     if (!target.point) return false;
     const hit = document.elementFromPoint(target.point.x, target.point.y);
     if (action === 'comment') {
       if (!(hit instanceof HTMLTextAreaElement) || hit.value.trim()) return false;
       hit.focus();
-      const ready = globalThis.inspectInstagram({ ...request, action: 'comment-ready' });
+      const ready = inspector({ ...request, action: 'comment-ready' });
       if (!ready.ready) return false;
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(hit, request.comment);
       hit.dispatchEvent(new Event('input', { bubbles: true }));
@@ -183,13 +213,14 @@ async function engage(action, post, comment) {
     pendingEngagement = true;
     const submitted = await execute((request, deadline) => {
       if (Date.now() >= deadline) return false;
-      const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
+      const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+      const target = inspector({ ...request, action: 'comment-submit' });
       if (!target.point) return false;
       const button = document.elementFromPoint(target.point.x, target.point.y)?.closest('button,[role="button"]');
       if (!button || button.disabled) return false;
       button.click(); return true;
     }, [request, job.deadline]);
-    if (!submitted) { pendingEngagement = false; throw new Error('a comment draft remains in instagram. review it before restarting.'); }
+    if (!submitted) { pendingEngagement = false; throw new Error(`a comment draft remains in ${currentPlatform()}. review it before restarting.`); }
     pendingDraft = false;
   }
   for (let i = 0; i < 4; i++) {
@@ -217,7 +248,7 @@ function update(patch) {
   messageQueue = messageQueue.then(() => send('runner-update', { patch: next })).catch(error => { controller.abort(error); });
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (job?.tabId === tabId && change.url && change.url !== expectedDestination) controller.abort(new Error('session stopped because the instagram page changed.'));
+  if (job?.tabId === tabId && change.url && change.url !== expectedDestination) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes.job) return;
@@ -242,7 +273,7 @@ async function start() {
   if (['running','stopping'].includes(job.phase)) {
     controller.abort(new Error('session stopped after its tab refreshed.'));
     await send('runner-stop');
-    if (await finish({ phase: 'stopped', message: 'session stopped after its tab refreshed. check instagram before restarting.' })) {
+    if (await finish({ phase: 'stopped', message: `session stopped after its tab refreshed. check ${currentPlatform()} before restarting.` })) {
       el('message').textContent = 'session stopped after this tab refreshed. start a new session from the dashboard.';
       el('status').textContent = 'stopped'; el('stop').disabled = true;
     }
@@ -250,14 +281,17 @@ async function start() {
   }
   if (job.stopRequested || job.phase !== 'starting') { render(job); return; }
   render(job);
+  el('message').textContent = `connecting to ${currentPlatform()}…`;
+  el('show-instagram').textContent = `show ${currentPlatform()}`;
   const remaining = () => { const seconds = Math.max(0, Math.ceil((job.deadline - Date.now()) / 1000)); el('remaining').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')}`; };
   const timer = setInterval(() => { remaining(); if (Date.now() >= job.deadline) controller.abort(new Error('time’s up. your session is complete.')); }, 250);
   remaining();
   let searchURL;
   try {
+    const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
       update, inspect: () => inspect(), scroll, engage, advance: advanceViewer,
-      search: async term => { searchURL = `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(term)}`; await navigate(searchURL); },
+      search: async term => { searchURL = config.searchURL(term); await navigate(searchURL); },
       open: openViewer,
       leavePost: async () => { if (searchURL) await navigate(searchURL); }
     }, controller.signal);
@@ -267,12 +301,12 @@ async function start() {
   } catch (error) {
     await messageQueue;
     const finished = Date.now() >= job.deadline;
-    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? 'an action may have gone through. check instagram before restarting.' : pendingDraft ? 'a comment draft may remain in instagram. review it before restarting.' : error.message || 'session stopped. try again.' });
+    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' });
   } finally { clearInterval(timer); remaining(); }
 }
 start().catch(async error => {
   controller.abort(error);
-  const message = `${error.message || 'session couldn’t start.'} check instagram before restarting.`;
+  const message = `${error.message || 'session couldn’t start.'} check ${job ? currentPlatform() : 'the platform'} before restarting.`;
   if (await finish({ phase: 'error', message })) {
     el('message').textContent = message; el('status').textContent = 'couldn’t start'; el('stop').disabled = true;
   }
