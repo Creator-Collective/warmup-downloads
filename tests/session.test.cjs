@@ -130,6 +130,39 @@ test('uncertain engagement is skipped once and the session keeps running', async
   assert.ok(h.updates.some(update => /couldn.t confirm/.test(update.message)));
 });
 
+test('uncertain results consume the action allowance without inflating confirmed counts', async () => {
+  let index = 0;
+  const attempts = { like: 0, follow: 0, comment: 0 };
+  const h = harness({
+    inspect: async () => ({ post: { id: `p-${index++}`, author: `author-${index}`, text: 'study tips', caption: `Study tips help when you practice every day number ${index}.`, like: true, follow: true, comment: true } }),
+    engage: async action => { attempts[action]++; return 'uncertain'; }
+  });
+  const stats = await runSession(validateSettings({ ...input, customLimits: { like: 1, follow: 1, comment: 1 } }), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(attempts, { like: 1, follow: 1, comment: 1 });
+  assert.equal(stats.like + stats.follow + stats.comment, 0);
+  assert.equal(h.time(), 600000);
+});
+
+test('a full session survives empty searches, unavailable posts and temporarily unreadable pages', async () => {
+  let searches = 0; let opens = 0; let reads = 0; let index = 0;
+  const h = harness({
+    search: async term => { h.calls.push(['search', term]); return ++searches > 1; },
+    inspect: async () => {
+      if (++reads <= 2) return { unavailable: true };
+      if (opens < 2) return { posts: [`post-${index++}`] };
+      return { post: { id: `p-${index++}`, text: 'study tips', like: true } };
+    },
+    open: async () => ++opens > 1
+  });
+  const stats = await runSession(validateSettings({ ...input, customLimits: { like: 1, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  assert.ok(searches >= 2);
+  assert.equal(stats.open, 1);
+  assert.equal(stats.like, 1);
+  assert.ok(stats.scroll > 0);
+  assert.ok(stats.skipped >= 4);
+  assert.equal(h.time(), 600000);
+});
+
 test('an unresolved comment draft disables further comments while browsing and likes continue to the deadline', async () => {
   let index = 0;
   const h = harness({

@@ -114,6 +114,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextTermAt = Infinity;
   let termIndex = 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
+  const unconfirmed = { like: 0, follow: 0, comment: 0 };
   const seen = new Set();
   const done = { like: new Set(), follow: new Set(), comment: new Set() };
   const pausedActions = new Set();
@@ -128,7 +129,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
-  const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + (pausedActions.has(action) ? 0 : actionDebt(settings, stats, action, now() - startedAt)), 0);
+  const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + (pausedActions.has(action) ? 0 : actionDebt(settings, { ...stats, [action]: stats[action] + unconfirmed[action] }, action, now() - startedAt)), 0);
   const viewerPause = () => {
     videosSinceFullWatch += 1;
     const totalDebt = totalEngagementDebt();
@@ -181,8 +182,15 @@ async function runSession(settings, adapter, signal, options = {}) {
     termIndex += 1;
     nextTermAt = settings.terms.length > 1 ? now() + termWindowMs : Infinity;
     update(`searching for ${term}…`);
-    await adapter.search(term, signal);
+    const loaded = await adapter.search(term, signal);
     if (!running()) return;
+    if (loaded === false) {
+      stats.skipped += 1;
+      stalled = 2;
+      update('search is slow or empty. trying another search...');
+      return;
+    }
+    stalled = 0;
     stats.search += 1;
     stepsSinceSearch = 0;
     needsSearchScroll = true;
@@ -197,18 +205,32 @@ async function runSession(settings, adapter, signal, options = {}) {
     const page = await adapter.inspect(signal);
     if (!running()) break;
     if (page.blocked) throw new Error(page.blocked);
+    if (page.unavailable) {
+      stats.skipped += 1;
+      update('waiting for the page to finish loading...');
+      await sleep(Math.min(1500, deadline - now()), signal);
+      stalled += 1;
+      if (running() && stalled >= 3) await search();
+      continue;
+    }
     if (page.post?.id) seen.add(page.post.id);
     if (now() >= nextTermAt || (stepsSinceSearch >= 8 && !page.post?.viewer) || stalled >= 2) {
       await search();
-      stalled = 0;
       pauseAfter = 'transition';
     } else if (!needsSearchScroll && !page.post && page.posts?.some(post => !seen.has(post))) {
       const candidates = page.posts.filter(post => !seen.has(post));
       const target = candidates[randomBetween(0, candidates.length - 1, random)];
       seen.add(target);
       update('opening a matching post…');
-      await adapter.open(target, signal);
+      const opened = await adapter.open(target, signal);
       if (!running()) break;
+      if (opened === false) {
+        stats.skipped += 1;
+        stalled += 1;
+        update('that post is unavailable. looking for another...');
+        await pause('transition');
+        continue;
+      }
       stats.open += 1;
       stepsSinceSearch += 1;
       update('watching a post from your search.');
@@ -220,7 +242,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (post && matchesNiche(post.text, settings.terms)) {
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : post.id;
-          if (!pausedActions.has(action) && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] < settings.limits[action] && !done[action].has(key) &&
+          if (!pausedActions.has(action) && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
               (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
             eligible.push(action);
           }
@@ -266,6 +288,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
         else if (result === 'uncertain') {
+          unconfirmed[action] += 1;
           stats.skipped += 1;
           update(`${action} may have gone through, but couldn’t confirm it. continuing.`);
         }

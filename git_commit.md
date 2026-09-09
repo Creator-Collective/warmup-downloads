@@ -1,9 +1,9 @@
-confirm follows hidden by the instagram viewer
+recover from temporary warm-up interruptions
 
 warm-up:
-- verify unconfirmed follows on a read-only copy of the same post
-- require the exact author's following or requested status without another follow click
-- find header controls even when unrelated controls occur earlier
+- recover empty searches, unavailable posts and transient frame replacement
+- retry activity acknowledgements without replaying page actions
+- preserve action allowances when a result is uncertain
 
 misc:
-- publish version 0.6.19 with follow confirmation and cleanup coverage
+- publish version 0.6.20 with full-session recovery coverage
