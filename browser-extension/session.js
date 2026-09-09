@@ -68,11 +68,18 @@ function actionWarmups(settings, action) {
   return (warmups[action] || warmups.like).map(ms => Math.min(limit, Math.round(ms * scale)));
 }
 
-function expectedActions(settings, action, elapsedMs) {
-  const cadence = actionCadenceMs(settings, action);
-  if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
+function actionSchedule(settings, action) {
+  let cadence = actionCadenceMs(settings, action);
   const [minWarmup, maxWarmup] = actionWarmups(settings, action);
   const warmup = Math.min(maxWarmup, Math.max(minWarmup, cadence * .75));
+  // Leave the final 15% for missed opportunities, loading and confirmation.
+  if (action === 'like' && settings.limits.like > 1) cadence = (settings.minutes * 60000 * .85 - warmup) / (settings.limits.like - 1);
+  return { warmup, cadence };
+}
+
+function expectedActions(settings, action, elapsedMs) {
+  const { warmup, cadence } = actionSchedule(settings, action);
+  if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
   if (elapsedMs < warmup) return 0;
   return Math.min(settings.limits[action], Math.floor((elapsedMs - warmup) / cadence) + 1);
 }
@@ -96,7 +103,7 @@ function actionSpacing(settings, action) {
   return [min, max];
 }
 
-function targetAction(eligible, settings, stats, elapsedMs, random = Math.random) {
+function targetAction(eligible, settings, stats, elapsedMs) {
   const debts = eligible.map(action => {
     const expected = expectedActions(settings, action, elapsedMs);
     const debt = Math.max(0, expected - stats[action]);
@@ -104,11 +111,7 @@ function targetAction(eligible, settings, stats, elapsedMs, random = Math.random
   }).filter(item => item.debt > 0);
   if (!debts.length) return null;
   debts.sort((a, b) => b.score - a.score || b.debt - a.debt || actionCadenceMs(settings, a.action) - actionCadenceMs(settings, b.action));
-  const strongest = debts[0];
-  const probability = strongest.debt >= 2 ? .95 : .82;
-  if (random() >= probability) return null;
-  if (debts.length === 1 || strongest.debt >= 2) return strongest.action;
-  return debts[randomBetween(0, debts.length - 1, random)].action;
+  return debts[0].action;
 }
 
 // One awaited action at a time. No action begins after cancellation or the deadline.
@@ -144,6 +147,9 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
+  const likeSchedule = actionSchedule(settings, 'like');
+  const nextLikeAt = () => stats.like + unconfirmed.like < settings.limits.like && settings.weights.like
+    ? startedAt + likeSchedule.warmup + (stats.like + unconfirmed.like) * likeSchedule.cadence : Infinity;
   const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + (pausedActions.has(action) ? 0 : actionDebt(settings, { ...stats, [action]: stats[action] + unconfirmed[action] }, action, now() - startedAt)), 0);
   const viewerPause = () => {
     videosSinceFullWatch += 1;
@@ -163,7 +169,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     const ranges = { transition: [500, 1800], browse: [1800, 5200], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[action] || ranges.browse;
     let fullWatchMs = null;
-    if (now() >= nextBreak && totalEngagementDebt() < 3) {
+    if (now() >= nextBreak && totalEngagementDebt() < 3 && nextLikeAt() - now() >= 45000 * settings.pauseScale) {
       min = 20000; max = 45000;
       nextBreak = now() + randomBetween(300000, 540000, random);
       update('taking a longer break…');
@@ -178,7 +184,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (page.blocked) throw new Error(page.blocked);
         const remaining = page.post?.viewer ? page.post.videoRemainingMs : null;
         if (Number.isFinite(remaining) && remaining > 10000 * settings.pauseScale && remaining <= 120000 &&
-            remaining <= Math.min(deadline, nextTermAt) - now()) {
+            remaining <= Math.min(deadline, nextTermAt, nextLikeAt()) - now()) {
           fullWatchMs = remaining;
           lastWatchWasFull = true;
           videosSinceFullWatch = 0;
@@ -187,7 +193,8 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
       }
     }
-    const ms = Math.min(fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random), deadline - now(), Math.max(0, nextTermAt - now()));
+    const likePauseBudget = action === 'watch' || action === 'fullwatch' ? Math.max(1000 * settings.pauseScale, nextLikeAt() - now()) : Infinity;
+    const ms = Math.min(fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random), likePauseBudget, deadline - now(), Math.max(0, nextTermAt - now()));
     adapter.update({ phase: 'pause', nextActionAt: now() + ms });
     await sleep(ms, signal);
     if (running()) adapter.update({ phase: 'action', nextActionAt: null });
@@ -254,17 +261,31 @@ async function runSession(settings, adapter, signal, options = {}) {
       const post = page.post;
       const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms) : null;
       const eligible = [];
+      let canLike = false;
       if (post && matchesNiche(post.text, settings.terms)) {
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : postIdentity(post.id);
-          if (!pausedActions.has(action) && deadline - now() >= confirmationBudgetMs[action] && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
+          if (!pausedActions.has(action) && deadline - now() >= confirmationBudgetMs[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
               (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
-            eligible.push(action);
+            if (action === 'like') canLike = true;
+            if (now() >= nextEngagement && now() >= nextAllowed[action]) eligible.push(action);
           }
         }
       }
+      const likeReadyAt = Math.max(nextEngagement, nextAllowed.like);
+      if (!needsSearchScroll && post?.viewer && canLike && nextLikeAt() <= now() && likeReadyAt > now() &&
+          likeReadyAt - now() <= 12000 * settings.pauseScale && likeReadyAt + confirmationBudgetMs.like <= deadline) {
+        // Keep a suitable unliked post during a short cooldown; inspect it again
+        // before acting so changed posts, restrictions and Stop remain binding.
+        const until = Math.min(likeReadyAt, nextTermAt, deadline);
+        update('watching this post...');
+        adapter.update({ phase: 'pause', nextActionAt: until });
+        await sleep(Math.max(0, until - now()), signal);
+        if (running()) adapter.update({ phase: 'action', nextActionAt: null });
+        continue;
+      }
       let action = needsSearchScroll || !post ? 'scroll' : pickAction(eligible, settings.weights, random);
-      const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt, random);
+      const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt);
       if (target) action = target;
       if (action === 'read' && (post?.viewer || previousAction === 'read')) action = 'scroll';
       previousAction = action;

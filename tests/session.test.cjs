@@ -4,7 +4,10 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
-for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
+for (const file of ['plan.js', 'session.js']) {
+  const filename = path.join(__dirname, '../browser-extension', file);
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), ctx, { filename });
+}
 const { matchesNiche, randomBetween, contextualComment, runSession, pickAction } = vm.runInContext('({ matchesNiche, randomBetween, contextualComment, runSession, pickAction })', ctx);
 const validateSettings = input => JSON.parse(JSON.stringify(ctx.sessionPlan.validateSettings(input)));
 const input = { minutes: 10, niche: 'study tips, how to study', enableComments: true };
@@ -331,6 +334,81 @@ test('ten-minute target sessions get close when enough safe actions are availabl
   assert.equal(h.time(), 600000);
 });
 
+test('due likes are selected reliably and the full target is due with time left to confirm', () => {
+  const { targetAction, expectedActions } = vm.runInContext('({ targetAction, expectedActions })', ctx);
+  const settings = validateSettings(input);
+  assert.equal(targetAction(['like'], settings, { like: 10, follow: 0, comment: 0 }, 300000, () => .999), 'like');
+  assert.equal(expectedActions(settings, 'like', 540000), 30);
+});
+
+test('ten-minute sessions reach 30 likes despite mixed eligibility, real action delays and long videos', async () => {
+  for (const seed of Array.from({ length: 100 }, (_, i) => i + 1)) {
+    let state = seed; let index = 0;
+    const likes = new Set(); const follows = new Set(); const comments = new Set();
+    const attempts = [];
+    const h = harness({
+      search: async term => { h.calls.push(['search', term]); await h.options.sleep(5000); },
+      inspect: async () => {
+        await h.options.sleep(100);
+        return { post: { id: `video-${index}`, author: `author-${index}`, viewer: true, next: true,
+          text: index % 4 === 0 ? 'travel diary' : 'study tips',
+          caption: `Study tips work best when you practice a little every day number ${index}.`,
+          like: index % 3 !== 0 && !likes.has(index), follow: !follows.has(index), comment: !comments.has(index), videoRemainingMs: 90000 } };
+      },
+      advance: async () => { index++; await h.options.sleep(800); return true; },
+      engage: async action => {
+        attempts.push({ action, index, time: h.time() });
+        ({ like: likes, follow: follows, comment: comments })[action].add(index);
+        await h.options.sleep({ like: 1000, follow: 12000, comment: 4000 }[action]);
+        return 'confirmed';
+      }
+    });
+    const sleep = h.options.sleep;
+    h.options.sleep = ms => sleep(Math.min(ms, Math.max(0, 600000 - h.time())));
+    h.options.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+    const stats = await runSession(validateSettings({ ...input, niche: 'study tips' }), h.adapter, h.controller.signal, h.options);
+    assert.equal(stats.like, 30, `seed ${seed}: ${stats.like} likes`);
+    assert.ok(stats.follow > 0 && stats.comment > 0, 'other enabled actions must remain active');
+    assert.ok(stats.follow <= 9 && stats.comment <= 3);
+    assert.equal(likes.size, 30);
+    assert.ok(attempts.every(attempt => attempt.index % 4 !== 0));
+    const likeAttempts = attempts.filter(attempt => attempt.action === 'like');
+    assert.ok(likeAttempts.every(attempt => attempt.index % 3 !== 0));
+    for (let i = 1; i < likeAttempts.length; i++) assert.ok(likeAttempts[i].time - likeAttempts[i - 1].time >= 5000);
+    assert.ok(attempts.every(attempt => attempt.time < 600000 - { like: 8000, follow: 22000, comment: 20000 }[attempt.action]));
+    assert.equal(h.time(), 600000);
+    assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
+  }
+});
+
+test('a held like opportunity is rechecked after waiting and cannot outlive Stop or account restrictions', async () => {
+  for (const outcome of ['stop', 'blocked', 'off-niche']) {
+    let index = 0; let interrupted = false; let heldIndex; let heldAttempts;
+    const liked = new Set(); const attempts = [];
+    const h = harness({
+      search: async () => h.options.sleep(40000),
+      inspect: async () => interrupted && outcome === 'blocked' ? { blocked: 'account check' } : { post: { id: `post-${index}`, viewer: true, text: interrupted ? 'travel diary' : 'study tips', like: !liked.has(index) } },
+      advance: async () => { index++; return true; },
+      engage: async () => { attempts.push(index); liked.add(index); return 'confirmed'; }
+    });
+    const sleep = h.options.sleep;
+    h.options.sleep = async ms => {
+      if (!interrupted && h.updates.some(update => update.message === 'watching this post...')) {
+        interrupted = true; heldIndex = index; heldAttempts = attempts.length;
+        if (outcome === 'stop') h.controller.abort();
+      }
+      await sleep(ms);
+    };
+    const running = runSession(validateSettings({ ...input, niche: 'study tips', minutes: 2, customLimits: { like: 6, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+    if (outcome === 'blocked') await assert.rejects(running, /account check/);
+    else await running;
+    assert.equal(interrupted, true, `${outcome}: should exercise the cooldown hold`);
+    assert.equal(attempts.length, heldAttempts);
+    assert.equal(liked.has(heldIndex), false);
+    assert.ok(h.time() <= 120000);
+  }
+});
+
 test('slower pacing stretches the minimum gaps between engagement attempts', async () => {
   const h = harness();
   const times = [];
@@ -496,7 +574,7 @@ test('watched identities survive p/reel aliases and the next-video path receives
 
 test('a full all-action run traverses multiple batches without replaying posts or resetting its search', async () => {
   const ids = Array.from({ length: 200 }, (_, i) => `https://www.instagram.com/p/video${i}/`);
-  const visits = []; let current = null; let loaded = 24;
+  const visits = []; let current = null; let loaded = 12;
   const h = harness({
     search: async term => { h.calls.push(['search', term]); await h.options.sleep(3000); },
     inspect: async () => {
@@ -507,7 +585,7 @@ test('a full all-action run traverses multiple batches without replaying posts o
       } };
     },
     open: async id => { current = ids.indexOf(id); visits.push(id); await h.options.sleep(800); return true; },
-    scroll: async () => { if (visits.length >= loaded) loaded += 24; await h.options.sleep(600); return true; },
+    scroll: async () => { if (visits.length >= loaded) loaded += 12; await h.options.sleep(600); return true; },
     advance: async (post, signal, hasSeen) => {
       if (current + 1 >= loaded || hasSeen(ids[current + 1])) return false;
       visits.push(ids[++current]); await h.options.sleep(800); return true;
@@ -517,7 +595,7 @@ test('a full all-action run traverses multiple batches without replaying posts o
   });
   h.options.random = () => .5;
   const stats = await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 10 }), h.adapter, h.controller.signal, h.options);
-  assert.ok(visits.length > 48, `expected new batches, got ${visits.length} posts`);
+  assert.ok(visits.length > 24, `expected at least three batches, got ${visits.length} posts`);
   assert.deepEqual(visits, ids.slice(0, visits.length));
   assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
   assert.ok(stats.like >= 25 && stats.like <= 30, `likes: ${stats.like}`);
