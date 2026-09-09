@@ -178,6 +178,23 @@ async function scroll() {
     return markers.some(({ e, rect }) => { const next = e.getBoundingClientRect(); return e.isConnected && rect.top - next.top >= Math.min(100, innerHeight * .15) && Math.abs(rect.height - next.height) < 2; });
   }, [job.deadline]);
 }
+async function recoverCommentDraft(request) {
+  await execute((request, deadline) => {
+    if (Date.now() >= deadline) return;
+    const target = globalThis.inspectInstagram({ ...request, action: 'comment-clear' });
+    if (target.blocked) throw new Error(target.blocked);
+    if (!target.point) return;
+    const field = document.elementFromPoint(target.point.x, target.point.y);
+    if (!(field instanceof HTMLTextAreaElement) || field !== globalThis.collectiveCommentBefore?.composer || field.value !== request.comment) return;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '');
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }, [request, job.deadline]);
+  await sleep(250);
+  const result = await inspect({ ...request, action: 'comment-cleared' });
+  if (result.blocked) throw new Error(result.blocked);
+  pendingDraft = false;
+  return result.cleared ? 'skipped' : 'draft-retained';
+}
 async function engage(action, post, comment) {
   assertRunning();
   const request = { id: post.id, author: post.author, comment, ...(action === 'comment' ? { caption: post.caption } : {}) };
@@ -198,6 +215,7 @@ async function engage(action, post, comment) {
       const ready = inspector({ ...request, action: 'comment-ready' });
       if (!ready.ready) return false;
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(hit, request.comment);
+      globalThis.collectiveCommentBefore.drafted = true;
       hit.dispatchEvent(new Event('input', { bubbles: true }));
       return 'draft';
     }
@@ -208,25 +226,32 @@ async function engage(action, post, comment) {
   }, [action, request, job.deadline]);
   if (!clicked) { pendingDraft = false; pendingEngagement = false; return 'skipped'; }
   if (clicked === 'draft') {
-    await sleep(400);
-    assertRunning();
-    pendingEngagement = true;
-    const submitted = await execute((request, deadline) => {
-      if (Date.now() >= deadline) return false;
-      const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
-      const target = inspector({ ...request, action: 'comment-submit' });
-      if (!target.point) return false;
-      const button = document.elementFromPoint(target.point.x, target.point.y)?.closest('button,[role="button"]');
-      if (!button || button.disabled) return false;
-      button.click(); return true;
-    }, [request, job.deadline]);
-    if (!submitted) { pendingEngagement = false; throw new Error(`a comment draft remains in ${currentPlatform()}. review it before restarting.`); }
+    let submitted = false;
+    // Wait for Instagram's composer to settle, but never retry a submitted comment.
+    for (let attempt = 0; attempt < 8 && !submitted; attempt++) {
+      await sleep(400);
+      assertRunning();
+      pendingEngagement = true;
+      submitted = await execute((request, deadline) => {
+        if (Date.now() >= deadline) return false;
+        const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
+        if (target.blocked) throw new Error(target.blocked);
+        if (!target.point) return false;
+        const button = document.elementFromPoint(target.point.x, target.point.y)?.closest('button,[role="button"]');
+        if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
+        globalThis.collectiveCommentBefore.submitted = true;
+        button.click(); return true;
+      }, [request, job.deadline]);
+      if (!submitted) pendingEngagement = false;
+    }
+    if (!submitted) return recoverCommentDraft(request);
     pendingDraft = false;
   }
   const confirmationAttempts = { like: 6, follow: 10, comment: 8 }[action] || 6;
   for (let i = 0; i < confirmationAttempts; i++) {
     await sleep(750);
     const result = await inspect({ ...request, action: `verify-${action}` });
+    if (result.blocked) throw new Error(result.blocked);
     if (result.confirmed) { pendingEngagement = false; pendingDraft = false; return 'confirmed'; }
   }
   pendingEngagement = false;

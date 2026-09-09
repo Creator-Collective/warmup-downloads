@@ -130,6 +130,22 @@ test('uncertain engagement is skipped once and the session keeps running', async
   assert.ok(h.updates.some(update => /couldn.t confirm/.test(update.message)));
 });
 
+test('an unresolved comment draft disables further comments while browsing and likes continue to the deadline', async () => {
+  let index = 0;
+  const h = harness({
+    inspect: async () => ({ post: { id: `post-${index++}`, author: `author-${index}`, text: 'study tips', caption: `Study tips work best when you practice a little every day number ${index}.`, like: true, follow: true, comment: true } }),
+    engage: async (action, post) => { h.calls.push([action, post.id]); return action === 'comment' ? 'draft-retained' : 'confirmed'; }
+  });
+  const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
+  const failedComment = h.calls.findIndex(call => call[0] === 'comment');
+  assert.ok(failedComment >= 0);
+  assert.equal(h.calls.filter(call => call[0] === 'comment').length, 1);
+  assert.equal(stats.comment, 0);
+  for (const action of ['scroll', 'like', 'follow']) assert.ok(h.calls.slice(failedComment + 1).some(call => call[0] === action), `${action} must continue`);
+  assert.ok(h.updates.some(update => /comments are off for this session/.test(update.message)));
+  assert.equal(h.time(), 600000);
+});
+
 test('login or activity restrictions stop further actions', async () => {
   const h = harness({ inspect: async () => ({ blocked: 'instagram needs your attention.' }) });
   await assert.rejects(runSession(validateSettings(input), h.adapter, h.controller.signal, h.options), /needs your attention/);

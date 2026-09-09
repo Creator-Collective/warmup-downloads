@@ -1,9 +1,9 @@
-make engagement targets active
+keep warm-up running after a stuck comment draft
 
 warm-up:
-- treat visible likes, follows and comments as active targets instead of loose caps
-- skim faster when any supported engagement type falls behind
-- rename the visible section from session limits to session targets
+- allow the exact extension-owned draft to submit after losing focus
+- wait briefly for Post, then clear the unchanged unsent draft and skip
+- pause only comments if cleanup cannot be confirmed, keeping other activity running
 
 misc:
-- publish version 0.6.16 with focused target-progress checks
+- publish version 0.6.18 with comment ownership, recovery and stop coverage

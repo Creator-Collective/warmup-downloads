@@ -131,19 +131,35 @@ function inspectInstagram(request = {}) {
   const post = { id, author, videoRemainingMs, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
   if (!request.action) return { posts, sequence, post };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true };
-  if (request.action.startsWith('comment-') && request.caption !== post.caption) return { changed: true };
+  if (['comment-field', 'comment-ready', 'comment-submit'].includes(request.action) && request.caption !== post.caption) return { changed: true };
   if (request.action === 'next') return { point: point(viewerNext) };
   if (request.action === 'like') return { point: point(like) };
   if (request.action === 'follow') return { point: point(follow) };
   if (request.action === 'comment-field') {
     if (!ownProfile || !textarea || textarea.value.trim()) return { point: null };
-    globalThis.collectiveCommentBefore = { postId: id, author: ownProfile, text: request.comment, ids: commentRows(request.comment).map(row => row.id) };
+    globalThis.collectiveCommentBefore?.release?.();
+    const before = { postId: id, author: ownProfile, text: request.comment, composer: textarea, drafted: false, submitted: false, interrupted: false, ids: commentRows(request.comment).map(row => row.id) };
+    // A real edit or manual Post click revokes ownership even if the text is unchanged.
+    const composer = textarea.closest('form') || textarea;
+    const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
+    const interrupt = event => { if (event.isTrusted) before.interrupted = true; };
+    for (const type of events) composer.addEventListener(type, interrupt, true);
+    before.release = () => { for (const type of events) composer.removeEventListener(type, interrupt, true); };
+    globalThis.collectiveCommentBefore = before;
     return { point: point(textarea) };
   }
-  if (request.action === 'comment-ready') return { ready: Boolean(ownProfile && globalThis.collectiveCommentBefore?.author === ownProfile && textarea && document.activeElement === textarea && textarea.value === '') };
+  const before = globalThis.collectiveCommentBefore;
+  const ownDraft = Boolean(ownProfile && before?.postId === id && before.author === ownProfile && before.text === request.comment && textarea && before.composer === textarea && !before.interrupted);
+  if (request.action === 'comment-ready') return { ready: Boolean(ownDraft && !before.drafted && !before.submitted && document.activeElement === textarea && textarea.value === '') };
   if (request.action === 'comment-submit') {
     const form = textarea?.closest('form');
-    return { point: document.activeElement === textarea && textarea?.value === request.comment && form ? point(control(form, 'post')) : null };
+    return { point: ownDraft && before.drafted && !before.submitted && textarea.value === request.comment && form ? point(control(form, 'post')) : null };
+  }
+  if (request.action === 'comment-clear') {
+    return { point: ownDraft && before.drafted && !before.submitted && textarea.value === request.comment ? point(textarea) : null };
+  }
+  if (request.action === 'comment-cleared') {
+    return { cleared: Boolean(ownDraft && before.drafted && !before.submitted && textarea.value === '') };
   }
   if (request.action === 'verify-like') return { confirmed: Boolean(actionBar && control(actionBar, 'unlike')) };
   if (request.action === 'verify-follow') return { confirmed: ['following', 'requested'].some(name => {

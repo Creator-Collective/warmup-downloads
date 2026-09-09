@@ -116,6 +116,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
   const seen = new Set();
   const done = { like: new Set(), follow: new Set(), comment: new Set() };
+  const pausedActions = new Set();
   const usedComments = new Set();
   let stalled = 0;
   let stepsSinceSearch = 0;
@@ -127,7 +128,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
-  const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + actionDebt(settings, stats, action, now() - startedAt), 0);
+  const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + (pausedActions.has(action) ? 0 : actionDebt(settings, stats, action, now() - startedAt)), 0);
   const viewerPause = () => {
     videosSinceFullWatch += 1;
     const totalDebt = totalEngagementDebt();
@@ -219,7 +220,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (post && matchesNiche(post.text, settings.terms)) {
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : post.id;
-          if (now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] < settings.limits[action] && !done[action].has(key) &&
+          if (!pausedActions.has(action) && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] < settings.limits[action] && !done[action].has(key) &&
               (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
             eligible.push(action);
           }
@@ -269,7 +270,12 @@ async function runSession(settings, adapter, signal, options = {}) {
           update(`${action} may have gone through, but couldn’t confirm it. continuing.`);
         }
         else stats.skipped += 1;
-        update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : result === 'uncertain' ? `${action} unconfirmed. continuing.` : `${action} skipped. the post changed or its control wasn’t available.`);
+        if (action === 'comment' && result === 'draft-retained') {
+          pausedActions.add('comment');
+          update('comment skipped. a draft may remain; comments are off for this session. continuing warm-up.');
+        } else {
+          update(result === 'confirmed' ? `${{ like: 'like confirmed', follow: 'follow confirmed', comment: 'comment confirmed' }[action]}.` : result === 'uncertain' ? `${action} unconfirmed. continuing.` : `${action} skipped. the post changed or its control wasn’t available.`);
+        }
       }
       stepsSinceSearch += 1;
     }

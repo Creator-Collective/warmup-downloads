@@ -10,6 +10,7 @@ const { platforms, platformURL, instagramURL, dashboardSender, panelSender, runn
 const origin = 'https://creator-collective-warmup.vercel.app';
 const sender = { id:'extension-id',url:origin+'/',frameId:0,tab:{id:2} };
 const event = () => ({listeners:[],addListener(fn){this.listeners.push(fn)}});
+const commentComposer = require('./fixtures/comment-composer.cjs');
 function background(initial) {
   let job = initial;
   const created = [];
@@ -150,6 +151,114 @@ test('runner waits for delayed follow confirmation before treating it as uncerta
  for(let i=0;i<40&&!h.calls.some(x=>x.patch);i++)await new Promise(resolve=>setTimeout(resolve,1));
  assert.equal(verifications,5);
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
+});
+
+async function runComment(configure = () => {}) {
+ const composer = commentComposer();
+ let result;
+ let continued = false;
+ const h = runnerContext('starting', async (settings, adapter) => {
+   result = await adapter.engage('comment', { ...composer.request, viewer: true }, composer.request.comment);
+   await adapter.inspect();
+   continued = true;
+ });
+ h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   if (request.files) { composer.load(); return [{ result: null }]; }
+   return [{ result: await composer.inject(request.func, request.args) }];
+ };
+ configure(composer, h);
+ h.start();
+ for (let i = 0; i < 300 && !h.calls.some(call => call.patch); i++) await new Promise(resolve => setTimeout(resolve, 2));
+ assert.ok(h.calls.some(call => call.patch), 'comment flow must settle');
+ return { composer, h, result, continued };
+}
+
+test('runner waits for Post readiness and submits a focus-lost draft only once', async () => {
+ const { composer, h, result, continued } = await runComment(composer => {
+   composer.submit.disabled = true;
+   composer.state.onInput = () => { composer.document.activeElement = composer.heading; };
+   const inject = composer.inject;
+   let checks = 0;
+   composer.inject = (func, args) => {
+     if (String(func).includes("action: 'comment-submit'") && ++checks === 3) composer.submit.disabled = false;
+     return inject(func, args);
+   };
+ });
+ assert.equal(result, 'confirmed');
+ assert.equal(composer.submitted, 1);
+ assert.equal(continued, true);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+});
+
+test('an unavailable Post control clears only the extension draft and lets the session continue', async () => {
+ const { composer, h, result, continued } = await runComment(composer => { composer.submit.disabled = true; });
+ assert.equal(result, 'skipped');
+ assert.equal(composer.submitted, 0);
+ assert.equal(composer.field.value, '');
+ assert.deepEqual(composer.inputs, [composer.request.comment, '']);
+ assert.equal(continued, true);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
+test('a retained or edited draft pauses comments without stopping the session or overwriting text', async () => {
+ for (const edited of [false, true]) {
+   const { composer, h, result, continued } = await runComment(composer => {
+     composer.submit.disabled = true;
+     composer.state.onInput = field => { field.value = edited ? 'my own edited comment' : composer.request.comment; };
+   });
+   assert.equal(result, 'draft-retained');
+   assert.equal(composer.submitted, 0);
+   assert.equal(composer.field.value, edited ? 'my own edited comment' : composer.request.comment);
+   if (edited) assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(continued, true);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ }
+});
+
+test('an unconfirmed submitted comment is never clicked twice or cleared', async () => {
+ const { composer, result, continued } = await runComment(composer => { composer.state.confirm = false; });
+ assert.equal(result, 'uncertain');
+ assert.equal(composer.submitted, 1);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
+test('a manual Post interaction is never followed by another submit or draft deletion', async () => {
+ const { composer, result, continued } = await runComment(composer => {
+   composer.state.onInput = () => { composer.interact('click'); };
+ });
+ assert.equal(result, 'draft-retained');
+ assert.equal(composer.submitted, 0);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
+test('Stop and the deadline during comment readiness prevent submission and cleanup', async () => {
+ for (const expired of [false, true]) {
+   const { composer, h, continued } = await runComment((composer, h) => {
+     composer.state.onInput = () => {
+       if (expired) h.job.deadline = Date.now() - 1;
+       else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+     };
+   });
+   assert.equal(composer.submitted, 0);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(continued, false);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'error' && /draft may remain/.test(call.patch.message)));
+ }
+});
+
+test('an Instagram restriction during comment readiness still stops all actions', async () => {
+ const { composer, h, continued } = await runComment(composer => {
+   composer.state.onInput = () => { composer.state.blocked = true; };
+ });
+ assert.equal(composer.submitted, 0);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, false);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'error'));
 });
 test('stop during tab lookup prevents function injection',async()=>{
  const h=runnerContext('starting',async(settings,adapter,signal)=>{await adapter.inspect(signal)});

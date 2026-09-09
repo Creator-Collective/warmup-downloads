@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../browser-extension/instagram.js'), 'utf8');
+const commentComposer = require('./fixtures/comment-composer.cjs');
 
 function postFixture({ saved = false, liked = false, bookmark = true } = {}) {
   const id = 'https://www.instagram.com/p/example/';
@@ -87,4 +88,49 @@ test('a missing bookmark control does not broaden like detection to the whole po
   assert.equal(fixture.inspect().post.like, false);
   assert.equal(fixture.inspect({ id: fixture.id, action: 'like' }).point, null);
   assert.equal(fixture.inspect({ id: fixture.id, action: 'verify-like' }).confirmed, false);
+});
+
+test('a verified extension draft can submit after the textarea loses focus', () => {
+  const h = commentComposer();
+  h.prepare();
+  h.document.activeElement = h.heading;
+  assert.ok(h.inspect('comment-submit').point);
+  h.submit.ariaDisabled = 'true';
+  assert.equal(h.inspect('comment-submit').point, null);
+});
+
+test('comment submission and cleanup never target edited, replaced or submitted drafts', () => {
+  for (const change of [
+    h => { h.field.value = 'a comment written by the user'; },
+    h => { h.replaceField().value = h.request.comment; },
+    h => { h.context.collectiveCommentBefore.submitted = true; },
+    h => { h.context.collectiveCommentBefore.author = '/someone-else/'; },
+    h => { h.context.collectiveCommentBefore.postId = 'https://www.instagram.com/p/other/'; }
+  ]) {
+    const h = commentComposer(); h.prepare(); change(h);
+    assert.equal(h.inspect('comment-submit').point, null);
+    assert.equal(h.inspect('comment-clear').point, null);
+    assert.equal(h.inspect('comment-cleared').cleared, false);
+  }
+});
+
+test('a changed caption blocks posting but still allows clearing the exact extension draft', () => {
+  const h = commentComposer(); h.prepare();
+  h.heading.textContent = 'an updated caption';
+  assert.equal(h.inspect('comment-submit').changed, true);
+  assert.ok(h.inspect('comment-clear').point);
+  h.field.value = '';
+  assert.equal(h.inspect('comment-cleared').cleared, true);
+});
+
+test('a manual composer interaction revokes draft ownership even when its text stays unchanged', () => {
+  for (const type of ['input', 'pointerdown', 'keydown', 'click', 'submit']) {
+    const h = commentComposer(); h.prepare();
+    h.interact(type, false);
+    assert.ok(h.inspect('comment-submit').point);
+    h.interact(type);
+    assert.equal(h.inspect('comment-submit').point, null);
+    assert.equal(h.inspect('comment-clear').point, null);
+    assert.equal(h.field.value, h.request.comment);
+  }
 });
