@@ -19,14 +19,15 @@ function matchesNiche(text, terms) {
 // Deterministic, extractive replies. Never interpret a caption as instructions,
 // use image alt text as a caption, or fabricate an experience/opinion about a video.
 function contextualComment(caption, terms) {
-  if (typeof caption !== 'string' || caption.length > 6000) return null;
+  if (typeof caption !== 'string' || caption.length > 6000 || !matchesNiche(caption, terms)) return null;
   const sentences = caption.split(/(?<=[.!?])\s+|\n+/u).map(text => text.trim()).filter(Boolean);
-  const sentence = sentences.find(text => {
+  const candidates = sentences.filter(text => {
     const words = text.split(/\s+/);
     return words.length >= 6 && words.length <= 18 && text.length <= 180 &&
-      matchesNiche(text, terms) && !/^(?:please\s+)?(?:save|share|like|send|click|tap|check out|visit|download|buy|join|sign up|watch|read)\b/iu.test(text) && !/[?@#<>]|https?:|www\.|[“”"]/iu.test(text) &&
+      !/[:;]$|^[→•]/u.test(text) && !/^(?:please\s+)?(?:save|share|like|send|click|tap|check out|visit|download|buy|join|sign up|watch|read)\b/iu.test(text) && !/[?@#<>]|https?:|www\.|[“”"]/iu.test(text) &&
       !/\b(comment|reply|dm|tag|follow|subscribe|giveaway|link in bio|ignore|instructions|prompt|system|assistant)\b/iu.test(text);
   });
+  const sentence = candidates.find(text => matchesNiche(text, terms)) || candidates[0];
   if (!sentence) return null;
   return `this part stood out: “${sentence.replace(/[.!]+$/u, '')}”`;
 }
@@ -45,21 +46,24 @@ function actionCadenceMs(settings, action) {
 }
 
 function actionDebt(settings, stats, action, elapsedMs) {
-  const cadence = actionCadenceMs(settings, action);
-  if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
+  return Math.max(0, expectedActions(settings, action, elapsedMs) - stats[action]);
+}
+
+function shortSessionScale(settings) {
+  return Math.min(1, settings.minutes / 3);
+}
+
+function actionWarmups(settings, action) {
   const warmups = { like: [12000, 30000], follow: [35000, 60000], comment: [60000, 120000] };
-  const [minWarmup, maxWarmup] = warmups[action] || warmups.like;
-  const warmup = Math.min(maxWarmup, Math.max(minWarmup, cadence * .75));
-  if (elapsedMs < warmup) return 0;
-  const expected = Math.min(settings.limits[action], Math.floor((elapsedMs - warmup) / cadence) + 1);
-  return Math.max(0, expected - stats[action]);
+  const scale = shortSessionScale(settings);
+  const limit = scale < 1 ? settings.minutes * 60000 / 3 : Infinity;
+  return (warmups[action] || warmups.like).map(ms => Math.min(limit, Math.round(ms * scale)));
 }
 
 function expectedActions(settings, action, elapsedMs) {
   const cadence = actionCadenceMs(settings, action);
   if (!settings.weights[action] || !Number.isFinite(cadence)) return 0;
-  const warmups = { like: [12000, 30000], follow: [35000, 60000], comment: [60000, 120000] };
-  const [minWarmup, maxWarmup] = warmups[action] || warmups.like;
+  const [minWarmup, maxWarmup] = actionWarmups(settings, action);
   const warmup = Math.min(maxWarmup, Math.max(minWarmup, cadence * .75));
   if (elapsedMs < warmup) return 0;
   return Math.min(settings.limits[action], Math.floor((elapsedMs - warmup) / cadence) + 1);
@@ -107,13 +111,15 @@ async function runSession(settings, adapter, signal, options = {}) {
   const random = options.random || Math.random;
   const startedAt = now();
   const deadline = startedAt + settings.minutes * 60000;
-  const nextAllowed = { like: startedAt + 12000, follow: startedAt + 35000, comment: startedAt + 60000 };
-  let nextEngagement = startedAt + 12000;
+  const nextAllowed = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, startedAt + actionWarmups(settings, action)[0]]));
+  let nextEngagement = nextAllowed.like;
   let nextBreak = startedAt + randomBetween(300000, 540000, random);
   const termWindowMs = Math.max(10000, Math.min(120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
   let termIndex = 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
+  // Background tabs can round sub-second timers up during confirmation.
+  const confirmationBudgetMs = { like: 8000, follow: 22000, comment: 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
   const seen = new Set();
   const done = { like: new Set(), follow: new Set(), comment: new Set() };
@@ -242,7 +248,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (post && matchesNiche(post.text, settings.terms)) {
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : post.id;
-          if (!pausedActions.has(action) && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
+          if (!pausedActions.has(action) && deadline - now() >= confirmationBudgetMs[action] && now() >= nextEngagement && now() >= nextAllowed[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
               (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
             eligible.push(action);
           }
@@ -276,7 +282,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         const engagementSpacing = action === 'like' ? [Math.max(3000, Math.round(cadence * .15)), Math.max(7000, Math.round(cadence * .45))] :
           action === 'follow' ? [8000, 18000] :
           action === 'comment' ? [10000, 22000] : [20000, 45000];
-        nextEngagement = now() + randomBetween(...engagementSpacing, random) * settings.pauseScale;
+        nextEngagement = now() + randomBetween(...engagementSpacing, random) * settings.pauseScale * shortSessionScale(settings);
         nextAllowed[action] = now() + randomBetween(...actionSpacing(settings, action), random) * settings.pauseScale;
         let comment;
         if (action === 'comment') {

@@ -124,10 +124,11 @@ test('a verified extension draft can submit after the textarea loses focus', () 
   assert.equal(h.inspect('comment-submit').point, null);
 });
 
-test('comment submission and cleanup never target edited, replaced or submitted drafts', () => {
+test('comment submission and cleanup never target edited, ambiguous or submitted drafts', () => {
   for (const change of [
     h => { h.field.value = 'a comment written by the user'; },
-    h => { h.replaceField().value = h.request.comment; },
+    h => { const old = h.field; h.replaceField().value = h.request.comment; old.isConnected = true; },
+    h => { h.replaceField().value = 'a different draft'; },
     h => { h.context.collectiveCommentBefore.submitted = true; },
     h => { h.context.collectiveCommentBefore.author = '/someone-else/'; },
     h => { h.context.collectiveCommentBefore.postId = 'https://www.instagram.com/p/other/'; }
@@ -137,6 +138,31 @@ test('comment submission and cleanup never target edited, replaced or submitted 
     assert.equal(h.inspect('comment-clear').point, null);
     assert.equal(h.inspect('comment-cleared').cleared, false);
   }
+});
+
+test('an untouched owned draft survives Instagram replacing its detached textarea', () => {
+  const h = commentComposer(); h.prepare();
+  h.replaceField().value = h.request.comment;
+  assert.ok(h.inspect('comment-submit').point);
+  assert.equal(h.context.collectiveCommentBefore.composer, h.field);
+  assert.ok(h.inspect('comment-clear').point);
+});
+
+test('manual edits on a replacement composer revoke ownership before it can be adopted', () => {
+  const h = commentComposer(); h.prepare();
+  h.replaceField().value = h.request.comment;
+  h.interact('input');
+  assert.equal(h.inspect('comment-submit').point, null);
+  assert.equal(h.inspect('comment-clear').point, null);
+  assert.equal(h.field.value, h.request.comment);
+});
+
+test('a changed caption cannot authorize adopting a replacement composer', () => {
+  const h = commentComposer(); h.prepare();
+  h.replaceField().value = h.request.comment;
+  h.heading.textContent = 'a different caption';
+  assert.equal(h.inspect('comment-submit').changed, true);
+  assert.equal(h.inspect('comment-clear').point, null);
 });
 
 test('a changed caption blocks posting but still allows clearing the exact extension draft', () => {
