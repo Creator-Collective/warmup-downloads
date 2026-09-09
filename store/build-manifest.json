@@ -1,5 +1,5 @@
 {
-  "version": "0.6.23",
+  "version": "0.6.24",
   "files": [
     "manifest.json",
     "features.js",
@@ -20,6 +20,7 @@
     "sidepanel.html",
     "dashboard.js",
     "dashboard.css",
+    "comment-history.js",
     "inter.woff2",
     "INTER-LICENSE.txt",
     "icon-16.png",

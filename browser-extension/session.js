@@ -146,7 +146,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   let videosSinceFullWatch = 0;
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
-  const update = message => adapter.update({ stats: { ...stats }, remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
+  const comments = [];
+  const update = message => adapter.update({ stats: { ...stats }, comments: comments.map(item => ({ ...item })), remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
   const likeSchedule = actionSchedule(settings, 'like');
   const nextLikeAt = () => stats.like + unconfirmed.like < settings.limits.like && settings.weights.like
     ? startedAt + likeSchedule.warmup + (stats.like + unconfirmed.like) * likeSchedule.cadence : Infinity;
@@ -322,6 +323,9 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
         update(`${{ like: 'liking the post', follow: 'following the author', comment: 'posting a caption-based comment' }[action]}…`);
         const result = await adapter.engage(action, post, comment, signal);
+        if (action === 'comment' && ['confirmed', 'uncertain'].includes(result)) {
+          comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result });
+        }
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
         else if (result === 'uncertain') {

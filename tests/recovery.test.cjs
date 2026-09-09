@@ -40,7 +40,7 @@ function runner(operation = async () => {}, respond) {
   const calls = [];
   const nodes = new Map();
   const job = { token: 'token', tabId: 7, runnerTabId: 90, phase: 'starting', deadline: Date.now() + 600000, settings, stats: {}, activity: [], message: 'starting' };
-  const node = () => ({ textContent: '', disabled: false, listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; }, append() {}, replaceChildren() {}, classList: { toggle() {} } });
+  const node = () => ({ textContent: '', disabled: false, dataset: {}, scrollTop: 0, listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; }, append() {}, replaceChildren() {}, classList: { toggle() {} } });
   const chrome = {
     runtime: { sendMessage: async message => { calls.push(message); return respond ? respond(message, job) : { ok: true, data: message.type === 'runner-job' ? job : null }; } },
     tabs: { onUpdated: event() }, storage: { onChanged: event() }
@@ -50,6 +50,7 @@ function runner(operation = async () => {}, respond) {
     document: { getElementById: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }, createElement: node, body: { classList: { toggle() {} } }, addEventListener() {} },
     sessionEngine: { runSession: operation }
   });
+  context.commentHistory = require('../comment-history.js');
   return { calls, nodes, context, start: () => vm.runInContext(fs.readFileSync(path.join(extension, 'runner.js'), 'utf8'), context) };
 }
 
@@ -60,6 +61,40 @@ async function until(check) {
   }
   assert.fail('the expected recovery did not finish');
 }
+
+test('comment history survives activity turnover, acknowledgement retries, worker restart and completion', async () => {
+  const h = background(); await h.start();
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  const comment = { text: 'this part stood out: a useful personal branding idea', url: 'https://www.instagram.com/p/example/', author: '/creator/', status: 'confirmed', time: 100100, secret: 'omit this' };
+  const patch = { phase: 'running', comments: [comment], message: 'comment confirmed.' };
+  await h.message({ type: 'runner-update', token: job.token, patch }, sender);
+  await h.message({ type: 'runner-update', token: job.token, patch }, sender);
+  for (let i = 0; i < 20; i++) await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: `watching post ${i}` } }, sender);
+  const restarted = background(h.job());
+  await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'finished' } }, sender);
+  const state = (await restarted.message({ type: 'state' })).data;
+  assert.equal(state.comments?.length, 1);
+  assert.equal(state.comments[0].text, comment.text);
+  assert.equal(state.comments[0].secret, undefined);
+  assert.equal(state.activity.length, 12);
+  assert.ok(!state.activity.some(item => item.message === 'comment confirmed.'));
+  assert.equal((await restarted.start()).ok, true);
+  assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
+});
+
+test('a comment confirmed during Stop remains reviewable without reviving the session', async () => {
+  const h = background(); await h.start();
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  await h.message({ type: 'stop' });
+  const comment = { text: 'the comment that finished while stopping', url: 'https://www.instagram.com/p/example/', author: '/creator/', time: 100100, status: 'confirmed' };
+  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: 'comment confirmed.', comments: [comment] } }, sender);
+  assert.equal(h.job().phase, 'stopping');
+  assert.match(h.job().message, /session stopped/);
+  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'stopped' } }, sender);
+  assert.equal((await h.message({ type: 'state' })).data.comments?.[0]?.text, comment.text);
+});
 
 test('stop keeps the lock during acknowledgement grace, then closes only the dead runner', async () => {
   const h = background(); await h.start();

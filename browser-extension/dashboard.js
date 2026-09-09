@@ -133,6 +133,7 @@ function displayPlan(state) {
   }
 }
 function render(state) {
+  commentHistory.render(document, state.comments);
   currentState = state;
   running = state.running;
   displayPlan(state);
