@@ -15,12 +15,13 @@ module.exports = function commentComposer() {
     querySelectorAll: () => [], contains(target) { return target === this; }
   });
   let submitted = 0;
+  let followClicks = 0;
   const inputs = [];
   const document = { activeElement: null };
   const author = { ...element('creator', rect(20, 20)), href: 'https://www.instagram.com/creator/' };
   const profile = { ...element('Profile', rect(0, 0)), href: 'https://www.instagram.com/me/', closest: () => null, querySelector: () => null };
   const heading = element(caption, rect(20, 60, 400));
-  const state = { blocked: false, onInput() {}, onSubmit() {}, confirm: true };
+  const state = { blocked: false, onInput() {}, onSubmit() {}, confirm: true, follow: null };
   class TextArea {
     constructor() { this._value = ''; this.placeholder = 'Add a comment...'; }
     get value() { return this._value; }
@@ -38,6 +39,12 @@ module.exports = function commentComposer() {
     closest() { return this; },
     click() { submitted++; if (state.confirm) field.value = ''; state.onSubmit(); }
   };
+  const follow = {
+    ...element('', rect(400, 20)), disabled: false,
+    get textContent() { return state.follow || ''; },
+    closest() { return this; },
+    click() { followClicks++; state.follow = null; }
+  };
   const listeners = new Map();
   const form = {
     querySelectorAll: selector => selector === 'button, [role="button"]' ? [submit] : [],
@@ -50,7 +57,7 @@ module.exports = function commentComposer() {
     ...element('', rect(0, 0, 600, 600)),
     querySelectorAll: selector => ({
       'a[href]': [author], 'h1': [heading], 'textarea': [field],
-      'button, [role="button"]': [submit], 'span': submitted && state.confirm ? [comment] : []
+      'button, [role="button"]': [...(state.follow ? [follow] : []), submit], 'span': submitted && state.confirm ? [comment] : []
     })[selector] || []
   };
   document.querySelectorAll = selector => ({
@@ -58,7 +65,7 @@ module.exports = function commentComposer() {
     '[role="dialog"], [role="alert"]': state.blocked ? [{ ...element('', rect(0, 0, 200, 200)), innerText: 'We restrict certain activity' }] : []
   })[selector] || [];
   document.querySelector = () => null;
-  document.elementFromPoint = (x, y) => [field, submit].find(el => {
+  document.elementFromPoint = (x, y) => [field, submit, ...(state.follow ? [follow] : [])].find(el => {
     const bounds = el.getBoundingClientRect();
     return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
   }) || null;
@@ -71,8 +78,9 @@ module.exports = function commentComposer() {
   load();
   const inspect = action => context.inspectInstagram({ ...request, action });
   return {
-    context, request, document, submit, state, inputs, heading, inspect, load,
+    context, request, document, submit, state, inputs, heading, author, inspect, load,
     get field() { return field; }, get submitted() { return submitted; },
+    get followClicks() { return followClicks; },
     replaceField() { field = new TextArea(); return field; },
     interact(type, isTrusted = true) { for (const listener of listeners.get(type) || []) listener({ isTrusted }); },
     prepare() {

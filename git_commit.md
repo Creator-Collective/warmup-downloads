@@ -1,9 +1,9 @@
-keep warm-up running after a stuck comment draft
+confirm follows hidden by the instagram viewer
 
 warm-up:
-- allow the exact extension-owned draft to submit after losing focus
-- wait briefly for Post, then clear the unchanged unsent draft and skip
-- pause only comments if cleanup cannot be confirmed, keeping other activity running
+- verify unconfirmed follows on a read-only copy of the same post
+- require the exact author's following or requested status without another follow click
+- find header controls even when unrelated controls occur earlier
 
 misc:
-- publish version 0.6.18 with comment ownership, recovery and stop coverage
+- publish version 0.6.19 with follow confirmation and cleanup coverage

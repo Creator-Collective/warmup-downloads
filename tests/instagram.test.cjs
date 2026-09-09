@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../browser-extension/instagram.js'), 'utf8');
 const commentComposer = require('./fixtures/comment-composer.cjs');
 
-function postFixture({ saved = false, liked = false, bookmark = true } = {}) {
+function postFixture({ saved = false, liked = false, bookmark = true, followState, unrelatedFollowState } = {}) {
   const id = 'https://www.instagram.com/p/example/';
   const clicks = [];
   const rect = (left = 0, top = 0, width = 40, height = 30) => ({ left, top, width, height, right: left + width, bottom: top + height });
@@ -28,12 +28,15 @@ function postFixture({ saved = false, liked = false, bookmark = true } = {}) {
   const comment = button('Comment', 80, 100);
   const save = button(saved ? 'Unsave' : 'Save', 140, 100, element => { element.name = element.name === 'Save' ? 'Unsave' : 'Save'; });
   const commentHeart = button('Like', 200, 300);
+  const author = { href: 'https://www.instagram.com/creator/', getBoundingClientRect: () => rect(20, 20) };
+  const follow = followState ? button(followState, 250, 20) : null;
+  const unrelatedFollow = unrelatedFollowState ? button(unrelatedFollowState, 250, 300) : null;
   const toolbarButtons = [like, comment, ...(bookmark ? [save] : [])];
-  const allButtons = [...toolbarButtons, commentHeart];
+  const allButtons = [...(unrelatedFollow ? [unrelatedFollow] : []), ...toolbarButtons, commentHeart, ...(follow ? [follow] : [])];
   const toolbar = { querySelectorAll: selector => selector === 'button, [role="button"]' ? toolbarButtons : [] };
   const scope = {
     getBoundingClientRect: () => rect(0, 0, 600, 500),
-    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : [],
+    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : selector === 'a[href]' ? [author] : [],
   };
   toolbar.parentElement = scope;
   for (const element of toolbarButtons) element.parentElement = toolbar;
@@ -53,7 +56,7 @@ function postFixture({ saved = false, liked = false, bookmark = true } = {}) {
     getComputedStyle: () => ({ visibility: 'visible', display: 'block' }),
   });
   vm.runInContext(source, context);
-  return { id, clicks, like, save, commentHeart, document, inspect: request => context.inspectInstagram(request) };
+  return { id, clicks, like, save, commentHeart, follow, document, inspect: request => context.inspectInstagram(request) };
 }
 
 for (const saved of [false, true]) {
@@ -88,6 +91,28 @@ test('a missing bookmark control does not broaden like detection to the whole po
   assert.equal(fixture.inspect().post.like, false);
   assert.equal(fixture.inspect({ id: fixture.id, action: 'like' }).point, null);
   assert.equal(fixture.inspect({ id: fixture.id, action: 'verify-like' }).confirmed, false);
+});
+
+test('the author follow control is found even when an unrelated Follow button appears first', () => {
+  const h = postFixture({ followState: 'Follow', unrelatedFollowState: 'Follow' });
+  const target = h.inspect({ id: h.id, author: '/creator/', action: 'follow' });
+  assert.ok(target.point);
+  assert.equal(h.document.elementFromPoint(target.point.x, target.point.y), h.follow);
+});
+
+test('Following and Requested must belong to the post author, not another account', () => {
+  for (const followState of ['Following', 'Requested']) {
+    const h = postFixture({ followState, unrelatedFollowState: followState });
+    assert.equal(h.inspect({ id: h.id, author: '/creator/', action: 'verify-follow' }).confirmed, true);
+    assert.equal(h.inspect({ id: h.id, author: '/other/', action: 'verify-follow' }).changed, true);
+    const other = postFixture({ unrelatedFollowState: followState });
+    assert.equal(other.inspect({ id: other.id, author: '/creator/', action: 'verify-follow' }).confirmed, false);
+  }
+});
+
+test('a disappearing Follow button alone is not confirmation', () => {
+  const h = postFixture();
+  assert.equal(h.inspect({ id: h.id, author: '/creator/', action: 'verify-follow' }).confirmed, false);
 });
 
 test('a verified extension draft can submit after the textarea loses focus', () => {
