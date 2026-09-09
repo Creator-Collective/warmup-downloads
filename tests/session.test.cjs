@@ -149,7 +149,7 @@ test('automatic pacing spaces engagement and includes longer breaks', async () =
   for (let i = 1; i < times.length; i++) assert.ok(times[i].time - times[i - 1].time >= 20000);
   for (const action of ['like', 'follow', 'comment']) {
     const filtered = times.filter(item => item.action === action);
-    const minimum = { like: 30000, follow: 180000, comment: 360000 }[action];
+    const minimum = { like: 16000, follow: 180000, comment: 360000 }[action];
     for (let i = 1; i < filtered.length; i++) assert.ok(filtered[i].time - filtered[i - 1].time >= minimum);
   }
   assert.ok(h.updates.some(item => item.message === 'taking a longer break…'));
@@ -183,6 +183,22 @@ test('twenty-minute allowances respond to pace and keep comments opt-in', () => 
   assert.deepEqual(validateSettings({ ...input, minutes: 20, pace: 'slow' }).limits, { like: 20, follow: 8, comment: 3 });
   assert.equal(validateSettings({ ...input, minutes: 20, enableComments: false }).limits.comment, 0);
   assert.deepEqual(validateSettings({ ...input, platform: 'tiktok', minutes: 20 }).limits, { like: 40, follow: 15, comment: 0 });
+});
+
+test('high-like sessions do not wait several minutes before the first like', async () => {
+  let index = 0;
+  const times = [];
+  const h = harness({
+    inspect: async () => ({ post: { id: `v-${index}`, author: `author-${index}`, text: 'study tips', viewer: true, next: true, like: true } }),
+    advance: async () => { index++; return true },
+    engage: async action => { times.push({ action, time: h.time() }); return 'confirmed'; }
+  });
+  h.options.random = () => 0.5;
+  await runSession(validateSettings({ ...input, minutes: 3, mix: { like: 2, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  const likes = times.filter(item => item.action === 'like');
+  assert.ok(likes.length >= 4, `expected likes to stay close to cadence, got ${likes.length}`);
+  assert.ok(likes[0].time <= 70000, `expected first like in about the first minute, got ${likes[0]?.time}`);
+  for (let i = 1; i < likes.length; i++) assert.ok(likes[i].time - likes[i - 1].time >= 16000);
 });
 
 test('slower pacing stretches the minimum gaps between engagement attempts', async () => {

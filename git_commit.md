@@ -1,9 +1,9 @@
-raise warm-up defaults and watch pacing
+pace likes toward the visible goal
 
 warm-up:
-- raise 20-minute auto sessions to 40 likes, 15 follows and 5 instagram comments
-- keep tiktok comments disabled, so 20-minute tiktok auto sessions target 40 likes, 15 follows and 0 comments
-- watch videos longer before moving on and attempt full-video watches more often
+- make high-like sessions correct earlier when likes fall behind the visible target
+- keep watches between actions and avoid liking every video
+- keep the 0.6.13 higher automatic limits and tiktok comment behavior
 
 misc:
-- publish version 0.6.13 with focused limit, pacing and package checks
+- publish version 0.6.14 with focused like-cadence checks
