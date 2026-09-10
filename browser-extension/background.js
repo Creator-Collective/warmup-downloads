@@ -1,5 +1,5 @@
 'use strict';
-importScripts('features.js', 'plan.js', 'comment-history.js', 'guards.js', 'signup-fields.js', 'signup.js');
+importScripts('features.js', 'plan.js', 'comment-history.js', 'guards.js', 'signup-fields.js', 'signup-phone.js', 'smspool.js', 'signup.js');
 let queue = Promise.resolve();
 const serial = operation => { const result = queue.then(operation); queue = result.catch(() => {}); return result; };
 const getJob = async () => (await chrome.storage.session.get('job')).job;

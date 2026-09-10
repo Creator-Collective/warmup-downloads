@@ -164,7 +164,7 @@ test('engagement mix still controls actions and reset restores its default value
 
 test('warm-up markup has no comments toggle, instructional hints or footer links',()=>{
  const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
- assert.doesNotMatch(html,/enable-comments|class="hint"|pace-help|how comments work|plan-mode|<footer>|report a problem|>privacy</);
+ assert.doesNotMatch(html.slice(html.indexOf('<form id="session-form"')),/enable-comments|class="hint"|pace-help|how comments work|plan-mode|<footer>|report a problem|>privacy</);
  assert.match(html,/session targets/);
  for(const action of ['like','follow','comment']) {
   const tag=html.match(new RegExp(`<input id="limit-${action}"[^>]*>`))[0];

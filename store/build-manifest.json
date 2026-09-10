@@ -1,5 +1,5 @@
 {
-  "version": "0.6.25",
+  "version": "0.6.26",
   "files": [
     "manifest.json",
     "features.js",
@@ -8,6 +8,9 @@
     "guards.js",
     "signup.js",
     "signup-fields.js",
+    "signup-phone.js",
+    "smspool.js",
+    "phone-ui.js",
     "signup-runner.js",
     "signup-runner.html",
     "signup-ui.js",
