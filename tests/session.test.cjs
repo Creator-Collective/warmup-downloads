@@ -87,6 +87,17 @@ test('unsupported captions skip instead of receiving an unrelated generic reacti
   assert.equal(contextualComment(caption, ['cooking']), null);
 });
 
+test('ambiguous money amounts, figurative recipes and negated activities skip reactions', () => {
+  for (const [caption, terms] of [
+    ["I paid $10 for memecoins worth $12M but couldn't sell.", ['memecoins']],
+    ['My recipe for content strategy is consistency and patience.', ['content strategy']],
+    ['This video needs no editing at all.', ['video']],
+    ["Daily practice doesn't help with these study tips.", ['study tips']],
+    ['This post is about life without cooking.', ['cooking']],
+  ]) assert.equal(contextualComment(caption, terms), null);
+  assert.ok(contextualComment('My recipe for pasta uses just three ingredients.', ['pasta']));
+});
+
 test('niche matching uses full words and hashtag phrases', () => {
   assert.equal(matchesNiche('these study tips help', ['study tips']), true);
   assert.equal(matchesNiche('try #StudyTips today', ['study tips']), true);

@@ -40,11 +40,15 @@ function contextualComment(caption, terms, used = new Set()) {
   for (const sentence of candidates) {
     const detail = sentence.toLowerCase().replace(/’/g, "'");
     let replies = [];
-    const amount = detail.match(/\$\d[\d,]*(?:\.\d+)?\s*(?:million|billion|[mkb]\b)?/u)?.[0].trim();
+    const amounts = detail.match(/\$\d[\d,]*(?:\.\d+)?\s*(?:million|billion|[mkb]\b)?/gu) || [];
+    if (amounts.length > 1) continue; // Do not confuse cost with the unsellable value.
+    const amount = amounts[0]?.trim();
     if (amount && /\b(?:can't|cannot|couldn't|unable to) sell\b/u.test(detail)) {
       replies = [`${amount} and no way to sell 😭`, `wait how do you even sell that ${amount}`, `${amount} stuck there is rough`, `so that ${amount} is just on a screen 💀`];
     } else if (/\b(?:not|no) financial advice\b/u.test(detail)) {
       replies = ['the financial advice disclaimer 😭', 'there it is, the disclaimer lol', 'not financial advice, got it 😂', 'the disclaimer made it in'];
+    } else if (/\b(?:not|no|never|without|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|can't|couldn't|cannot)\b/u.test(detail)) {
+      continue; // Keyword presence alone cannot establish a negated activity.
     } else if (/\b(?:practice|practicing|practise|practising)\b/u.test(detail) && /\b(?:every day|daily|a little)\b/u.test(detail)) {
       replies = ['a little practice every day adds up', 'the every day part is the hard part 😅', 'small daily reps, got it', 'keeping up the daily practice is the trick', 'daily practice sounds simple until day two lol', 'a little each day feels doable', 'those daily reps though 👀', 'keeping it small makes sense'];
     } else if (/\b(?:sharing|showing|share|show) (?:your|the|my|our) process\b/u.test(detail)) {
@@ -59,7 +63,7 @@ function contextualComment(caption, terms, used = new Set()) {
       replies = ['how long does the editing usually take', 'the editing process needs its own post 👀', 'what part of the edit takes the longest', 'curious how many versions you go through'];
     } else if (/\b(?:ugc rates|pricing|setting (?:your |my )?rates)\b/u.test(detail)) {
       replies = ['how did you land on that price', 'the pricing part always gets me 😅', 'what would you charge starting out', 'curious how much room there is to negotiate'];
-    } else if (/\b(?:recipe|ingredients|cooking|baking)\b/u.test(detail)) {
+    } else if (/\b(?:cooking|baking)\b/u.test(detail) || (/\b(?:recipe|ingredients)\b/u.test(detail) && /\b(?:pasta|cake|bread|chicken|rice|soup|cookies|flour|butter|oven|sauce)\b/u.test(detail))) {
       replies = ['what would you swap if an ingredient is missing', 'how much prep time are we talking', 'the recipe details please 👀', 'does this keep well for the next day'];
     } else if (/\b(?:workout|training routine|gym routine)\b/u.test(detail)) {
       replies = ['how long does the whole workout take', 'what does the rest day look like', 'how would you scale this for a beginner', 'the routine details please 💪'];
