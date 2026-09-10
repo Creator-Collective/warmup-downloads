@@ -1,4 +1,16 @@
-# 0.6.26 account creation with SMSPool rentals
+# 0.6.27 temporary SMSPool numbers
+
+Phone setup lists temporary numbers for the selected Instagram or TikTok signup, using current SMSPool country prices. A number is purchased only when an eligible signup phone form is reached. Each order uses the displayed maximum price, cheapest-price selection, quantity one, and no renewal. The monthly rental purchase path has been removed.
+
+The key stays in trusted extension session storage. Purchase intent is persisted before ordering; an uncertain outcome never automatically triggers another purchase. Confirmed receipts survive Stop and worker restarts. Paused signups can attach the exact active, unused order for the correct platform. Legacy monthly receipts remain preserved and require manual completion. Expired, cancelled and refunded orders pause without replacement spending.
+
+The code is retrieved only for the saved order and selected platform. Existing codes are excluded before number submission, and phone/code submissions are not repeated automatically. Security checks and unclear forms still pause. Numbers expire after their temporary verification window; later phone checks may require manual help. Stop does not cancel an order; manage unused orders and refunds in SMSPool.
+
+Provider contract: https://api.smspool.net/resources/postman.json and https://www.smspool.net/article/smspool-api-order-view-and-cancel-numbers-9883b6969fad. Paid orders and completed live signups remain unverified; automated checks use simulated provider responses.
+
+---
+
+## previous release: 0.6.26 account creation with SMSPool rentals
 
 The Chrome side panel again exposes the existing single-account signup flow. Phone setup connects a user-owned SMSPool key in trusted session storage and lists current extendable, always-on rentals lasting 28–31 days with their prices. The chosen rental is purchased only after recognized account details have been submitted and an eligible signup phone-number form is observed. A fresh catalog/stock check precedes the purchase. No bulk queue, temporary-number rotation, security-check bypass, or automatic warm-up start is added.
 
@@ -9,6 +21,7 @@ The recognized phone form receives the saved number once. SMS codes must be new 
 Phone numbers and expiry are retained with the account. Renew numbers through SMSPool to keep them; this release does not turn on auto-renew or cancel paid rentals on Stop. SMSPool’s rental purchase API does not offer a documented maximum-price or idempotency parameter. We check current price against the selected quote immediately before ordering; this cannot eliminate a provider-side price change between the two requests. The rental selection is required again when starting a new/recovered signup that has no confirmed number, so choosing manual verification cannot silently reuse an old purchasing preference.
 
 Primary provider contract: https://api.smspool.net/resources/postman.json. Public rental catalog checked September 10, 2026, including US product 11 at 28 days. The native email endpoint remains the existing production service. SMSPool keys are supplied only by the user inside the extension. Real paid rentals and completed live platform signups require a funded account and remain unverified until actually exercised. See work_log.txt for verification and release evidence.
+
 
 ---
 

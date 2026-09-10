@@ -89,7 +89,7 @@ const signupController = (() => {
     return job;
   }
   function publicState(job) {
-    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'ready to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, elapsedMs: elapsed(job), continueLabel: job?.continueLabel, phone: job?.smsRental?.phone, phoneExpiresAt: job?.smsRental?.expiresAt, phoneAutoExtend: job?.smsRental?.autoExtend === true, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
+    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'ready to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, elapsedMs: elapsed(job), continueLabel: job?.continueLabel, phone: job?.smsRental?.phone, phoneExpiresAt: job?.smsRental?.expiresAt, phoneKind: job?.smsRental?.kind, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
   }
   function incognitoAccess() {
     return new Promise(resolve => {
@@ -287,8 +287,8 @@ const signupController = (() => {
     if (observed.stage === 'phone-number' && job.phoneAttempted) return publicState(await pause(job, 'your saved number may already have been submitted. check the signup tab; it will not be sent twice.', revision));
     if (observed.stage === 'sms-code' && job.smsCodeAttempted) return publicState(await pause(job, 'the phone code may already have been submitted. check the signup tab; it will not be sent twice.', revision));
     if (Date.now() < (job.nextPhoneAt || 0)) return publicState(job);
-    job = await patch(job, { nextPhoneAt: Date.now() + 5000, waitingForCode: true, message: 'checking your phone rental…' }, revision);
-    await smsPool.ensure(job.requestId, job.smsSelection, () => assertRevision(revision));
+    job = await patch(job, { nextPhoneAt: Date.now() + 5000, waitingForCode: true, message: 'checking your temporary number…' }, revision);
+    await smsPool.ensure(job.requestId, job.smsSelection, () => assertRevision(revision), job.platform);
     assertRevision(revision);
     const rental = await smsPool.ready(job.requestId);
     assertRevision(revision);
@@ -322,18 +322,18 @@ const signupController = (() => {
     if (message.type === 'signup-state') return state();
     if (!productFeatures.accountSignup) throw new Error('account creation is paused. use auto warm-up with an existing instagram account.');
     if (message.type === 'signup-phone-state') return smsPool.state();
-    if (message.type === 'signup-phone-connect') { if (isActive(await read(revision))) throw new Error('stop signup before changing your smspool connection.'); await smsPool.connect(message.key); assertRevision(revision); return smsPool.choices(); }
+    if (message.type === 'signup-phone-connect') { if (isActive(await read(revision))) throw new Error('stop signup before changing your smspool connection.'); await smsPool.connect(message.key); assertRevision(revision); return smsPool.choices(message.platform || 'instagram'); }
     if (message.type === 'signup-phone-disconnect') {
       if (isActive(await read(revision))) throw new Error('stop signup before disconnecting smspool.');
       return smsPool.disconnect();
     }
-    if (message.type === 'signup-phone-choices') return smsPool.choices();
+    if (message.type === 'signup-phone-choices') return smsPool.choices(message.platform || 'instagram');
     if (message.type === 'signup-phone-attach') {
       const active = await read(revision);
-      if (!isActive(active) || active.phase !== 'paused' || active.phoneAttempted) throw new Error('attach a rental only while signup is paused before its phone step.');
-      const rental = await smsPool.attach(active.requestId, message.rentalCode);
+      if (!isActive(active) || active.phase !== 'paused' || active.phoneAttempted) throw new Error('attach a number only while signup is paused before its phone step.');
+      const rental = await smsPool.attach(active.requestId, message.rentalCode, active.platform);
       assertRevision(revision);
-      return publicState(await patch(active, { smsRental: rental, message: 'phone rental saved. continue signup when ready.' }, revision));
+      return publicState(await patch(active, { smsRental: rental, message: 'temporary number saved. continue signup when ready.' }, revision));
     }
     if (message.type === 'signup-start') {
       const previous = await read(revision);
@@ -352,7 +352,7 @@ const signupController = (() => {
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
       let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
       job.birthDate = saved?.birthDate || DEFAULT_BIRTH_DATE;
-      job.smsSelection = message.rentalId ? await smsPool.selection(message.rentalId, message.rentalPrice, message.rentalDays) : null;
+      job.smsSelection = message.rentalId ? await smsPool.selection(message.rentalId, message.rentalPrice, message.platform) : null;
       job.smsRental = saved?.smsRental || null;
       job.phoneAttempted = saved?.phoneAttempted === true;
       job.phoneSubmitted = saved?.phoneSubmitted === true;

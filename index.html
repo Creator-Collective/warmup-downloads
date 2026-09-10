@@ -5,8 +5,8 @@
 <div id="signup-panel" hidden>
 <details class="phone-setup"><summary>phone setup</summary>
 <form id="phone-connect-form" autocomplete="off"><label for="phone-key">smspool secret key</label><input id="phone-key" type="password" autocomplete="off" spellcheck="false" minlength="32" maxlength="128" required><p class="hint">stays in this extension until chrome closes. find it in your smspool settings.</p><button id="phone-connect" class="secondary" type="submit">connect smspool</button></form>
-<p id="phone-status" class="hint" role="status">not connected</p><button id="phone-refresh" type="button" class="text-button" hidden>refresh rentals</button><button id="phone-disconnect" type="button" class="text-button" hidden>disconnect</button>
-<form id="phone-attach-form" autocomplete="off"><label for="phone-rental-code">already ordered a number?</label><input id="phone-rental-code" maxlength="100" placeholder="rental code from smspool" required><p class="hint">use this if signup paused after an interrupted purchase. choose an extendable, always-on rental.</p><button id="phone-attach" class="secondary" type="submit">use existing rental</button></form>
+<p id="phone-status" class="hint" role="status">not connected</p><button id="phone-refresh" type="button" class="text-button" hidden>refresh prices</button><button id="phone-disconnect" type="button" class="text-button" hidden>disconnect</button>
+<form id="phone-attach-form" autocomplete="off"><label for="phone-rental-code">already ordered a number?</label><input id="phone-rental-code" maxlength="100" placeholder="order id from smspool" required><p class="hint">use this if signup paused after an interrupted purchase. use an active, unused temporary order for the selected platform.</p><button id="phone-attach" class="secondary" type="submit">use existing number</button></form>
 <a class="text-button" href="https://www.smspool.net/" target="_blank" rel="noopener noreferrer">manage numbers in smspool ↗</a>
 </details><p id="phone-saved" class="hint" role="status" hidden></p>
 <div id="signup-progress" class="signup-progress" hidden><span class="signup-indicator" aria-hidden="true"></span><strong id="signup-status" role="status">ready</strong><time id="signup-timer" aria-label="active signup time">00:00</time></div><p id="signup-account" class="signup-account" hidden></p>
@@ -14,7 +14,7 @@
 <div class="signup-platform-row"><label for="signup-platform">platform</label><select id="signup-platform"><option value="instagram">instagram</option><option value="tiktok">tiktok</option></select></div>
 <label for="signup-username">username</label><input id="signup-username" name="signup-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" required placeholder="your.username">
 <label for="signup-password">password</label><input id="signup-password" name="signup-password" type="password" autocomplete="new-password" minlength="8" maxlength="64" required placeholder="8+ characters">
-<label for="signup-rental">phone verification</label><select id="signup-rental"><option value="">i’ll handle phone verification</option></select><p class="hint">connect smspool in phone setup to rent a number when signup asks for one. rentals last 28–31 days; renew in smspool to keep your number.</p>
+<label for="signup-rental">phone verification</label><select id="signup-rental"><option value="">i’ll handle phone verification</option></select><p class="hint">connect smspool to buy a temporary number only when signup asks for one. pay once, up to the price shown. the number expires after its short verification window.</p>
 <button id="signup-start" type="submit" class="primary">start</button>
 </fieldset></form>
 <p id="signup-message" class="signup-message" role="status" aria-live="polite">ready to start.</p><p id="signup-error" class="error" role="alert" hidden></p>

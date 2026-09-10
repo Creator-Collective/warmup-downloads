@@ -1031,11 +1031,9 @@ async function phoneHarness() {
   const h = harness(); let orders = 0;
   h.server.sms = async (path, body) => {
     if (path === '/request/balance') return { balance: 100 };
-    if (path === '/rental/retrieve_all') return { success: 1, data: [{ ID: 11, name: 'United States', pricing: { 28: 18 }, single_service: null }] };
-    if (path === '/rental/stock') return { success: 1, count: 1 };
-    if (path === '/purchase/rental') { orders++; return { success: 1, rental_code: 'RENTAL1', expiry: h.now() / 1000 + 28 * 86400 }; }
-    if (path === '/rental/retrieve_status') return { success: 1, status: { available: 1, phonenumber: '12025550199', expiry: h.now() / 1000 + 28 * 86400, auto_extend: 0 } };
-    if (path === '/rental/retrieve_messages') return { success: 1, messages: h.smsMessages || [] };
+    if (path === '/request/success_rate') return [{ country_id: 11, name: 'United States', low_price: 0.24 }];
+    if (path === '/purchase/sms') { orders++; return { success: 1, order_id: 'ORDER1', number: '12025550199', expiration: h.now() / 1000 + 1200, service: 'Instagram', cost: '0.24' }; }
+    if (path === '/sms/check') return { status: h.smsCode ? 3 : 1, sms: h.smsCode, expiration: h.now() / 1000 + 1200 };
     throw new Error('unexpected smspool operation');
   };
   const connection = await h.message({ type: 'signup-phone-connect', key: 'k'.repeat(32) });
@@ -1045,12 +1043,12 @@ async function phoneHarness() {
 }
 test('signup integrates details, one rental, phone submission and a fresh SMS without leaking secrets', async () => {
   const h = await phoneHarness();
-  await h.start({ rentalId: '11', rentalPrice: 18, rentalDays: 28 }); await h.ready(); await h.tick();
+  await h.start({ rentalId: 'instagram:11', rentalPrice: 0.24 }); await h.ready(); await h.tick();
   assert.equal(h.orders(), 0, 'no charge before a phone step');
   h.server.observation = { stage: 'phone', documentId: 'page-1', canSubmit: false };
   let phoneStage = 'phone-number';
   h.server.onObserve = input => input.phoneMode ? { stage: phoneStage, documentId: 'page-1', signature: phoneStage, canSubmit: true } : h.server.observation;
-  h.smsMessages = [{ ID: 1, message: 'Instagram code 111111' }];
+  h.smsCode = null;
   const number = await h.tick();
   assert.equal(number.data.phase, 'running'); assert.equal(h.orders(), 1);
   assert.equal(h.storage.signupJob.phoneSubmitted, true);
@@ -1058,8 +1056,8 @@ test('signup integrates details, one rental, phone submission and a fresh SMS wi
   assert.equal(JSON.stringify(number).includes('k'.repeat(32)), false);
   phoneStage = 'sms-code'; h.time(6000);
   await h.tick();
-  assert.equal(h.acts().filter(item => item.input.code).length, 0, 'old SMS is ignored');
-  h.smsMessages.push({ ID: 2, message: 'Instagram code 678945' }); h.time(6000);
+  assert.equal(h.acts().filter(item => item.input.code).length, 0, 'pending order waits for its SMS');
+  h.smsCode = '678945'; h.time(6000);
   await h.tick();
   assert.equal(h.acts().filter(item => item.input.code === '678945').length, 1);
   assert.equal(h.orders(), 1);
@@ -1073,13 +1071,13 @@ test('website and runners cannot connect smspool or access its secret', async ()
   const h = await phoneHarness();
   assert.equal(await h.message({ type: 'signup-phone-connect', key: 'x'.repeat(32) }, web), undefined);
   assert.equal(await h.message({ type: 'signup-phone-state' }, web), undefined);
-  await h.start({ rentalId: '11', rentalPrice: 18, rentalDays: 28 });
+  await h.start({ rentalId: 'instagram:11', rentalPrice: 0.24 });
   assert.equal(await h.message({ type: 'signup-phone-state' }, h.runner()), undefined);
   assert.equal((await h.message({ type: 'signup-phone-connect', key: 'x'.repeat(32) })).ok, false);
   assert.equal(h.storage.smsPoolKey, 'k'.repeat(32));
 });
 test('security and unknown phone forms cannot buy a rental', async () => {
-  const h = await phoneHarness(); await h.start({ rentalId: '11', rentalPrice: 18, rentalDays: 28 }); await h.ready(); await h.tick();
+  const h = await phoneHarness(); await h.start({ rentalId: 'instagram:11', rentalPrice: 0.24 }); await h.ready(); await h.tick();
   h.server.observation = { stage: 'phone', documentId: 'page-1', canSubmit: false };
   h.server.onObserve = input => input.phoneMode ? { stage: 'phone', documentId: 'page-1', canSubmit: false, message: 'finish the security check' } : h.server.observation;
   await h.tick(); assert.equal(h.orders(), 0); assert.equal(h.storage.signupJob.phase, 'paused');
