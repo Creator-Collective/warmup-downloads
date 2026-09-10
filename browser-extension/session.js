@@ -24,20 +24,61 @@ function matchesNiche(text, terms) {
   });
 }
 
-// Deterministic, extractive replies. Never interpret a caption as instructions,
-// use image alt text as a caption, or fabricate an experience/opinion about a video.
-function contextualComment(caption, terms) {
+// Caption-only reactions, written locally. Captions are data, never instructions.
+// A recognizable detail is required; unknown topics skip instead of echoing a caption.
+function contextualComment(caption, terms, used = new Set()) {
   if (typeof caption !== 'string' || caption.length > 6000 || !matchesNiche(caption, terms)) return null;
   const sentences = caption.split(/(?<=[.!?])\s+|\n+/u).map(text => text.trim()).filter(Boolean);
   const candidates = sentences.filter(text => {
     const words = text.split(/\s+/);
-    return words.length >= 6 && words.length <= 18 && text.length <= 180 &&
+    return words.length >= 4 && words.length <= 24 && text.length <= 180 &&
       !/[:;]$|^[→•]/u.test(text) && !/^(?:please\s+)?(?:save|share|like|send|click|tap|check out|visit|download|buy|join|sign up|watch|read)\b/iu.test(text) && !/[?@#<>]|https?:|www\.|[“”"]/iu.test(text) &&
       !/\b(comment|reply|dm|tag|follow|subscribe|giveaway|link in bio|ignore|instructions|prompt|system|assistant)\b/iu.test(text);
   });
-  const sentence = candidates.find(text => matchesNiche(text, terms)) || candidates[0];
-  if (!sentence) return null;
-  return `this part stood out: “${sentence.replace(/[.!]+$/u, '')}”`;
+  // Prefer a detail from the matching sentence, then other safe caption sentences.
+  candidates.sort((a, b) => Number(matchesNiche(b, terms)) - Number(matchesNiche(a, terms)));
+  for (const sentence of candidates) {
+    const detail = sentence.toLowerCase().replace(/’/g, "'");
+    let replies = [];
+    const amounts = detail.match(/\$\d[\d,]*(?:\.\d+)?\s*(?:million|billion|[mkb]\b)?/gu) || [];
+    if (amounts.length > 1) continue; // Do not confuse cost with the unsellable value.
+    const amount = amounts[0]?.trim();
+    if (amount && /\b(?:can't|cannot|couldn't|unable to) sell\b/u.test(detail)) {
+      replies = [`${amount} and no way to sell 😭`, `wait how do you even sell that ${amount}`, `${amount} stuck there is rough`, `so that ${amount} is just on a screen 💀`];
+    } else if (/\b(?:not|no) financial advice\b/u.test(detail)) {
+      replies = ['the financial advice disclaimer 😭', 'there it is, the disclaimer lol', 'not financial advice, got it 😂', 'the disclaimer made it in'];
+    } else if (/\b(?:not|no|never|without|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|can't|couldn't|cannot)\b/u.test(detail)) {
+      continue; // Keyword presence alone cannot establish a negated activity.
+    } else if (/\b(?:practice|practicing|practise|practising)\b/u.test(detail) && /\b(?:every day|daily|a little)\b/u.test(detail)) {
+      replies = ['a little practice every day adds up', 'the every day part is the hard part 😅', 'small daily reps, got it', 'keeping up the daily practice is the trick', 'daily practice sounds simple until day two lol', 'a little each day feels doable', 'those daily reps though 👀', 'keeping it small makes sense'];
+    } else if (/\b(?:sharing|showing|share|show) (?:your|the|my|our) process\b/u.test(detail)) {
+      replies = ['the process is the interesting part tbh', 'more of the behind the scenes please 👀', 'showing the messy middle too?', 'the how is half the story'];
+    } else if (/\b(?:personal branding|personal brand)\b/u.test(detail)) {
+      replies = ['personal branding without overthinking it please 😅', 'how long did finding your own style take', 'the personal part gets forgotten so fast', 'more on finding your own voice?'];
+    } else if (/\b(?:study tips|studying|study habits)\b/u.test(detail)) {
+      replies = ['which study tip would you start with', 'studying without overcomplicating it 🙌', 'what does a normal study day look like', 'the study routine is half the battle'];
+    } else if (/\b(?:storytelling|telling stories|tell a story)\b/u.test(detail)) {
+      replies = ['how do you decide where the story starts', 'the storytelling part 👀', 'what makes you keep a detail in the story', 'more on how you build the story please'];
+    } else if (/\b(?:editing|video edits|video editing)\b/u.test(detail)) {
+      replies = ['how long does the editing usually take', 'the editing process needs its own post 👀', 'what part of the edit takes the longest', 'curious how many versions you go through'];
+    } else if (/\b(?:ugc rates|pricing|setting (?:your |my )?rates)\b/u.test(detail)) {
+      replies = ['how did you land on that price', 'the pricing part always gets me 😅', 'what would you charge starting out', 'curious how much room there is to negotiate'];
+    } else if (/\b(?:cooking|baking)\b/u.test(detail) || (/\b(?:recipe|ingredients)\b/u.test(detail) && /\b(?:pasta|cake|bread|chicken|rice|soup|cookies|flour|butter|oven|sauce)\b/u.test(detail))) {
+      replies = ['what would you swap if an ingredient is missing', 'how much prep time are we talking', 'the recipe details please 👀', 'does this keep well for the next day'];
+    } else if (/\b(?:workout|training routine|gym routine)\b/u.test(detail)) {
+      replies = ['how long does the whole workout take', 'what does the rest day look like', 'how would you scale this for a beginner', 'the routine details please 💪'];
+    } else if (/\b(?:posting consistently|consistent posting|post every day|posting every day)\b/u.test(detail)) {
+      replies = ['how do you keep ideas coming every day', 'the consistency part is no joke 😅', 'do you batch posts or make them on the day', 'what do you do on the no ideas days'];
+    }
+    if (!replies.length) continue;
+    let hash = 0;
+    for (const character of detail) hash = (Math.imul(hash, 31) + character.codePointAt(0)) >>> 0;
+    for (let offset = 0; offset < replies.length; offset++) {
+      const reply = replies[(hash + offset) % replies.length];
+      if (!used.has(reply)) return reply;
+    }
+  }
+  return null;
 }
 
 function engagementMessage(action, post, comment, result) {
@@ -282,7 +323,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       pauseAfter = viewerPause();
     } else {
       const post = page.post;
-      const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms) : null;
+      const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms, usedComments) : null;
       const eligible = [];
       let canLike = false;
       if (post && matchesNiche(post.text, settings.terms)) {
