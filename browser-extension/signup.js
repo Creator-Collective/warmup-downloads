@@ -26,7 +26,7 @@ const signupController = (() => {
   function track(job) { activeTabs = isActive(job) ? { tabId: job.tabId, runnerTabId: job.runnerTabId, token: job.token, platform: job.platform } : null; }
   function recovery(job) {
     const detailsState = job.detailsSubmitted ? 'sent' : job.detailsPrefilled || job.attempts?.some(attempt => attempt.stage === 'details') ? 'uncertain' : job.detailsState || 'not-sent';
-    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, phase: job.phase, since: job.since, detailsState, detailsAutoRetryUsed: job.detailsAutoRetryUsed === true, updatedAt: Date.now() };
+    return { requestId: job.requestId, aliasId: job.aliasId, email: job.email, platform: job.platform, username: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, phase: job.phase, since: job.since, detailsState, detailsAutoRetryUsed: job.detailsAutoRetryUsed === true, smsSelection: job.smsSelection || null, smsRental: job.smsRental || null, phoneAttempted: job.phoneAttempted === true, phoneSubmitted: job.phoneSubmitted === true, smsCodeAttempted: job.smsCodeAttempted === true, smsBaseline: job.smsBaseline || [], updatedAt: Date.now() };
   }
   function write(operation) {
     const result = writes.then(operation);
@@ -89,7 +89,7 @@ const signupController = (() => {
     return job;
   }
   function publicState(job) {
-    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'ready to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, elapsedMs: elapsed(job), continueLabel: job?.continueLabel, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
+    return { phase: job?.phase || 'ready', active: isActive(job), message: job?.message || 'ready to start.', platform: job?.platform, email: job?.email, username: job?.username, tabId: job?.tabId, elapsedMs: elapsed(job), continueLabel: job?.continueLabel, phone: job?.smsRental?.phone, phoneExpiresAt: job?.smsRental?.expiresAt, phoneAutoExtend: job?.smsRental?.autoExtend === true, nextPollMs: job?.waitingForCode ? 5000 : 1500 };
   }
   function incognitoAccess() {
     return new Promise(resolve => {
@@ -160,7 +160,7 @@ const signupController = (() => {
     if (tab.pendingUrl || tab.status !== 'complete') return null;
     if (!platformURL(tab.url, job.platform)) throw new Error('the signup tab changed. stop and open signup again.');
     if (tab.incognito && !job.privateSignup) throw new Error('this signup is in a private window. stop and open signup from the extension again.');
-    const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId, ...(browserDocument ? { documentIds: [browserDocument] } : {}) }, func: signupStep, args: [{ platform: job.platform, email: job.email, username: job.username, fullName: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, actionToken: job.token, ...input }] });
+    const result = await chrome.scripting.executeScript({ target: { tabId: job.tabId, ...(browserDocument ? { documentIds: [browserDocument] } : {}) }, func: input.phoneMode ? signupPhoneStep : signupStep, args: [{ platform: job.platform, email: job.email, username: job.username, fullName: job.username, birthDate: job.birthDate || DEFAULT_BIRTH_DATE, actionToken: job.token, phone: job.smsRental?.phone, phoneSubmitted: job.phoneSubmitted === true, ...input }] });
     assertRevision(revision);
     return result[0] ? { ...result[0].result, browserDocument: result[0].documentId } : null;
   }
@@ -236,6 +236,7 @@ const signupController = (() => {
         const filled = outcome?.filled && !outcome.submitted && outcome.signature === observed.signature && outcome.documentId === observed.documentId;
         return publicState(await pause(job, filled ? 'details filled. choose your birthday and press submit in instagram, then continue here.' : outcome?.message || 'check your details in instagram before submitting, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
       }
+      if (['phone', 'unknown'].includes(observed.stage) && (job.smsSelection || job.smsRental) && job.detailsSubmitted) return await advancePhone(job, revision);
       if (['birthday', 'phone', 'captcha', 'username-unavailable', 'signed-in'].includes(observed.stage)) return publicState(await pause(job, observed.message || 'finish this check in the signup tab, then continue here.', revision, { needsPrivateSignup: false, continueLabel: null }));
       if (['details', 'email-code'].includes(observed.stage) && observed.canSubmit && (typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000)) return publicState(await pause(job, 'this signup action could not be identified. finish the step in its tab.', revision));
       const previous = job.attempts.find(attempt => attempt.signature === observed.signature);
@@ -278,12 +279,62 @@ const signupController = (() => {
       return publicState(await pause(job, error?.message || 'signup needs your attention. check its tab.', revision));
     }
   }
+  async function advancePhone(job, revision) {
+    if (!job.detailsSubmitted) return publicState(await pause(job, 'finish the account details before phone verification.', revision));
+    let observed = await inject(job, { mode: 'observe', phoneMode: true }, revision);
+    if (!observed) return publicState(job);
+    if (!['phone-number', 'sms-code'].includes(observed.stage) || !observed.canSubmit || typeof observed.signature !== 'string' || !observed.signature || observed.signature.length >= 1000) return publicState(await pause(job, observed.message || 'finish this phone check in its tab.', revision));
+    if (observed.stage === 'phone-number' && job.phoneAttempted) return publicState(await pause(job, 'your saved number may already have been submitted. check the signup tab; it will not be sent twice.', revision));
+    if (observed.stage === 'sms-code' && job.smsCodeAttempted) return publicState(await pause(job, 'the phone code may already have been submitted. check the signup tab; it will not be sent twice.', revision));
+    if (Date.now() < (job.nextPhoneAt || 0)) return publicState(job);
+    job = await patch(job, { nextPhoneAt: Date.now() + 5000, waitingForCode: true, message: 'checking your phone rental…' }, revision);
+    await smsPool.ensure(job.requestId, job.smsSelection, () => assertRevision(revision));
+    assertRevision(revision);
+    const rental = await smsPool.ready(job.requestId);
+    assertRevision(revision);
+    if (!rental) return publicState(await patch(job, { message: 'your number is activating. no second number will be ordered. you can check its status in smspool.' }, revision));
+    job = await patch(job, { smsRental: rental }, revision);
+    // Reobserve after network waits, before retrieving or submitting anything.
+    observed = await inject(job, { mode: 'observe', phoneMode: true }, revision);
+    if (!observed?.canSubmit || !['phone-number', 'sms-code'].includes(observed.stage)) return publicState(await pause(job, observed?.message || 'the phone step changed. check it before continuing.', revision));
+    let code;
+    if (observed.stage === 'phone-number') {
+      if (job.phoneAttempted) return publicState(await pause(job, 'the phone step was already attempted. check its tab.', revision));
+      const messages = await smsPool.messages(job.requestId);
+      assertRevision(revision);
+      job = await patch(job, { smsBaseline: messages.map(item => String(item.ID)), phoneAttempted: true, message: 'entering your saved phone number…' }, revision);
+    } else {
+      if (!job.phoneSubmitted || job.smsCodeAttempted) return publicState(await pause(job, 'check the phone verification step yourself before continuing.', revision));
+      const verification = smsPool.verification(await smsPool.messages(job.requestId), job.smsBaseline || [], job.platform);
+      assertRevision(revision);
+      if (!verification) return publicState(await patch(job, { message: 'waiting for a fresh phone code for this account…' }, revision));
+      code = verification.code;
+      job = await patch(job, { smsCodeAttempted: true, smsBaseline: [...job.smsBaseline, verification.id], message: 'entering your phone code…' }, revision);
+    }
+    const outcome = await inject(job, { mode: 'act', phoneMode: true, code, expectedSignature: observed.signature, expectedDocument: observed.documentId }, revision, observed.browserDocument);
+    if (!outcome?.submitted || outcome.signature !== observed.signature || outcome.documentId !== observed.documentId) return publicState(await pause(job, outcome?.message || 'the phone step changed. check its tab before continuing.', revision));
+    return publicState(await patch(job, { phoneSubmitted: job.phoneSubmitted || observed.stage === 'phone-number', waitingForCode: false, message: 'phone step sent. waiting for the next screen…' }, revision));
+  }
   async function command(message, scheduledRevision = cancellationRevision) {
     if (message.type === 'signup-stop') return publicState(await halt());
     const revision = scheduledRevision;
     assertRevision(revision);
     if (message.type === 'signup-state') return state();
     if (!productFeatures.accountSignup) throw new Error('account creation is paused. use auto warm-up with an existing instagram account.');
+    if (message.type === 'signup-phone-state') return smsPool.state();
+    if (message.type === 'signup-phone-connect') { if (isActive(await read(revision))) throw new Error('stop signup before changing your smspool connection.'); await smsPool.connect(message.key); assertRevision(revision); return smsPool.choices(); }
+    if (message.type === 'signup-phone-disconnect') {
+      if (isActive(await read(revision))) throw new Error('stop signup before disconnecting smspool.');
+      return smsPool.disconnect();
+    }
+    if (message.type === 'signup-phone-choices') return smsPool.choices();
+    if (message.type === 'signup-phone-attach') {
+      const active = await read(revision);
+      if (!isActive(active) || active.phase !== 'paused' || active.phoneAttempted) throw new Error('attach a rental only while signup is paused before its phone step.');
+      const rental = await smsPool.attach(active.requestId, message.rentalCode);
+      assertRevision(revision);
+      return publicState(await patch(active, { smsRental: rental, message: 'phone rental saved. continue signup when ready.' }, revision));
+    }
     if (message.type === 'signup-start') {
       const previous = await read(revision);
       if (isActive(previous)) throw new Error('finish or stop the current signup first.');
@@ -301,6 +352,13 @@ const signupController = (() => {
       const retryRequest = pending?.phase === 'error' && !pending.email && pending.platform === message.platform && pending.username === chosenUsername && /^[a-f0-9-]{36}$/i.test(pending.requestId || '') ? pending.requestId : null;
       let job = { token: crypto.randomUUID(), requestId: saved?.requestId || retryRequest || crypto.randomUUID(), platform: message.platform, username: chosenUsername, password: message.password, phase: 'starting', message: saved ? 'restoring your signup email…' : 'creating your account email…', since: new Date().toISOString(), startedAt: Date.now(), expiresAt: Date.now() + 30 * 60000, tabId: null, runnerTabId: null, runnerStarted: false, attempts: [], usedCodeIds: [], detailsSubmitted: false, pendingAction: null, needsPrivateSignup: false, privateSignup: false, continueLabel: null, recovered: Boolean(saved), detailsState: saved ? saved.detailsState || 'uncertain' : 'not-sent' };
       job.birthDate = saved?.birthDate || DEFAULT_BIRTH_DATE;
+      job.smsSelection = message.rentalId ? await smsPool.selection(message.rentalId, message.rentalPrice, message.rentalDays) : null;
+      job.smsRental = saved?.smsRental || null;
+      job.phoneAttempted = saved?.phoneAttempted === true;
+      job.phoneSubmitted = saved?.phoneSubmitted === true;
+      job.smsCodeAttempted = saved?.smsCodeAttempted === true;
+      job.smsBaseline = saved?.smsBaseline || [];
+      assertRevision(revision);
       job.detailsAutoRetryUsed = saved?.detailsAutoRetryUsed === true;
       if (saved) Object.assign(job, { email: saved.email, aliasId: saved.aliasId, detailsSubmitted: saved.detailsState === 'sent' });
       job = await save(job, revision);

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const { webcrypto } = require('node:crypto');
-const source = fs.readFileSync(require.resolve('../browser-extension/signup-fields.js'), 'utf8');
+const source = fs.readFileSync(require.resolve('../browser-extension/signup-fields.js'), 'utf8') + '\n' + fs.readFileSync(require.resolve('../browser-extension/signup-phone.js'), 'utf8');
 const details = { platform: 'instagram', email: 'native@example.com', username: 'native_creator', password: 'fixture-password-only', actionToken: 'fixture-action-token' };
 
 function fixture(options = {}) {
@@ -44,7 +44,7 @@ function fixture(options = {}) {
   const document = { body: { innerText: options.text || 'Sign up with your email' }, querySelectorAll(selector) {
     if (selector === 'input') return inputs;
     if (selector === 'input, select') return [...inputs, ...selects];
-    if (selector === 'select') return selects;
+    if (selector === 'select' || selector === 'select, [role="combobox"]') return selects;
     if (selector === 'button, [role="button"], [role="combobox"], [aria-haspopup="listbox"]') return [...buttons, ...birthdayControls.map(item => item.control)];
     if (selector === '[role="listbox"]') return openList ? [openList] : [];
     if (selector === 'input[type="checkbox"]') return inputs.filter(input => input.type === 'checkbox');
@@ -59,7 +59,7 @@ function fixture(options = {}) {
   const location = { href: options.url || 'https://www.instagram.com/accounts/emailsignup/' };
   const context = vm.createContext({ window, location, document, URL, crypto: webcrypto, HTMLInputElement: Input, HTMLSelectElement: Select, Event: class { constructor(type) { this.type = type; } }, getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }), setTimeout: options.setTimeout || (callback => callback()) });
   vm.runInContext(source, context);
-  const run = async input => { context.request = { ...details, ...input }; return structuredClone(await vm.runInContext('signupStep(request)', context)); };
+  const run = async input => { context.request = { ...details, ...input }; return structuredClone(await vm.runInContext(input.phoneMode ? 'signupPhoneStep(request)' : 'signupStep(request)', context)); };
   return { inputs, selects, buttons, birthdayControls: birthdayControls.map(item => item.control), document, location, clicks: () => clicks, run, cancel() { vm.runInContext('globalThis.__ccNativeSignupCancelled.add("fixture-action-token")', context); }, async act(extra = {}) { const observed = await run({ mode: 'observe', ...extra }); return run({ mode: 'act', expectedDocument: observed.documentId, expectedSignature: observed.signature, ...extra }); } };
 }
 
@@ -371,5 +371,35 @@ test('only matching signed-in profile navigation supplies completion evidence', 
 test('wrong hosts, login pages and child frames never receive details', async () => {
   for (const options of [{ url: 'https://www.instagram.com.evil/accounts/emailsignup/' }, { url: 'http://www.instagram.com/accounts/emailsignup/' }, { url: 'https://www.instagram.com:8443/accounts/emailsignup/' }, { url: 'https://www.instagram.com/accounts/login/' }, { subframe: true }]) {
     const form = fixture(options); assert.equal((await form.act()).submitted, false); assert.equal(form.inputs[0].value, ''); assert.equal(form.clicks(), 0);
+  }
+});
+
+const phoneInput = { phoneMode: true, phone: '+12025550199', phoneSubmitted: false };
+test('phone signup fills the reserved number once and never exposes it in observation signatures', async () => {
+  const form = fixture({ text: 'Add your phone number', inputs: [{ name: 'phone_number', type: 'tel' }], buttons: [{ innerText: 'Send code' }] });
+  const observed = await form.run({ mode: 'observe', ...phoneInput });
+  assert.equal(observed.stage, 'phone-number');
+  assert.equal((await form.act(phoneInput)).submitted, true);
+  assert.equal(form.inputs[0].value, phoneInput.phone);
+  assert.equal(observed.signature.includes(phoneInput.phone), false);
+  assert.equal((await form.act(phoneInput)).submitted, false);
+  assert.equal(form.clicks(), 1);
+});
+test('sms codes require the saved number or its masked suffix and a prior confirmed number submission', async () => {
+  for (const recipient of ['+1 (202) 555-0199', '******0199', '+12025550222']) {
+    const form = fixture({ text: `Enter the SMS confirmation code sent to ${recipient}`, inputs: [{ name: 'sms_code', autocomplete: 'one-time-code' }], buttons: [{ innerText: 'Confirm' }] });
+    const input = { ...phoneInput, phoneSubmitted: true, code: '654321' };
+    const observed = await form.run({ mode: 'observe', ...input });
+    assert.equal(observed.canSubmit, recipient !== '+12025550222', recipient);
+    assert.equal((await form.act(input)).submitted, recipient !== '+12025550222', recipient);
+  }
+  const form = fixture({ text: 'Enter the SMS code sent to +12025550199', inputs: [{ name: 'sms_code' }], buttons: [{ innerText: 'Confirm' }] });
+  assert.equal((await form.act({ ...phoneInput, code: '654321' })).submitted, false);
+});
+test('phone automation pauses on security checkpoints, unknown country pickers, edited numbers and cancellation', async () => {
+  for (const kind of ['security', 'checkpoint', 'country', 'edited', 'cancel']) {
+    const form = fixture({ text: kind === 'security' ? 'Security check: verify your phone' : 'Add your phone number', url: kind === 'checkpoint' ? 'https://www.instagram.com/challenge/' : undefined, inputs: [{ name: 'phone_number', type: 'tel', _value: kind === 'edited' ? '+12025550222' : '' }], selects: kind === 'country' ? [{ name: 'country' }] : [], buttons: [{ innerText: 'Send code' }], onEvent: () => { if (kind === 'cancel') form.cancel(); } });
+    assert.equal((await form.act(phoneInput)).submitted, false, kind);
+    assert.equal(form.clicks(), 0, kind);
   }
 });

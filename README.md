@@ -1,3 +1,17 @@
+# 0.6.26 account creation with SMSPool rentals
+
+The Chrome side panel again exposes the existing single-account signup flow. Phone setup connects a user-owned SMSPool key in trusted session storage and lists current extendable, always-on rentals lasting 28–31 days with their prices. The chosen rental is purchased only after recognized account details have been submitted and an eligible signup phone-number form is observed. A fresh catalog/stock check precedes the purchase. No bulk queue, temporary-number rotation, security-check bypass, or automatic warm-up start is added.
+
+The rental receipt is persisted before subsequent signup work; purchase intent is persisted before ordering. An ambiguous timeout or worker restart cannot trigger another purchase. A confirmed provider rejection permits retry after correction. Stop during purchase preserves any returned receipt and prevents subsequent page actions. A paused signup can attach the exact existing rental code to recover an uncertain order. Assigned rental codes cannot be reused for another local signup. Credentials are bound by a local SHA-256 fingerprint, and provider responses cannot echo secrets into error messages.
+
+The recognized phone form receives the saved number once. SMS codes must be new relative to the message baseline captured before the number submission, explicitly identify the selected platform, and contain one six-digit code. The code form must show the exact number or its masked last four digits after a confirmed submission by this signup. Ambiguous or edited forms, country pickers without a verified adapter, CAPTCHA, account restrictions and security checkpoints pause for manual completion. This is ordinary signup verification, not an adapter for challenge/checkpoint pages.
+
+Phone numbers and expiry are retained with the account. Renew numbers through SMSPool to keep them; this release does not turn on auto-renew or cancel paid rentals on Stop. SMSPool’s rental purchase API does not offer a documented maximum-price or idempotency parameter. We check current price against the selected quote immediately before ordering; this cannot eliminate a provider-side price change between the two requests. The rental selection is required again when starting a new/recovered signup that has no confirmed number, so choosing manual verification cannot silently reuse an old purchasing preference.
+
+Primary provider contract: https://api.smspool.net/resources/postman.json. Public rental catalog checked September 10, 2026, including US product 11 at 28 days. The native email endpoint remains the existing production service. SMSPool keys are supplied only by the user inside the extension. Real paid rentals and completed live platform signups require a funded account and remain unverified until actually exercised. See work_log.txt for verification and release evidence.
+
+---
+
 # Creator Collective Warm-up
 
 Website: https://creator-collective-warmup.vercel.app/

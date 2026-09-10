@@ -63,6 +63,7 @@
 
   function render(next) {
     state = next ?? null;
+    window.dispatchEvent?.(new CustomEvent('signup-state-change', { detail: state }));
     receivedAt = Date.now();
     const key = state?.email ? `${state.platform}:${state.email}` : '';
     if (key && key !== identity) {
@@ -107,6 +108,7 @@
       platform: node('platform').value,
       username: node('username').value.trim().replace(/^@+/, ''),
       password: node('password').value,
+      ...(node('rental')?.value ? { rentalId: node('rental').value, rentalPrice: Number(node('rental').selectedOptions?.[0]?.dataset.price), rentalDays: Number(node('rental').selectedOptions?.[0]?.dataset.days) } : {}),
     };
     starting = true;
     startingAt = Date.now();
