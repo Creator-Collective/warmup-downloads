@@ -108,7 +108,7 @@
       platform: node('platform').value,
       username: node('username').value.trim().replace(/^@+/, ''),
       password: node('password').value,
-      ...(node('rental')?.value ? { rentalId: node('rental').value, rentalPrice: Number(node('rental').selectedOptions?.[0]?.dataset.price), rentalDays: Number(node('rental').selectedOptions?.[0]?.dataset.days) } : {}),
+      ...(node('rental')?.value ? { rentalId: node('rental').value, rentalPrice: Number(node('rental').selectedOptions?.[0]?.dataset.price) } : {}),
     };
     starting = true;
     startingAt = Date.now();
