@@ -1,3 +1,8 @@
+2026-09-10 | 0.6.29 keep the public update warm-up only
+- user clarified account creation is unfinished and must not appear with the comment update. remove signup/phone controls and their script tags from website and packaged panel; disable the existing signup feature gate; remove native-mailbox and SMSPool host access. keep all unfinished source and saved recovery data for later development.
+- the existing disabled-release path stops old signup runners, clears temporary signup passwords and retains mailbox history while allowing warm-up. expanded rejection coverage to phone commands. comment generation is byte-for-byte unchanged from 0.6.28.
+- verified: 291 automated checks pass; both 29-file release archives match source, have no signup panel/scripts in the HTML, contain the disabled flag and retain the reviewed comment generator. setup and privacy/store descriptions reflect the public warm-up-only release. production page and download verified after merge; no live platform engagement or signup attempted.
+
 2026-09-10 | 0.6.28 human warm-up comments
 - reproduced both screenshot captions producing the identical "this part stood out" wrapper. replaced quote echoes with short lowercase reactions to recognized caption details, occasional emojis, and unused wording selection within each session. unsupported details or exhausted wording skip instead of posting a generic reply.
 - changed session generation and focused regression coverage; updated release version, download instructions, store disclosure and both extension archives. no permissions, external services, pacing or platform support changes.

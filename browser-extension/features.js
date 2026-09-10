@@ -1,2 +1,2 @@
 'use strict';
-const productFeatures = Object.freeze({ accountSignup: true });
+const productFeatures = Object.freeze({ accountSignup: false });

@@ -1,3 +1,9 @@
+# 0.6.29 warm-up only
+
+The public website and extension side panel no longer show account creation or phone setup. Signup is disabled, including old runner recovery and phone-provider commands; the email-service and SMSPool host permissions are removed. The shorter lowercase comments from 0.6.28 remain. Existing saved mailbox and phone-order history is retained locally. Update the files in the existing unpacked folder and reload its Chrome card.
+
+## Previous release notes
+
 # 0.6.28 simpler warm-up comments
 
 Instagram comments now use short, lowercase reactions with occasional emojis instead of repeating a caption inside “this part stood out.” Replies use recognizable caption details, vary their wording, and never repeat within a session. Captions without a supported detail skip comments. Processing stays local; no caption upload or new permissions. Update the existing unpacked extension folder and reload its Chrome card to use the new comments.
