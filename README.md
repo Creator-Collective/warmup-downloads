@@ -1,3 +1,7 @@
+# 0.6.28 simpler warm-up comments
+
+Instagram comments now use short, lowercase reactions with occasional emojis instead of repeating a caption inside “this part stood out.” Replies use recognizable caption details, vary their wording, and never repeat within a session. Captions without a supported detail skip comments. Processing stays local; no caption upload or new permissions. Update the existing unpacked extension folder and reload its Chrome card to use the new comments.
+
 # 0.6.27 temporary SMSPool numbers
 
 Phone setup lists temporary numbers for the selected Instagram or TikTok signup, using current SMSPool country prices. A number is purchased only when an eligible signup phone form is reached. Each order uses the displayed maximum price, cheapest-price selection, quantity one, and no renewal. The monthly rental purchase path has been removed.
