@@ -1,7 +1,7 @@
-make warm-up comments shorter and more human
+hide unfinished account creation from the warm-up release
 
 misc:
-- replace caption quote wrappers with lowercase detail-based reactions
-- vary wording within sessions and use occasional emojis
-- skip unsupported details and exhausted replies
-- cover screenshot cases and release extension 0.6.28
+- remove public signup and phone controls and disable signup commands
+- remove signup-only host permissions while preserving saved history
+- retain simpler comments and publish extension 0.6.29
+- update help, disclosures and release regression checks

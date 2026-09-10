@@ -960,7 +960,7 @@ test('a recovered mailbox mismatch fails before opening any platform tab', async
 
 test('warm-up release rejects signup starts and recovery commands without making requests', async () => {
   const h = harness({}, {}, { signupEnabled: false });
-  for (const type of ['signup-start', 'signup-continue', 'signup-show']) {
+  for (const type of ['signup-start', 'signup-continue', 'signup-show', 'signup-phone-state', 'signup-phone-connect', 'signup-phone-choices', 'signup-phone-attach']) {
     const response = await h.message({ type, platform: 'instagram', username: 'test.creator', password: PASSWORD });
     assert.equal(response.ok, false);
     assert.match(response.error, /account creation is paused/);
