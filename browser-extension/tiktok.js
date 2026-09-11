@@ -38,9 +38,13 @@ function inspectTikTok(request = {}) {
   const main = document.querySelector('main,[role="main"]') || document.body;
   const sequence = [...new Set([...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].map(link => videoURL(link.href)).filter(Boolean))];
   const posts = [...new Set([...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].filter(visible).map(link => videoURL(link.href)).filter(Boolean))];
-  const id = videoURL(location.href);
+  // TikTok's FYP usually keeps `/foryou` in the tab URL. Resolve the active
+  // video from the visible card first so a feed session can actually engage.
+  const scopes = [...document.querySelectorAll('[data-e2e="browse-video"], [data-e2e="feed-video"], article, main, [role="main"]')].filter(visible);
+  const scope = scopes.find(candidate => candidate.querySelector('[data-e2e="like-icon"], [data-e2e="browse-like-icon"], video')) || scopes[0] || main;
+  const scopedPosts = [...scope.querySelectorAll('a[href]')].filter(visible).map(link => videoURL(link.href)).filter(Boolean);
+  const id = videoURL(location.href) || scopedPosts[0] || posts[0] || null;
   if (!id) return { posts, sequence, post: null };
-  const scope = [...document.querySelectorAll('[data-e2e="browse-video"], [data-e2e="feed-video"], article, main, [role="main"]')].filter(visible)[0] || main;
   const author = new URL(id).pathname.split('/')[1];
   const textNodes = [
     ...scope.querySelectorAll('[data-e2e="browse-video-desc"], [data-e2e="video-desc"], h1, h2, strong, p, a[href*="/tag/"]')
