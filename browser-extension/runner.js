@@ -69,6 +69,15 @@ function sameDestination(actual, expected) {
     const a = new URL(actual); const b = new URL(expected);
     const post = url => url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/)?.[1];
     if (a.origin === b.origin && a.search === b.search && a.hash === b.hash && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return true;
+    const tiktok = url => ['www.tiktok.com', 'tiktok.com'].includes(url.hostname);
+    if (tiktok(a) && tiktok(b)) {
+      const video = url => url.pathname.match(/^\/@[\w.-]+\/video\/(\d+)\/?$/)?.[1];
+      const aVideo = video(a); const bVideo = video(b);
+      if (aVideo && bVideo) return a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
+      const search = url => /^\/search(?:\/video)?\/?$/.test(url.pathname) ? url.searchParams.get('q') : null;
+      const aSearch = search(a); const bSearch = search(b);
+      if (aSearch && bSearch) return aSearch === bSearch;
+    }
     return a.origin === b.origin && !a.search && !b.search && !a.hash && !b.hash && Boolean(post(a)) && post(a) === post(b);
   } catch { return false; }
 }
@@ -420,7 +429,7 @@ function update(patch) {
   }).catch(error => { controller.abort(error); });
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (job?.tabId === tabId && change.url && !sameDestination(change.url, expectedDestination)) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
+  if (job?.tabId === tabId && change.url && expectedDestination && !sameDestination(change.url, expectedDestination)) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes.job) return;

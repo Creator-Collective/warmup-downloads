@@ -1,4 +1,4 @@
-# 0.6.29 warm-up only
+# 0.6.30 warm-up only
 
 The public website and extension side panel no longer show account creation or phone setup. Signup is disabled, including old runner recovery and phone-provider commands; the email-service and SMSPool host permissions are removed. The shorter lowercase comments from 0.6.28 remain. Existing saved mailbox and phone-order history is retained locally. Update the files in the existing unpacked folder and reload its Chrome card.
 
@@ -54,6 +54,8 @@ The current product is a Chrome side panel plus a public web dashboard. Clicking
 0.6.21 preserves an untouched owned draft when Instagram replaces its textarea, while document-level manual-edit detection protects replacement fields too. Adoption requires the old field to be detached and the exact post, account, caption and text to match. Short sessions use shorter initial and cross-action waits; late actions require enough time for confirmation. Caption replies remain exact short extracts from niche-matching captions. A real two-minute Instagram session completed normally with 21 scrolls, 1 confirmed like, 1 confirmed follow and 1 confirmed comment. All 241 automated checks pass. See work_log.txt for details and remaining store/client-machine verification.
 
 0.6.20 recovers from slow/empty searches, missing results, viewer load timeouts and transient frame replacement. Read-only inspections retry; uncertain engagement is never replayed and consumes the corresponding allowance without inflating confirmed counts. Transient activity acknowledgements retry before the next page action. Equivalent post permalink forms no longer cause cancellation; different posts, account restrictions, Stop and deadlines retain their existing guards. Includes comment-draft recovery and explicit follow confirmation. Verification and installed-version details are recorded in work_log.txt.
+
+0.6.30 keeps TikTok sessions running when TikTok performs its normal search-route and video-URL rewrites. It still stops when the selected tab actually moves to another video or leaves TikTok.
 
 0.6.19 confirms Instagram follows when the viewer hides the Follow control without replacing it with Following. After the existing confirmation window, a read-only background tab reloads the exact same post and checks its author's explicit Following or Requested control. The tab closes after checking; no follow is repeated. Unknown outcomes remain uncounted and do not stop the session. Header filtering also finds the author's control when unrelated controls occur earlier in the page. Live read-only inspection confirmed that the author from the reported zero-count session is currently followed, and the standalone post exposes Following. A newly executed follow and comment on this release remain unverified.
 
