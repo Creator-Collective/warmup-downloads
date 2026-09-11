@@ -39,6 +39,7 @@ function fixture({ host = 'www.tiktok.com', pathName = '/@creator/video/123', hr
     querySelectorAll(selector) {
       if (selector === 'button, [role="button"]') return buttons;
       if (selector === 'video') return [video];
+      if (selector === 'a[href]') return links;
       if (selector.includes('browse-video-desc')) return [caption];
       return [];
     }
@@ -79,6 +80,15 @@ test('tiktok observer normalizes visible video links and exposes safe actions', 
   assert.equal(view.post.follow, true);
   assert.equal(view.post.comment, false);
   assert.equal(view.post.videoRemainingMs, 12000);
+});
+
+test('tiktok feed URLs still expose the active card for engagement', () => {
+  const page = fixture({ pathName: '/foryou', href: 'https://www.tiktok.com/foryou' });
+  const view = page.inspect();
+  assert.equal(view.post.id, 'https://www.tiktok.com/@creator/video/123/');
+  assert.equal(view.post.viewer, true);
+  assert.equal(view.post.like, true);
+  assert.equal(view.post.follow, true);
 });
 
 test('tiktok likes and follows require exact visible controls and confirmation', () => {
