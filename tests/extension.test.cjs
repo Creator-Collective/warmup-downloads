@@ -187,6 +187,32 @@ test('canonical post addresses do not cancel the session, but a different post s
  assert.equal(vm.runInContext("sameDestination('https://www.instagram.com/p/example/?different=1', 'https://www.instagram.com/reel/example/')", h.ctx), false);
 });
 
+test('normal TikTok search and video URL rewrites do not stop the session', async () => {
+ const h = runnerContext('starting', async (settings, adapter, signal) => {
+   h.job.settings.platform = 'tiktok';
+   vm.runInContext("expectedDestination = 'https://www.tiktok.com/search?q=personal%20branding'", h.ctx);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.tiktok.com/search/video?q=personal%20branding&lang=en' });
+   assert.equal(signal.aborted, false);
+   vm.runInContext("expectedDestination = 'https://www.tiktok.com/@creator/video/123/'", h.ctx);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.tiktok.com/@creator/video/123?lang=en&is_from_webapp=1' });
+   assert.equal(signal.aborted, false);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.tiktok.com/@creator/video/456' });
+   assert.equal(signal.aborted, true);
+ });
+ await finishRunner(h);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'stopped'));
+});
+
+test('a TikTok URL update before the first controlled navigation does not stop startup', async () => {
+ const h = runnerContext('starting', async (settings, adapter, signal) => {
+   h.job.settings.platform = 'tiktok';
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: 'https://www.tiktok.com/foryou' });
+   assert.equal(signal.aborted, false);
+ });
+ await finishRunner(h);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
 test('lost activity acknowledgements retry only status and hold the next page action until recovered', async () => {
  let acknowledgements = 0;
  const h = runnerContext('starting', async (settings, adapter) => {
