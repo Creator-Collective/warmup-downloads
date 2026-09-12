@@ -23,7 +23,7 @@ function platformConfig() {
     searchURL: term => platform === 'tiktok' ? `https://www.tiktok.com/search?q=${encodeURIComponent(term)}` : `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(term)}`,
     validPost: url => {
       const u = new URL(url);
-      return platformURL(url, platform) && (platform === 'tiktok' ? /^\/@[\w.-]+\/video\/\d+\/?$/.test(u.pathname) : /^\/(p|reel)\/[\w-]+\/$/.test(u.pathname)) && !u.search && !u.hash;
+      return platformURL(url, platform) && (platform === 'tiktok' ? /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(u.pathname) : /^\/(p|reel)\/[\w-]+\/$/.test(u.pathname)) && !u.search && !u.hash;
     }
   };
 }
@@ -69,9 +69,9 @@ function sameDestination(actual, expected) {
     const a = new URL(actual); const b = new URL(expected);
     const post = url => url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/)?.[1];
     if (a.origin === b.origin && a.search === b.search && a.hash === b.hash && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return true;
-    const tiktok = url => ['www.tiktok.com', 'tiktok.com'].includes(url.hostname);
+    const tiktok = url => url.protocol === 'https:' && !url.port && !url.username && !url.password && ['www.tiktok.com', 'tiktok.com'].includes(url.hostname);
     if (tiktok(a) && tiktok(b)) {
-      const video = url => url.pathname.match(/^\/@[\w.-]+\/video\/(\d+)\/?$/)?.[1];
+      const video = url => url.pathname.match(/^\/@[\w.-]+\/(?:video|photo)\/(\d+)\/?$/)?.[1];
       const aVideo = video(a); const bVideo = video(b);
       if (aVideo && bVideo) return a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
       const search = url => /^\/search(?:\/video)?\/?$/.test(url.pathname) ? url.searchParams.get('q') : null;
@@ -178,12 +178,30 @@ async function openViewer(target) {
     if (Date.now() >= deadline || inspector().blocked) return false;
     const normalize = value => {
       const url = new URL(value, location.href);
-      if (location.hostname.includes('tiktok')) return /^\/@[\w.-]+\/video\/\d+\/?$/.test(url.pathname) ? `https://www.tiktok.com${url.pathname.replace(/\/?$/, '/')}` : null;
+      if (location.hostname.includes('tiktok')) return url.protocol === 'https:' && !url.port && !url.username && !url.password && ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(url.pathname) ? `https://www.tiktok.com${url.pathname.replace(/\/?$/, '/')}` : null;
       return url.origin === location.origin && /^\/(p|reel)\/[\w-]+\/?$/.test(url.pathname) ? `${url.origin}${url.pathname.replace(/\/?$/, '/')}` : null;
     };
-    const link = [...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].find(a => normalize(a.href) === target && a.getBoundingClientRect().width > 0);
+    const tiktok = ['www.tiktok.com', 'tiktok.com'].includes(location.hostname);
+    const rendered = element => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (node.getAttribute('aria-hidden') === 'true' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+      }
+      return true;
+    };
+    const link = [...document.querySelectorAll('main a[href],[role="main"] a[href],a[href]')].find(a => normalize(a.href) === target && (tiktok ? rendered(a) : a.getBoundingClientRect().width > 0));
     if (!link) return false;
     link.scrollIntoView({ block: 'center', behavior: 'instant' });
+    if (tiktok) {
+      if (!rendered(link)) return false;
+      const rect = link.getBoundingClientRect();
+      const x = (Math.max(0, rect.left) + Math.min(innerWidth, rect.right)) / 2;
+      const y = (Math.max(0, rect.top) + Math.min(innerHeight, rect.bottom)) / 2;
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || (hit !== link && !link.contains(hit))) return false;
+    }
     link.click(); return true;
   }, [target, job.deadline]);
   if (!clicked) return false;

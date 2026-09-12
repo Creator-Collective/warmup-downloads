@@ -1,12 +1,20 @@
 // Runs in the guest's isolated world. Every action resolves its control again
-// inside the active video's card; a search tile is never an open viewer.
+// inside the active post's card; a search tile is never an open viewer.
 function inspectTikTok(request = {}) {
-  const visible = element => {
+  const rendered = element => {
     if (!element) return false;
     const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight &&
-      rect.right > 0 && rect.left < innerWidth && style.visibility !== 'hidden' && style.display !== 'none';
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (node.getAttribute('aria-hidden') === 'true' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+    }
+    return true;
+  };
+  const visible = element => {
+    if (!rendered(element)) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
   };
   const all = (scope, selector) => [...scope.querySelectorAll(selector)];
   const unique = values => [...new Set(values)];
@@ -22,10 +30,10 @@ function inspectTikTok(request = {}) {
     const hit = document.elementFromPoint(x, y);
     return hit && (hit === element || element.contains(hit)) ? { x, y } : null;
   };
-  const videoURL = value => {
+  const postURL = value => {
     try {
       const url = new URL(value, location.href);
-      return ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && /^\/@[\w.-]+\/video\/\d+\/?$/.test(url.pathname)
+      return url.protocol === 'https:' && !url.port && !url.username && !url.password && ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(url.pathname)
         ? `https://www.tiktok.com${url.pathname.replace(/\/?$/, '/')}` : null;
     } catch { return null; }
   };
@@ -52,38 +60,54 @@ function inspectTikTok(request = {}) {
     return { blocked: 'tiktok could not post the comment. the session has stopped; check tiktok before trying again.', blockReason: 'comment-failed' };
   }
   const links = all(document, 'a[href]');
-  const sequence = unique(links.map(link => videoURL(link.href)).filter(Boolean));
-  const posts = unique(links.filter(visible).map(link => videoURL(link.href)).filter(Boolean));
+  // Keep rendered offscreen results in order, but never select hidden preload anchors.
+  const sequence = unique(links.filter(rendered).map(link => postURL(link.href)).filter(Boolean));
+  const posts = unique(links.filter(visible).map(link => postURL(link.href)).filter(Boolean));
   const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false } : { posts, sequence, post: null };
-  const pageId = videoURL(location.href);
-  const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && all(element, 'video').some(visible));
+  const pageId = postURL(location.href);
+  const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
+  const area = element => {
+    const r = element.getBoundingClientRect();
+    return Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+  };
+  // Recognize TikTok's observed photo-slide structure, not a video's poster
+  // image that may linger while the URL is already changing to a photo.
+  const photoCarousel = image => image.matches('[class*="ImgPhotoSlide"]') ? image.closest('.swiper-horizontal') : null;
+  const photoMedia = root => all(root, 'img').filter(image => {
+    const rect = image.getBoundingClientRect();
+    const slide = image.closest('.swiper-slide');
+    if (!photoCarousel(image) || !slide?.matches('.swiper-slide-active')) return false;
+    return visible(image) && image.complete === true && image.naturalWidth >= 240 && image.naturalHeight >= 240 &&
+      rect.width >= 240 && rect.height >= 240 && area(image) >= 70000 && !image.closest('a[href], nav, aside, [data-e2e*="comment"]');
+  });
+  const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
   // Search/profile cards can autoplay previews. Opening one is required first.
   if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty();
   const main = viewer || document.querySelector('main, [role="main"]') || document.body;
   const videos = all(main, 'video').filter(visible);
-  const area = element => {
-    const r = element.getBoundingClientRect();
-    return (Math.min(innerWidth, r.right) - Math.max(0, r.left)) * (Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
-  };
   const playing = videos.filter(video => !video.paused && !video.ended && video.readyState >= 2);
-  const candidates = (playing.length ? playing : videos).sort((a, b) => area(b) - area(a));
-  const video = candidates[0];
-  if (!video || (candidates[1] && area(video) < area(candidates[1]) * 2)) return empty();
+  const images = pageId ? (photoId(pageId) ? photoMedia(main) : []) : (viewer ? photoMedia(main) : []);
+  const candidates = [...(photoId(pageId) ? [] : (playing.length ? playing : videos)), ...images].sort((a, b) => area(b) - area(a));
+  const media = candidates[0];
+  if (!media || (candidates[1] && area(media) < area(candidates[1]) * 2)) return empty();
+  const photo = media.tagName === 'IMG';
+  const video = photo ? null : media;
   // Include sibling author/action panels, but never cross into another card.
-  let scope = video.parentElement;
+  let scope = media.parentElement;
   for (let parent = scope; parent && main.contains(parent); parent = parent.parentElement) {
-    // Browse dialogs preload the next video below the viewport. Only that
-    // trusted viewer may ignore its offscreen video while finding siblings.
-    if (all(parent, 'video').some(other => other !== video && (!viewer || visible(other)))) break;
+    // Browse dialogs preload the next post below the viewport. Only that
+    // trusted viewer may ignore its offscreen media while finding siblings.
+    if (all(parent, 'video').some(other => other !== media && (!viewer || visible(other))) ||
+        (photo && photoMedia(parent).some(other => other !== media))) break;
     scope = parent;
     if (parent === main || parent.matches('article, [data-e2e="recommend-list-item-container"], [data-e2e="feed-item"]')) break;
   }
   if (!scope) return empty();
-  const scopedIds = unique(all(scope, 'a[href]').filter(link => !viewer || visible(link)).map(link => videoURL(link.href)).filter(Boolean));
+  const scopedIds = unique(all(scope, 'a[href]').filter(link => rendered(link) && (!viewer || visible(link))).map(link => postURL(link.href)).filter(Boolean));
   const id = pageId || (scopedIds.length === 1 ? scopedIds[0] : null);
-  if (!id || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty();
+  if (!id || photo !== photoId(id) || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty();
   const author = new URL(id).pathname.split('/')[1];
   const excluded = element => Boolean(element.closest('[data-e2e*="comment"], aside, nav'));
   const target = (node, root) => {
@@ -108,6 +132,33 @@ function inspectTikTok(request = {}) {
   const profileAuthor = link => {
     try { const url = new URL(link.href, location.href); return ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && /^\/@[\w.-]+\/?$/.test(url.pathname) ? url.pathname.split('/')[1] : null; } catch { return null; }
   };
+  if (photo) {
+    const authors = unique(all(scope, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
+    const hasDetails = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"], [data-e2e="browse-like-icon"], [data-e2e="like-icon"]').some(element => visible(element) && !excluded(element));
+    if (authors.length !== 1 || authors[0] !== author || !hasDetails) return empty();
+    // A permalink can update before React replaces its old carousel. Bind the
+    // entire source set, not the active slide, so autoplay and DOM recreation
+    // cannot relabel old media as a new post. Keep state in the isolated world
+    // across observer reinjections; signed CDN query refreshes are immaterial.
+    const sourceKey = image => {
+      try {
+        const source = image.currentSrc || image.getAttribute('src');
+        if (!source) return null;
+        const url = new URL(source, location.href);
+        return url.protocol === 'https:' && !url.username && !url.password ? `${url.origin}${url.pathname}` : null;
+      } catch { return null; }
+    };
+    const carousel = photoCarousel(media);
+    const sources = unique(all(carousel, 'img[class*="ImgPhotoSlide"]').map(sourceKey).filter(Boolean));
+    if (!sourceKey(media) || !sources.length) return empty();
+    const bindings = globalThis.collectiveTikTokPhotoBindings ||= { carousels: new WeakMap(), sources: new Map() };
+    const previous = bindings.carousels.get(carousel);
+    if ((previous && previous.id !== id && sources.some(source => previous.sources.has(source))) ||
+        sources.some(source => bindings.sources.has(source) && bindings.sources.get(source) !== id)) return empty();
+    const remembered = previous?.id === id ? previous.sources : new Set();
+    for (const source of sources) { remembered.add(source); bindings.sources.set(source, id); }
+    bindings.carousels.set(carousel, { id, sources: remembered });
+  }
   const belongsToAuthor = element => {
     for (let parent = element.parentElement; parent && scope.contains(parent); parent = parent.parentElement) {
       const authors = unique(all(parent, 'a[href]').map(profileAuthor).filter(Boolean));
@@ -119,7 +170,11 @@ function inspectTikTok(request = {}) {
   const followMarkers = exact(scope, '[data-e2e="follow-button"], [data-e2e="browse-follow"], [data-e2e="feed-follow"], [data-e2e="follow-icon"]');
   const follow = only(unique([...followMarkers, ...semantic(scope, /^(?:follow|following|friends|requested)(?:\s+@[\w.-]+)?$/)]).filter(belongsToAuthor));
   const following = Boolean(follow && (/^(?:following|friends|requested)(?:\s+@[\w.-]+)?$/.test(label(follow)) || follow.getAttribute('aria-pressed') === 'true' || /^(?:following|requested)$/.test(follow.getAttribute('data-state') || '')));
-  const next = only(unique([...exact(main, '[data-e2e="arrow-right"], [data-e2e="arrow-down"], [data-e2e="browse-next"]'), ...semantic(main, /^(?:next|next video|go to next video|scroll down)$/)]));
+  // A photo's horizontal arrow changes slides, not posts. Never use it to
+  // predict a URL transition; vertical browse controls retain post ownership.
+  const nextMarkers = photo ? '[data-e2e="arrow-down"], [data-e2e="browse-next"]' : '[data-e2e="arrow-right"], [data-e2e="arrow-down"], [data-e2e="browse-next"]';
+  const nextLabel = photo ? /^(?:next (?:video|post)|go to next (?:video|post)|scroll down)$/ : /^(?:next|next (?:video|post)|go to next (?:video|post)|scroll down)$/;
+  const next = only(unique([...exact(main, nextMarkers), ...semantic(main, nextLabel)]).filter(node => !photo || !node.closest('.swiper-horizontal, .swiper-slide')));
   const close = viewer ? only(unique([...exact(viewer, '[data-e2e="browse-close"]'), ...semantic(viewer, /^close(?: video)?$/)])) : null;
   const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(visible);
   const textNodes = (descriptions.length ? descriptions : all(scope, 'h1, h2, p, a[href*="/tag/"]').filter(element => visible(element) && !excluded(element)))
@@ -161,7 +216,7 @@ function inspectTikTok(request = {}) {
     }
     return [];
   });
-  const videoRemainingMs = !video.paused && !video.ended && video.readyState >= 2 &&
+  const videoRemainingMs = video && !video.paused && !video.ended && video.readyState >= 2 &&
     Number.isFinite(video.duration) && video.duration > 0 && video.duration <= 120 &&
     Number.isFinite(video.currentTime) && video.currentTime >= 0 && video.currentTime < video.duration &&
     Number.isFinite(video.playbackRate) && video.playbackRate > 0

@@ -6,7 +6,7 @@ const id = 'https://www.tiktok.com/@creator/video/123/';
 
 // A small DOM tree fixture, with selector matching and bubbling click targets.
 // Unlike flat querySelector stubs, sibling and ancestor scoping are exercised.
-function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {}) {
+function fixture({ postId = id, href = postId, modal = false, tag = 'div', withVideo = true, withPhoto = false } = {}) {
   const clicks = [];
   const rect = (left = 0, top = 0, width = 60, height = 36) => ({ left, top, width, height, right: left + width, bottom: top + height });
   class Element {
@@ -30,6 +30,7 @@ function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {
         const rule = part.trim();
         const tagName = rule.match(/^[a-z][\w-]*/i)?.[0];
         if (tagName && tagName.toUpperCase() !== this.tagName) return false;
+        for (const className of rule.replace(/\[[^\]]*\]/g, '').matchAll(/\.([\w-]+)/g)) if (!(this.attrs.class || '').split(/\s+/).includes(className[1])) return false;
         const id = rule.match(/#([\w-]+)/)?.[1];
         if (id && this.attrs.id !== id) return false;
         for (const match of rule.matchAll(/\[([\w-]+)(\*=|=)?(?:"([^"]*)")?\]/g)) {
@@ -42,6 +43,7 @@ function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {
     closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) || null; }
     querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    scrollIntoView() { this.scrolled = true; }
     focus() { document.activeElement = this; }
     dispatchEvent(event) { event.target = this; for (const listener of listeners.get(event.type) || []) listener(event); }
     click() { clicks.push(this); for (let node = this; node; node = node.parentElement) node.onClick?.(); }
@@ -53,14 +55,19 @@ function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {
   const media = element('div', { 'data-e2e': 'browse-video' }, '', rect(0, 60, 340, 500));
   const video = element('video', {}, '', rect(0, 60, 340, 500));
   Object.assign(video, { paused: false, ended: false, readyState: 4, duration: 20, currentTime: 8, playbackRate: 1 });
-  if (withVideo) media.append(video);
+  if (withVideo && !withPhoto) media.append(video);
+  const photo = element('img', { class: 'ImgPhotoSlide', src: `https://p16-sign.tiktokcdn-us.com/photos/${new URL(postId).pathname.split('/').filter(Boolean).at(-1)}.jpeg?token=first` }, '', rect(0, 60, 340, 500));
+  Object.assign(photo, { complete: true, naturalWidth: 928, naturalHeight: 1400 });
+  const slide = element('div', { class: 'swiper-slide swiper-slide-active' }, '', rect(0, 60, 340, 500));
+  const carousel = element('div', { class: 'swiper swiper-horizontal' }, '', rect(0, 60, 340, 500));
+  if (withPhoto) { slide.append(photo); carousel.append(slide); media.append(carousel); }
   const details = element('div', {}, '', rect(350, 0, 300, 500));
   const header = element('div', {}, '', rect(350, 0, 300, 60));
   const author = element('a', { href: 'https://www.tiktok.com/@creator/' }, '@creator', rect(350, 0, 100, 30));
   const follow = element(tag, { 'data-e2e': 'follow-button' }, 'Follow', rect(500, 0, 80, 30));
   follow.onClick = () => { follow.ownText = 'Following'; };
   const caption = element('p', { 'data-e2e': 'browse-video-desc' }, 'personal branding setup checklist', rect(350, 60, 280, 40));
-  const link = element('a', { href: id + '?lang=en' }, 'video', rect(350, 110, 200, 30));
+  const link = element('a', { href: postId + '?lang=en' }, 'video', rect(350, 110, 200, 30));
   const actions = element('div', {}, '', rect(350, 150, 240, 40));
   const like = element(tag, { 'data-e2e': 'like-icon', 'aria-pressed': 'false' }, '', rect(350, 150, 60, 36));
   const heart = element('svg', { fill: 'rgb(22, 24, 35)' }, '', rect(355, 155, 50, 26));
@@ -91,17 +98,17 @@ function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {
     getComputedStyle: node => ({ visibility: node.hidden ? 'hidden' : 'visible', display: node.hidden ? 'none' : 'block', fill: node.computedFill || node.attrs.fill || '' }) });
   const load = () => vm.runInContext(source, context);
   load();
-  return { element, rect, body, main, article, media, details, header, author, follow, caption, link, actions, like, heart, video, next, close, clicks, document, context,
+  return { element, rect, body, main, article, media, details, header, author, follow, caption, link, actions, like, heart, video, photo, slide, carousel, next, close, clicks, document, context,
     load,
     interact(type, target = document.activeElement, isTrusted = true) { for (const listener of listeners.get(type) || []) listener({ type, isTrusted, target }); },
     inject(func, args) { context.callArgs = args; return vm.runInContext(`(${func.toString()})(...callArgs)`, context); },
     inspect: request => context.inspectTikTok(request) };
 }
 
-function commentComposer({ modal = true, open = true } = {}) {
-  const page = fixture({ modal });
+function commentComposer({ modal = true, open = true, postId = id, withPhoto = false } = {}) {
+  const page = fixture({ modal, postId, withPhoto });
   const caption = page.caption.textContent;
-  const request = { id, author: '@creator', caption, comment: 'this setup tip is useful for personal branding' };
+  const request = { id: postId, author: '@creator', caption, comment: 'this setup tip is useful for personal branding' };
   const profile = page.element('a', { 'data-e2e': 'nav-profile', href: 'https://www.tiktok.com/@me/' }, 'Profile', page.rect(850, 0, 100, 36));
   page.body.append(profile);
   const footer = page.element('footer', {}, '', page.rect(350, 590, 400, 120));

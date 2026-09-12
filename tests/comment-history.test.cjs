@@ -103,7 +103,7 @@ test('tiktok history rejects off-platform and ambiguous URLs, false authors, and
     'https://www.tiktok.com:444/@creator/video/123',
     'https://www.tiktok.com/@creator/video/123?redirect=https://evil.test',
     'https://www.tiktok.com/@creator/video/123#comment',
-    'https://www.tiktok.com/@creator/photo/123',
+    'https://www.tiktok.com/@creator/photo/not-a-photo',
     'https://www.tiktok.com/@creator/video/not-a-video',
     'https://www.tiktok.com/@%63reator/video/123',
     'https://www.tiktok.com/@creator/video/123/extra',
@@ -136,4 +136,20 @@ test('tiktok comments render one author marker, plain text and separate confirme
   assert.equal(rows[0].children[1].textContent, text);
   assert.equal(rows[0].children[0].children[1].textContent, 'posted');
   assert.equal(rows[1].children[0].children[1].textContent, 'not confirmed');
+});
+
+
+test('photo comment history retains confirmed and uncertain links without merging video identities', () => {
+  const { normalize } = require('../comment-history.js');
+  const result = normalize([
+    entry({ url: 'https://tiktok.com/@creator/photo/123', author: '@creator' }),
+    entry({ url: 'https://www.tiktok.com/@creator/photo/123/', author: '@creator' }),
+    entry({ url: 'https://www.tiktok.com/@creator/video/123/', author: '@creator' }),
+    entry({ url: 'https://www.tiktok.com/@other/photo/456/', author: '@other', status: 'uncertain' }),
+  ]);
+  assert.equal(result.length, 3);
+  assert.equal(result[0].url, 'https://www.tiktok.com/@creator/photo/123/');
+  assert.equal(result[0].status, 'confirmed');
+  assert.equal(result[2].status, 'uncertain');
+  assert.deepEqual(normalize([entry({ url: 'https://www.tiktok.com/@creator/photo/123/', author: '@different' })]), []);
 });

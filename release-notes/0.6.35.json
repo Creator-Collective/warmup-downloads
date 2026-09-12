@@ -1,5 +1,4 @@
 {
-  "version": "0.6.35",
   "releasedAt": "2026-09-12",
   "summary": "steadier tiktok sessions with photo posts and reliable search opening",
   "changes": [
@@ -7,8 +6,5 @@
     "hidden search links are skipped, and failed openings no longer claim that tiktok removed the post.",
     "tiktok watches each newly opened post for at least six seconds while session time remains, without speeding up when likes fall behind.",
     "photo comments retain their post links and confirmation history."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.35.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

@@ -1,3 +1,11 @@
+# 0.6.35 tiktok photo posts and steadier sessions
+
+TikTok search discovery excludes hidden links while keeping the order of rendered results. Video and photo post identities are preserved through opening, advancing, same-post query changes and comment history. Photo viewers resolve only their own media and action panel; slide arrows cannot advance to another post. Different manual destinations still stop the session.
+
+TikTok no longer speeds up because engagement targets are overdue. Newly opened posts receive at least six seconds of watching while time remains, with session cancellation and keyword changes respected. Failed post openings use an accurate message instead of claiming the post is unavailable. Instagram pacing is unchanged.
+
+Replace the files inside the existing unpacked folder, reload its Chrome card and reopen the panel. Verification details are in work_log.txt; a complete live extension-driven TikTok engagement session remains unverified.
+
 # 0.6.34 automatic platform tab detection
 
 The idle panel and web controls now refresh platform tabs after they open or finish loading, while preserving a valid selected tab. A newly opened TikTok tab no longer leaves Start disabled until a manual refresh. Platform changes cannot apply an older response to the wrong selector. Active sessions keep their existing ownership and actions. The public website now forwards the selected platform when listing or opening tabs; previously its TikTok controls silently used Instagram or failed to open a tab.
