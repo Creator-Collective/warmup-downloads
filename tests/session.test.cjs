@@ -251,7 +251,7 @@ test('specific activity distinguishes uncertainty and skips without claiming suc
   assert.equal(format('follow', { author: '@Creator.Name' }, null, 'confirmed'), 'followed @Creator.Name.');
   assert.equal(format('like', { author: '<script>fake</script>', id: post.id }, null, 'confirmed'), 'liked post example.');
   assert.equal(format('like', { author: null, id: 'https://evil.test/p/example/' }, null, 'confirmed'), 'liked this post.');
-  assert.equal(format('like', { author: null, id: 'https://www.tiktok.com/@video.creator/video/123456789/' }, null, 'confirmed'), "liked @video.creator's post.");
+  for (const type of ['video', 'photo']) assert.equal(format('like', { author: null, id: `https://www.tiktok.com/@video.creator/${type}/123456789/` }, null, 'confirmed'), "liked @video.creator's post.");
 });
 
 test('session obeys all action caps, deduplicates authors, and never repeats caption replies', async () => {
@@ -462,6 +462,74 @@ test('due likes are selected reliably and the full target is due with time left 
   const settings = validateSettings(input);
   assert.equal(targetAction(['like'], settings, { like: 10, follow: 0, comment: 0 }, 300000, () => .999), 'like');
   assert.equal(expectedActions(settings, 'like', 540000), 30);
+});
+
+test('TikTok waits on each viewer despite overdue likes and acts when a later post becomes eligible', async () => {
+  for (const scale of [0.5, 1, 2]) {
+    let index = 0;
+    let inViewer = false;
+    const arrivals = [];
+    const departures = [];
+    const attempts = [];
+    const id = () => `https://www.tiktok.com/@creator/${index % 2 ? 'photo' : 'video'}/${1000 + index}`;
+    const h = harness({
+      search: async () => h.options.sleep(40000),
+      inspect: async () => inViewer ? { post: { id: id(), viewer: true, text: 'study tips', like: index === 2 && h.time() - arrivals.at(-1).time >= 5000 } } : { posts: [id()] },
+      open: async () => { inViewer = true; arrivals.push({ index, time: h.time() }); return true; },
+      advance: async () => { departures.push({ index, time: h.time() }); index++; arrivals.push({ index, time: h.time() }); return true; },
+      engage: async action => { attempts.push({ action, index, time: h.time() }); return 'confirmed'; },
+      scroll: async () => { throw new Error('existing TikTok results should open before scrolling'); },
+    });
+    h.options.random = () => 0;
+    const settings = validateSettings({ ...input, platform: 'tiktok', niche: 'study tips', minutes: 2, customLimits: { like: 6, follow: 0, comment: 0 } });
+    settings.pauseScale = scale;
+    const stats = await runSession(settings, h.adapter, h.controller.signal, h.options);
+    assert.equal(stats.like, 1);
+    assert.deepEqual(attempts.map(item => [item.action, item.index]), [['like', 2]]);
+    for (const action of [...departures, ...attempts]) {
+      assert.ok(action.time - arrivals.find(item => item.index === action.index).time >= 6000, `scale ${scale}: post ${action.index} must receive a full viewing pause`);
+    }
+    assert.ok(departures.length <= 13, `scale ${scale}: no fast scrolling through missing controls`);
+    assert.equal(h.time(), 120000);
+  }
+});
+
+test('TikTok retries failed result opens at a measured pace before viewing another visible result', async () => {
+  const events = [];
+  let opened = false;
+  const h = harness({
+    inspect: async () => opened ? { post: { id: 'https://www.tiktok.com/@creator/photo/1002', viewer: true, text: 'study tips' } } : { posts: ['https://www.tiktok.com/@creator/video/1001', 'https://www.tiktok.com/@creator/photo/1002'] },
+    open: async id => { events.push({ id, time: h.time() }); opened = events.length === 2; return opened; },
+    advance: async () => { h.controller.abort(); return false; },
+    scroll: async () => { throw new Error('visible results must be tried before scrolling'); },
+  });
+  h.options.random = () => 0;
+  const settings = validateSettings({ ...input, platform: 'tiktok', niche: 'study tips', minutes: 1, mix: { like: 0, follow: 0, comment: 0 } });
+  settings.pauseScale = 0.5;
+  const stats = await runSession(settings, h.adapter, h.controller.signal, h.options);
+  assert.equal(events.length, 2);
+  assert.equal(events[0].time, 0);
+  assert.ok(events[1].time - events[0].time >= 6000);
+  assert.ok(h.time() - events[1].time >= 6000);
+  assert.equal(stats.open, 1);
+  assert.equal(stats.skipped, 1);
+});
+
+test('Stop during a TikTok viewing pause prevents the next engagement and advance', async () => {
+  let opened = false;
+  const h = harness({
+    inspect: async () => opened ? { post: { id: 'https://www.tiktok.com/@creator/video/1001', viewer: true, text: 'study tips', like: true } } : { posts: ['https://www.tiktok.com/@creator/video/1001'] },
+    open: async () => { opened = true; return true; },
+    advance: async () => { throw new Error('must not advance after Stop'); },
+    engage: async () => { throw new Error('must not engage after Stop'); },
+  });
+  h.options.random = () => 0;
+  const sleep = h.options.sleep;
+  h.options.sleep = async ms => { assert.ok(ms >= 6000); h.controller.abort(); await sleep(1000); };
+  const stats = await runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  assert.equal(stats.open, 1);
+  assert.equal(stats.like + stats.follow + stats.comment + stats.scroll, 0);
+  assert.equal(h.time(), 1000);
 });
 
 test('ten-minute sessions reach 30 likes despite mixed eligibility, real action delays and long videos', async () => {
@@ -765,12 +833,12 @@ test('occasional full watches use remaining video time and never occur back to b
  for(let i=1;i<waits.length;i++)assert.ok(!(waits[i]===20000&&waits[i-1]===20000));
  assert.equal(h.time(),120000);
 });
-test('full watch opportunities cannot delay the next keyword or overrun the session',async()=>{
+for (const platform of ['instagram', 'tiktok']) test(`${platform} full watch opportunities cannot delay the next keyword or overrun the session`,async()=>{
  let index=0;const searches=[];const waits=[];
  const h=harness({search:async term=>searches.push({term,time:h.time()}),inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:45000}}),advance:async()=>{index++;return true}});
  h.options.random=()=>0;
  const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
- await runSession(validateSettings({...input,niche:'first, second, third',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ await runSession(validateSettings({...input,platform,niche:'first, second, third',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
  assert.deepEqual(searches.map(s=>s.time),[0,20000,40000]);
  assert.ok(!waits.includes(45000));assert.equal(h.time(),60000);
 });

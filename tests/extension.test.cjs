@@ -352,11 +352,13 @@ function tiktokRunner(operation, configure = () => {}) {
    return { post: state.url.includes('/video/123') ? post : null, posts: [id], sequence: [id] };
  };
  page.inspectTikTok = inspect;
+ const resultLink = { href: id, getAttribute: () => null, getBoundingClientRect: () => ({ width: 100, height: 50, left: 0, right: 100, top: 0, bottom: 50 }), scrollIntoView() {}, click() { clicks.push('open'); changeURL(id); } };
+ page.getComputedStyle = () => ({ display: 'block', visibility: 'visible', opacity: '1' });
+ page.innerWidth = 1000; page.innerHeight = 800;
  page.document = {
-   // A TikTok marker need not have a button ancestor. Any runner fallback to
-   // coordinate/button resolution would fail this test instead of clicking.
-   elementFromPoint() { throw new Error('TikTok clicks must remain inside the inspector'); },
-   querySelectorAll() { return [{ href: id, getBoundingClientRect: () => ({ width: 100 }), scrollIntoView() {}, click() { clicks.push('open'); changeURL(id); } }]; }
+   // Search opening checks the link; engagement still resolves inside inspector.
+   elementFromPoint: () => resultLink,
+   querySelectorAll: () => [resultLink]
  };
  h.chrome.tabs.get = async () => ({ id: 7, url: state.url, status: 'complete' });
  h.chrome.tabs.update = async (tabId, options) => { navigations.push(options.url); changeURL(options.url); return { id: tabId, url: state.url }; };
@@ -981,5 +983,95 @@ test('viewer waits for content identity when the address changes before the moda
    const ctx=vm.createContext({URL,document,location:{hostname:'www.instagram.com',origin:'https://www.instagram.com',href:'https://www.instagram.com/p/new/',pathname:'/p/new/'},innerWidth:1000,innerHeight:800,getComputedStyle:()=>({visibility:'visible',display:'block'})});
    vm.runInContext(fs.readFileSync(path.join(extension,'instagram.js'),'utf8'),ctx);
    assert.equal(ctx.inspectInstagram().post,null);
+ }
+});
+
+function inspectedTikTokRunner(page, operation) {
+ const h = runnerContext('starting', operation);
+ h.job.settings.platform = 'tiktok';
+ h.chrome.tabs.get = async () => ({ id: 7, url: page.context.location.href, status: 'complete' });
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   if (request.files) { page.load(); return [{ result: null }]; }
+   return [{ result: await page.inject(request.func, request.args || []) }];
+ };
+ return h;
+}
+
+test('the actual TikTok observer and injected opener skip hidden candidates and open a rendered exact link', async () => {
+ const { fixture } = require('./fixtures/tiktok-comment-composer.cjs');
+ const id = 'https://www.tiktok.com/@creator/video/123/';
+ const page = fixture({ href: 'https://www.tiktok.com/search?q=branding' });
+ const hidden = page.element('a', { href: 'https://www.tiktok.com/@hidden/video/1/' }, '', page.rect(0, 0, 0, 0));
+ const duplicate = page.element('a', { href: id }, '', page.rect(0, 0, 0, 0));
+ const external = page.element('a', { href: 'https://example.com/@creator/video/123/' }, '', page.rect(0, 0, 100, 30));
+ page.main.children.unshift(hidden, duplicate, external);
+ for (const node of [hidden, duplicate, external]) node.parentElement = page.main;
+ let result;
+ const h = inspectedTikTokRunner(page, async (settings, adapter) => {
+   const observed = await adapter.inspect();
+   assert.deepEqual(Array.from(observed.sequence), [id]);
+   result = await adapter.open(observed.sequence[0]);
+ });
+ page.link.onClick = () => {
+   page.context.location = new URL(id + '?q=branding');
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: page.context.location.href });
+ };
+ await finishRunner(h);
+ assert.equal(result, true);
+ assert.deepEqual(page.clicks, [page.link]);
+ assert.equal(hidden.scrolled, undefined); assert.equal(duplicate.scrolled, undefined); assert.equal(external.scrolled, undefined);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
+test('TikTok opener rechecks hidden links and overlays immediately before clicking', async () => {
+ const { fixture } = require('./fixtures/tiktok-comment-composer.cjs');
+ for (const change of [page => { page.link.hidden = true; }, page => { page.body.append(page.element('div', {}, '', page.rect(300, 100, 300, 100))); }]) {
+   const page = fixture({ href: 'https://www.tiktok.com/search?q=branding' });
+   let result;
+   const h = inspectedTikTokRunner(page, async (settings, adapter) => { result = await adapter.open('https://www.tiktok.com/@creator/video/123/'); });
+   const inject = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (typeof request.args?.[0] === 'string' && request.args[0].startsWith('https://')) change(page);
+     return inject(request);
+   };
+   await finishRunner(h);
+   assert.equal(result, false);
+   assert.equal(page.clicks.length, 0);
+ }
+});
+
+test('actual TikTok next-post navigation preserves mixed photo order and same-photo slide rewrites', async () => {
+ const { fixture } = require('./fixtures/tiktok-comment-composer.cjs');
+ const photoId = 'https://www.tiktok.com/@creator/photo/234/';
+ const page = fixture();
+ page.main.append(page.element('a', { href: photoId }, '', page.rect(0, 900, 100, 100)));
+ page.main.append(page.element('a', { href: 'https://www.tiktok.com/@creator/video/456/' }, '', page.rect(0, 1100, 100, 100)));
+ let result;
+ const h = inspectedTikTokRunner(page, async (settings, adapter, signal) => {
+   const before = await adapter.inspect();
+   assert.deepEqual(Array.from(before.sequence), [before.post.id, photoId, 'https://www.tiktok.com/@creator/video/456/']);
+   result = await adapter.advance(before.post);
+   assert.equal(result, true);
+   assert.equal(signal.aborted, false);
+   const photo = (await adapter.inspect()).post;
+   assert.equal(photo.id, photoId); assert.equal(photo.like, true); assert.equal(photo.follow, true);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: photoId + '?image_index=14&q=personal%20branding' });
+   assert.equal(signal.aborted, false);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: photoId.replace('/234/', '/999/') });
+   assert.equal(signal.aborted, true);
+ });
+ page.next.onClick = () => {
+   page.video.remove(); page.slide.append(page.photo); page.carousel.append(page.slide); page.media.append(page.carousel);
+   page.link.attrs.href = photoId; page.context.location = new URL(photoId + '?image_index=0&q=branding');
+   h.chrome.tabs.onUpdated.listeners[0](7, { url: page.context.location.href });
+ };
+ await finishRunner(h);
+ assert.equal(result, true);
+ assert.deepEqual(page.clicks, [page.next]);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'stopped'));
+ for (const different of ['https://www.tiktok.com/@creator/video/234/', 'https://www.tiktok.com/@other/photo/234/', 'https://www.tiktok.com/@creator/photo/999/', 'https://tiktok.com.evil.test/@creator/photo/234/', 'http://www.tiktok.com/@creator/photo/234/']) {
+   h.ctx.expectedPhoto = photoId; h.ctx.differentPhoto = different;
+   assert.equal(vm.runInContext('sameDestination(differentPhoto, expectedPhoto)', h.ctx), false, different);
  }
 });

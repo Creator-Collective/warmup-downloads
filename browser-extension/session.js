@@ -90,9 +90,9 @@ function engagementMessage(action, post, comment, result) {
     const url = new URL(post.id);
     if (url.protocol === 'https:' && !url.username && !url.password && !url.port) {
       const instagram = ['www.instagram.com', 'instagram.com'].includes(url.hostname) && url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/);
-      const tiktok = ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && url.pathname.match(/^\/@([\w.]{1,30})\/video\/(\d+)\/?$/);
+      const tiktok = ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && url.pathname.match(/^\/@([\w.]{1,30})\/(video|photo)\/(\d+)\/?$/);
       if (instagram) reference = `post ${instagram[1]}`;
-      if (tiktok) { account ||= tiktok[1]; reference = `video ${tiktok[2]}`; }
+      if (tiktok) { account ||= tiktok[1]; reference = `${tiktok[2]} ${tiktok[3]}`; }
     }
   } catch { /* The account may still be available while the post URL is missing. */ }
   const subject = action === 'follow' ? (account ? `@${account}` : `the author of ${reference}`) : (account ? `@${account}'s post` : reference);
@@ -220,6 +220,9 @@ async function runSession(settings, adapter, signal, options = {}) {
   const totalEngagementDebt = () => ['like', 'follow', 'comment'].reduce((sum, action) => sum + (pausedActions.has(action) ? 0 : actionDebt(settings, { ...stats, [action]: stats[action] + unconfirmed[action] }, action, now() - startedAt)), 0);
   const viewerPause = () => {
     videosSinceFullWatch += 1;
+    // Missing controls or a target falling behind must not make TikTok race
+    // through posts. Give each viewer time to render before inspecting again.
+    if (platform === 'tiktok') return !lastWatchWasFull && videosSinceFullWatch >= nextFullWatchAfter ? 'fullwatch' : 'watch';
     const totalDebt = totalEngagementDebt();
     if (totalDebt >= 4 && random() < .9) return 'skim';
     if (totalDebt >= 2 && random() < .65) return 'skim';
@@ -233,8 +236,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   };
   const pause = async (action = 'browse') => {
     if (!running()) return;
-    const ranges = { transition: [500, 1800], browse: [1800, 5200], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
-    let [min, max] = ranges[action] || ranges.browse;
+    const ranges = { transition: [500, 1800], browse: [1800, 5200], retry: [6000, 10000], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
+    let [min, max] = ranges[platform === 'tiktok' && action === 'fullwatch' ? 'watch' : action] || ranges.browse;
     let fullWatchMs = null;
     if (now() >= nextBreak && totalEngagementDebt() < 3 && nextLikeAt() - now() >= 45000 * settings.pauseScale) {
       min = 20000; max = 45000;
@@ -260,8 +263,9 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
       }
     }
-    const likePauseBudget = action === 'watch' || action === 'fullwatch' ? Math.max(1000 * settings.pauseScale, nextLikeAt() - now()) : Infinity;
-    const ms = Math.min(fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random), likePauseBudget, deadline - now(), Math.max(0, nextTermAt - now()));
+    const likePauseBudget = platform !== 'tiktok' && (action === 'watch' || action === 'fullwatch') ? Math.max(1000 * settings.pauseScale, nextLikeAt() - now()) : Infinity;
+    const minimum = platform === 'tiktok' && ['watch', 'fullwatch', 'retry'].includes(action) ? 6000 : 0;
+    const ms = Math.min(Math.max(minimum, fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random)), likePauseBudget, deadline - now(), Math.max(0, nextTermAt - now()));
     adapter.update({ phase: 'pause', nextActionAt: now() + ms });
     await sleep(ms, signal);
     if (running()) adapter.update({ phase: 'action', nextActionAt: null });
@@ -282,7 +286,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     }
     stalled = 0;
     stats.search += 1;
-    needsSearchScroll = true;
+    needsSearchScroll = platform !== 'tiktok';
     previousAction = undefined;
     update(`opened search: ${term}`);
   };
@@ -316,8 +320,8 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (opened === false) {
         stats.skipped += 1;
         stalled += 1;
-        update('that post is unavailable. looking for another...');
-        await pause('transition');
+        update("couldn't open that post. trying another...");
+        await pause(platform === 'tiktok' ? 'retry' : 'transition');
         continue;
       }
       stats.open += 1;

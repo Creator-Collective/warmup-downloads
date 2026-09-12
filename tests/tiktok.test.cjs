@@ -420,3 +420,172 @@ test('the live two-editor reply layout never selects or toggles either composer'
   assert.equal(h.inspect('click-comment-submit').clicked, false);
   assert.equal(h.state.opens, 0);
 });
+
+const photoId = 'https://www.tiktok.com/@creator/photo/234/';
+
+test('TikTok search sequence skips hidden preload links and retains rendered offscreen video and photo order', () => {
+  const page = fixture({ href: 'https://www.tiktok.com/search?q=branding' });
+  const hidden = page.element('a', { href: 'https://www.tiktok.com/@hidden/video/1/' }, '', page.rect(0, 0, 0, 0));
+  const hiddenParent = page.element('div', { 'aria-hidden': 'true' });
+  hiddenParent.append(page.element('a', { href: 'https://www.tiktok.com/@hidden/photo/2/' }));
+  page.main.children.unshift(hidden, hiddenParent); hidden.parentElement = page.main; hiddenParent.parentElement = page.main;
+  page.main.append(page.element('a', { href: photoId }, '', page.rect(350, 900, 200, 100)));
+  assert.deepEqual(Array.from(page.inspect().sequence), [id, photoId]);
+  assert.deepEqual(Array.from(page.inspect().posts), [id]);
+  assert.equal(page.inspect().post, null);
+});
+
+for (const modal of [false, true]) {
+  test(`a ${modal ? 'dialog' : 'permalink'} photo keeps active slides and post engagement separate`, () => {
+    const page = fixture({ postId: photoId, modal, withPhoto: true });
+    // TikTok's clipped neighboring slide can still intersect the viewport.
+    const neighbor = page.element('div', { class: 'swiper-slide' }, '', page.rect(250, 60, 340, 500));
+    const image = page.element('img', { class: 'ImgPhotoSlide' }, '', page.rect(250, 60, 340, 500));
+    Object.assign(image, { complete: true, naturalWidth: 928, naturalHeight: 1400 }); neighbor.append(image); page.carousel.append(neighbor);
+    const horizontal = page.element('button', { 'data-e2e': 'arrow-right', 'aria-label': 'Next' }, '', page.rect(200, 650, 60, 36));
+    page.carousel.append(horizontal);
+    const post = page.inspect().post;
+    assert.equal(post.id, photoId); assert.equal(post.videoRemainingMs, null); assert.equal(post.next, true);
+    assert.equal(page.inspect({ id: photoId, action: 'click-like' }).clicked, true);
+    assert.equal(page.inspect({ id: photoId, action: 'verify-like' }).confirmed, true);
+    assert.equal(page.inspect({ id: photoId, author: '@creator', action: 'click-follow' }).clicked, true);
+    assert.equal(page.inspect({ id: photoId, author: '@creator', action: 'verify-follow' }).confirmed, true);
+    assert.equal(page.inspect({ id: photoId, action: 'click-next' }).clicked, true);
+    assert.deepEqual(page.clicks, [page.like, page.follow, page.next]);
+    page.next.remove();
+    assert.equal(page.inspect().post.next, false);
+    assert.equal(page.inspect({ id: photoId, action: 'click-next' }).clicked, false);
+  });
+}
+
+test('public photo article requires matching author and loaded media even without a permalink anchor', () => {
+  const page = fixture({ postId: photoId, withPhoto: true });
+  page.article.attrs = { 'data-e2e': 'recommend-list-item-container', 'data-scroll-index': '0' };
+  page.media.tagName = 'SECTION'; page.media.attrs['data-e2e'] = 'feed-video';
+  page.link.remove();
+  const offscreen = page.element('article', { 'data-e2e': 'recommend-list-item-container', 'data-scroll-index': '1' }, '', page.rect(0, 900, 750, 650));
+  offscreen.append(page.element('video', {}, '', page.rect(0, 900, 340, 500)));
+  page.main.append(offscreen);
+  assert.equal(page.inspect().post.id, photoId);
+  assert.equal(page.inspect().post.like, true);
+  page.photo.complete = false;
+  assert.equal(page.inspect().post, null);
+  page.photo.complete = true; page.author.attrs.href = 'https://www.tiktok.com/@someoneelse/';
+  assert.equal(page.inspect().post, null);
+});
+
+test('photo grid thumbnails, ambiguous media, and a video loaded under a photo identity cannot receive actions', () => {
+  const grid = fixture({ href: 'https://www.tiktok.com/search?q=branding', postId: photoId, withPhoto: true });
+  assert.equal(grid.inspect().post, null);
+  assert.deepEqual(Array.from(grid.inspect().posts), [photoId]);
+  const mismatch = fixture({ postId: photoId });
+  assert.equal(mismatch.inspect().post, null);
+  const ambiguous = fixture({ postId: photoId, withPhoto: true });
+  const image = ambiguous.element('img', { class: 'ImgPhotoSlide', src: 'https://p16-sign.tiktokcdn-us.com/photos/ambiguous.jpeg' }, '', ambiguous.rect(400, 60, 340, 500));
+  const secondCarousel = ambiguous.element('div', { class: 'swiper-horizontal' }, '', ambiguous.rect(400, 60, 340, 500));
+  const secondSlide = ambiguous.element('div', { class: 'swiper-slide swiper-slide-active' }, '', ambiguous.rect(400, 60, 340, 500));
+  Object.assign(image, { complete: true, naturalWidth: 928, naturalHeight: 1400 }); secondSlide.append(image); secondCarousel.append(secondSlide); ambiguous.main.append(secondCarousel);
+  assert.equal(ambiguous.inspect().post, null);
+  for (const page of [grid, mismatch, ambiguous]) {
+    assert.equal(page.inspect({ id: photoId, action: 'click-like' }).clicked, false);
+    assert.equal(page.clicks.length, 0);
+  }
+});
+
+for (const modal of [false, true]) {
+  test(`photo ${modal ? 'dialog' : 'permalink'} comments submit once and require a new own exact row`, () => {
+    const h = commentComposer({ modal, postId: photoId, withPhoto: true });
+    assert.equal(h.context.inspectTikTok().post.comment, true);
+    h.prepare();
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.submitted, 1);
+    h.profile.attrs.href = 'https://www.tiktok.com/@someoneelse/';
+    assert.equal(h.inspect('verify-comment').confirmed, false);
+  });
+}
+
+test('photo comments preserve manual drafts and reject an unexpected post identity', () => {
+  const manual = commentComposer({ postId: photoId, withPhoto: true });
+  manual.field.textContent = 'my draft';
+  assert.equal(manual.inspect('comment-field').point, null);
+  assert.equal(manual.inspect('click-comment-submit').clicked, false);
+  const moved = commentComposer({ postId: photoId, withPhoto: true }); moved.prepare();
+  moved.context.location = new URL(photoId.replace('/234/', '/999/'));
+  assert.equal(moved.inspect('click-comment-submit').clicked, false);
+  assert.equal(moved.submitted, 0);
+});
+
+
+test('legacy video next controls remain usable while photo carousel controls never become post-next', () => {
+  for (const attrs of [{ 'data-e2e': 'arrow-right' }, { 'aria-label': 'Next' }]) {
+    const video = fixture(); video.next.attrs = attrs;
+    assert.equal(video.inspect().post.next, true);
+    assert.equal(video.inspect({ id, action: 'click-next' }).clicked, true);
+    const photo = fixture({ postId: photoId, withPhoto: true }); photo.next.attrs = attrs;
+    assert.equal(photo.inspect().post.next, false);
+  }
+  const photo = fixture({ postId: photoId, withPhoto: true });
+  photo.next.remove(); photo.next.attrs = { 'data-e2e': 'browse-next', 'aria-label': 'Next post' }; photo.carousel.append(photo.next);
+  assert.equal(photo.inspect().post.next, false);
+  assert.equal(photo.inspect({ id: photoId, action: 'click-next' }).clicked, false);
+});
+
+
+test('a URL change cannot relabel the same unanchored photo before its media updates, including reinjection', () => {
+  const page = fixture({ postId: photoId, withPhoto: true }); page.link.remove();
+  assert.equal(page.inspect().post.id, photoId);
+  const nextId = photoId.replace('/234/', '/999/');
+  page.context.location = new URL(nextId);
+  page.load();
+  assert.equal(page.inspect().post, null);
+  assert.equal(page.inspect({ id: nextId, author: '@creator', action: 'click-like' }).clicked, false);
+  assert.equal(page.clicks.length, 0);
+  page.photo.attrs.src = 'https://p16-sign.tiktokcdn-us.com/photos/999.jpeg?token=new';
+  assert.equal(page.inspect().post.id, nextId);
+  assert.equal(page.inspect({ id: nextId, author: '@creator', action: 'click-like' }).clicked, true);
+});
+
+test('recreated photo nodes and CDN token refreshes preserve the previous post binding', () => {
+  const page = fixture({ postId: photoId, withPhoto: true }); page.link.remove();
+  assert.equal(page.inspect().post.id, photoId);
+  const nextId = photoId.replace('/234/', '/999/');
+  const clone = fixture({ postId: photoId, withPhoto: true }); clone.link.remove();
+  clone.photo.attrs.src = clone.photo.attrs.src.replace('?token=first', '?token=refreshed&expires=99999');
+  page.context.document = clone.document; page.context.location = new URL(nextId); page.load();
+  assert.equal(page.inspect().post, null);
+  assert.equal(page.inspect({ id: nextId, author: '@creator', action: 'click-follow' }).clicked, false);
+  assert.equal(clone.clicks.length, 0);
+  page.context.location = new URL(photoId + '?image_index=14&q=branding');
+  assert.equal(page.inspect().post.id, photoId);
+});
+
+test('photo autoplay uses the whole source set instead of rebinding each active slide', () => {
+  const page = fixture({ postId: photoId, withPhoto: true }); page.link.remove();
+  const nextSlide = page.element('div', { class: 'swiper-slide' }, '', page.rect(0, 60, 340, 500));
+  const nextImage = page.element('img', { class: 'ImgPhotoSlide', src: 'https://p16-sign.tiktokcdn-us.com/photos/234-slide-2.jpeg?token=first' }, '', page.rect(0, 60, 340, 500));
+  Object.assign(nextImage, { complete: true, naturalWidth: 928, naturalHeight: 1400 }); nextSlide.append(nextImage); page.carousel.append(nextSlide);
+  assert.equal(page.inspect().post.id, photoId);
+  page.slide.attrs.class = 'swiper-slide'; nextSlide.attrs.class = 'swiper-slide swiper-slide-active';
+  page.context.location = new URL(photoId + '?image_index=2');
+  assert.equal(page.inspect().post.id, photoId);
+  page.slide.remove();
+  const nextId = photoId.replace('/234/', '/999/'); page.context.location = new URL(nextId);
+  assert.equal(page.inspect().post, null);
+  assert.equal(page.inspect({ id: nextId, action: 'click-like' }).clicked, false);
+  assert.equal(page.clicks.length, 0);
+});
+
+test('unrecognized posters and source-less photo media cannot acquire a photo identity', () => {
+  for (const change of [
+    page => { page.photo.attrs.class = 'video-poster'; },
+    page => { page.carousel.attrs.class = 'video-player'; },
+    page => { delete page.photo.attrs.src; },
+  ]) {
+    const page = fixture({ postId: photoId, withPhoto: true }); change(page);
+    assert.equal(page.inspect().post, null);
+    assert.equal(page.inspect({ id: photoId, action: 'click-like' }).clicked, false);
+    assert.equal(page.clicks.length, 0);
+  }
+});

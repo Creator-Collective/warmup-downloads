@@ -17,13 +17,13 @@
         const value = typeof item.author === 'string' ? item.author.replace(/^\/+|\/+$/g, '') : '';
         author = /^[\w.]{1,30}$/.test(value) ? value : '';
       } else if (['www.tiktok.com', 'tiktok.com'].includes(url.hostname)) {
-        const post = url.pathname.match(/^\/@([\w.]{1,30})\/video\/(\d+)\/?$/);
+        const post = url.pathname.match(/^\/@([\w.]{1,30})\/(video|photo)\/(\d+)\/?$/);
         if (!post) return [];
         const value = typeof item.author === 'string' ? item.author.replace(/^\/+|\/+$/g, '').replace(/^@/, '') : '';
         if (value && (!/^[\w.]{1,30}$/.test(value) || value.toLowerCase() !== post[1].toLowerCase())) return [];
-        identity = `tiktok:${post[2]}`;
+        identity = `tiktok:${post[2]}:${post[3]}`;
         author = post[1];
-        canonical = `https://www.tiktok.com/@${author}/video/${post[2]}/`;
+        canonical = `https://www.tiktok.com/@${author}/${post[2]}/${post[3]}/`;
       } else return [];
       if (seen.has(identity)) return [];
       seen.add(identity);
