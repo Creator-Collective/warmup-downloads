@@ -1,3 +1,11 @@
+# 0.6.31 tiktok engagement repair
+
+The downloadable extension now includes the TikTok feed repair and resolves likes/follows within one active video, including sibling controls and div/span targets. Search/profile previews remain results until opened. Explicit pressed/liked/following states confirm actions; uncertain clicks are never replayed. Recognized viewer close controls preserve search results. Visible access denials, sign-in, challenges and activity limits stop with clear recovery guidance. TikTok comments remain unavailable and are labelled in the controls.
+
+The previous source-only feed fix was missing from the 0.6.30 ZIP. Both 0.6.31 archives are regenerated, and a release check compares every packaged file and shared mirror with source. A pull-request check prevents the same stale-download regression. Update the files inside the existing unpacked folder and reload its Chrome card. Downloading alone does not update existing installations. Regression tests use simulated TikTok pages; signed-in live engagement and ten-minute reliability remain unverified.
+
+## previous release
+
 # 0.6.30 warm-up only
 
 The public website and extension side panel no longer show account creation or phone setup. Signup is disabled, including old runner recovery and phone-provider commands; the email-service and SMSPool host permissions are removed. The shorter lowercase comments from 0.6.28 remain. Existing saved mailbox and phone-order history is retained locally. Update the files in the existing unpacked folder and reload its Chrome card.

@@ -147,11 +147,22 @@ test('tiktok switches the target tabs and disables comments',async()=>{
  assert.equal(h.element('open-instagram').textContent,'open tiktok to sign in ↗');
  assert.equal(h.element('limit-comment').value,'0');
  assert.equal(h.element('limit-comment').disabled,true);
+ assert.equal(h.element('tiktok-comment-note').hidden,false);
+ assert.equal(h.element('mix-comment').disabled,true);
  assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:0});
  assert.equal(h.requests.at(-1).platform,'tiktok');
  await h.element('session-form').listeners.submit({preventDefault(){}});
  const request=h.requests.findLast(r=>r.type==='start');
  assert.equal(request.settings.platform,'tiktok');
+});
+
+test('switching back to instagram restores supported comment controls',()=>{
+ const h=dashboard();
+ h.element('platform').value='tiktok';vm.runInContext('platformChanged()',h.context);
+ h.element('platform').value='instagram';vm.runInContext('platformChanged()',h.context);
+ assert.equal(h.element('tiktok-comment-note').hidden,true);
+ assert.equal(h.element('mix-comment').disabled,false);
+ assert.equal(h.element('limit-comment').disabled,false);
 });
 
 test('engagement mix still controls actions and reset restores its default values',()=>{

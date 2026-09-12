@@ -133,6 +133,10 @@ async function navigate(url) {
   assertRunning();
   const config = platformConfig();
   if (!platformURL(url, config.platform)) throw new Error(`only ${config.label} pages are supported.`);
+  if (config.platform === 'tiktok') {
+    const page = await inspect();
+    if (page.blocked) throw new Error(page.blocked);
+  }
   expectedDestination = url;
   await chrome.tabs.update(job.tabId, { url });
   const until = Math.min(Date.now() + 25000, job.deadline);
@@ -200,6 +204,11 @@ async function advanceViewer(post, hasSeen = () => false) {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    if (location.hostname.includes('tiktok')) {
+      const result = inspector({ id, action: 'click-next' });
+      if (result.blocked) throw new Error(result.blocked);
+      return result.clicked === true;
+    }
     const next = inspector({id, action:'next'});
     if (!next.point) return false;
     const button = document.elementFromPoint(next.point.x, next.point.y)?.closest('button,[role="button"]');
@@ -211,12 +220,18 @@ async function advanceViewer(post, hasSeen = () => false) {
 }
 async function returnToResults(post, searchURL) {
   if (!searchURL) return false;
-  if (currentPlatform() !== 'instagram' || !post?.viewer) return navigate(searchURL);
+  if (!post?.viewer) return navigate(searchURL);
+  if (currentPlatform() === 'tiktok' && !post.close) return navigate(searchURL);
   // Closing the modal preserves the loaded results and scroll position. A full
   // navigation would throw that progress away and start the same batch again.
   expectedDestination = searchURL;
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
+    if (location.hostname.includes('tiktok')) {
+      const target = globalThis.inspectTikTok({ id, action: 'click-close' });
+      if (target.blocked) throw new Error(target.blocked);
+      return target.clicked === true;
+    }
     const target = globalThis.inspectInstagram({ id, action: 'close' });
     if (target.blocked) throw new Error(target.blocked);
     if (!target.point) return false;
@@ -348,7 +363,14 @@ async function performEngagement(action, post, comment) {
   const clicked = await execute((action, request, deadline) => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
+    if (location.hostname.includes('tiktok')) {
+      if (!['like', 'follow'].includes(action)) return false;
+      const target = inspector({ ...request, action: `click-${action}` });
+      if (target.blocked) throw new Error(target.blocked);
+      return target.clicked === true;
+    }
     const target = inspector({ ...request, action: action === 'comment' ? 'comment-field' : action });
+    if (target.blocked) throw new Error(target.blocked);
     if (!target.point) return false;
     const hit = document.elementFromPoint(target.point.x, target.point.y);
     if (action === 'comment') {
@@ -483,7 +505,7 @@ async function start() {
   } catch (error) {
     await messageQueue;
     const finished = Date.now() >= job.deadline;
-    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' });
+    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `${error.message || 'session stopped.'} an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' });
   } finally { clearInterval(timer); remaining(); }
 }
 start().catch(async error => {
