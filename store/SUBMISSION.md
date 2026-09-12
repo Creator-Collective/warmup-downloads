@@ -26,7 +26,9 @@ Permissions justification:
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.33.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.34.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+
+Version 0.6.34 refreshes idle platform tab discovery so tabs opened or loaded after the panel are selected without a manual refresh. Existing selected tabs and active-session ownership are preserved. Both archives are checked against source; live extension-driven TikTok engagement remains unverified.
 
 Version 0.6.33 adds a separate read-only student dashboard version check, public release notes and current download metadata. It returns only the installed extension version. Both archives are checked against source; installed browser verification remains pending.
 

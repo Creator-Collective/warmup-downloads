@@ -1,5 +1,4 @@
 {
-  "version": "0.6.34",
   "releasedAt": "2026-09-12",
   "summary": "fixes tiktok tab detection when starting a warm-up",
   "changes": [
@@ -7,8 +6,5 @@
     "the warm-up website now lists and opens tiktok tabs correctly when tiktok is selected.",
     "your chosen tab stays selected while the tab list updates.",
     "includes editable like, follow and comment targets on both platforms and the student dashboard version check."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.34.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

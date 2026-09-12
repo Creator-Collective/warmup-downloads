@@ -1,3 +1,9 @@
+# 0.6.34 automatic platform tab detection
+
+The idle panel and web controls now refresh platform tabs after they open or finish loading, while preserving a valid selected tab. A newly opened TikTok tab no longer leaves Start disabled until a manual refresh. Platform changes cannot apply an older response to the wrong selector. Active sessions keep their existing ownership and actions. The public website now forwards the selected platform when listing or opening tabs; previously its TikTok controls silently used Instagram or failed to open a tab.
+
+This repairs a reproduced tab-discovery problem, independently of the older TikTok controls visible in the reported screenshot. Versions before 0.6.32 still require an update for editable TikTok comments. Replace the files inside the existing unpacked folder, reload its Chrome card and reopen the panel. Exact release verification is recorded in work_log.txt; live extension-driven TikTok engagement remains unverified.
+
 # 0.6.33 student dashboard version check
 
 The student dashboard can read the installed warm-up version through a separate, read-only content script on the exact trycreatorcollective.com and www.trycreatorcollective.com origins. Requests must come from the top-level page with a valid matching nonce. Only the manifest version is returned; the existing warm-up command bridge and platform permissions are unchanged.
