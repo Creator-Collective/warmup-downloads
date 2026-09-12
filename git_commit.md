@@ -1,9 +1,11 @@
-fix tiktok engagement and ship the corrected extension
+add tiktok comments and matching engagement controls
 
 misc:
-- bind likes and follows to the active video and confirm explicit states
-- handle sibling controls, wrapped follow buttons and offscreen viewer preloads
-- stop clearly on tiktok restrictions and preserve search dialogs
-- label unsupported tiktok comments in both controls
-- release 0.6.31 with source-matching downloads and archive checks
-- add live-layout regressions and pull-request checks
+- enable editable comment targets on both platforms
+- draft through tiktok native editor and submit each comment once
+- verify new own comments and preserve manual drafts and reply mode
+- retain tiktok comment links and uncertain history across recovery
+- handle lost submission responses without replaying actions
+- recognize caption details before trailing discovery hashtags
+- release 0.6.32 with source-matching installation archives
+- cover both platforms and interrupted comment flows

@@ -139,30 +139,32 @@ test('the submitted plan matches the visible automatic and custom amounts',async
  assert.equal(h.element('settings').disabled,true);
 });
 
-test('tiktok switches the target tabs and disables comments',async()=>{
+test('tiktok switches tabs and keeps every engagement target available',async()=>{
  const h=dashboard(true);for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
  h.element('platform').value='tiktok';h.element('platform').listeners.change();
  for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(h.element('tab-label').textContent,'tiktok tab');
  assert.equal(h.element('open-instagram').textContent,'open tiktok to sign in ↗');
- assert.equal(h.element('limit-comment').value,'0');
- assert.equal(h.element('limit-comment').disabled,true);
- assert.equal(h.element('tiktok-comment-note').hidden,false);
- assert.equal(h.element('mix-comment').disabled,true);
- assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:0});
+ assert.equal(h.element('limit-comment').value,'3');
+ assert.equal(h.element('limit-comment').disabled,false);
+ assert.equal(h.element('mix-comment').disabled,false);
+ assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
  assert.equal(h.requests.at(-1).platform,'tiktok');
  await h.element('session-form').listeners.submit({preventDefault(){}});
  const request=h.requests.findLast(r=>r.type==='start');
  assert.equal(request.settings.platform,'tiktok');
 });
 
-test('switching back to instagram restores supported comment controls',()=>{
+test('switching platforms preserves custom comment targets and mix',()=>{
  const h=dashboard();
- h.element('platform').value='tiktok';vm.runInContext('platformChanged()',h.context);
- h.element('platform').value='instagram';vm.runInContext('platformChanged()',h.context);
- assert.equal(h.element('tiktok-comment-note').hidden,true);
- assert.equal(h.element('mix-comment').disabled,false);
- assert.equal(h.element('limit-comment').disabled,false);
+ h.edit('limit-comment','7');h.element('limit-comment').listeners.blur();
+ for(const platform of ['tiktok','instagram']) {
+  h.element('platform').value=platform;vm.runInContext('platformChanged(); plan()',h.context);
+  assert.equal(h.element('limit-comment').value,'7');
+  assert.equal(h.settings().limits.comment,7);
+  assert.equal(h.element('mix-comment').disabled,false);
+  assert.equal(h.element('limit-comment').disabled,false);
+ }
 });
 
 test('engagement mix still controls actions and reset restores its default values',()=>{

@@ -11,10 +11,10 @@ const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn);
 const settings = { minutes: 10, niche: 'personal branding', customLimits: { like: 0, follow: 0, comment: 0 } };
 const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
 
-function background(initial) {
+function background(initial, platform = initial?.settings?.platform || 'instagram') {
   let job = structuredClone(initial);
   let now = 100000;
-  const tabs = new Map([[7, { id: 7, url: 'https://www.instagram.com/', windowId: 1 }]]);
+  const tabs = new Map([[7, { id: 7, url: `https://www.${platform}.com/`, windowId: 1 }]]);
   if (initial) tabs.set(initial.runnerTabId, { id: initial.runnerTabId, url: `chrome-extension://extension-id/runner.html#${initial.token}` });
   const removed = [];
   let nextTabId = 90;
@@ -33,7 +33,7 @@ function background(initial) {
   context.importScripts = (...files) => files.filter(file => !file.startsWith('signup')).forEach(file => vm.runInContext(fs.readFileSync(path.join(extension, file), 'utf8'), context));
   vm.runInContext(fs.readFileSync(path.join(extension, 'background.js'), 'utf8'), context);
   const message = (request, sender = panel) => new Promise(resolve => chrome.runtime.onMessage.listeners[0](request, sender, resolve));
-  return { chrome, tabs, removed, message, job: () => job, advance: milliseconds => { now += milliseconds; }, start: () => message({ type: 'start', tabId: 7, settings }) };
+  return { chrome, tabs, removed, message, job: () => job, advance: milliseconds => { now += milliseconds; }, start: () => message({ type: 'start', tabId: 7, settings: { ...settings, platform } }) };
 }
 
 function runner(operation = async () => {}, respond) {
@@ -296,4 +296,59 @@ test('unanswered messages are bounded and never allow a late startup to replay',
   assert.equal(runs, 0);
   assert.equal(h.calls.filter(call => call.type === 'runner-job').length, 8);
   assert.equal(h.calls.filter(call => call.type === 'runner-update').length, 3);
+});
+
+
+test('tiktok posted and unconfirmed history survives retries, activity turnover and worker restart without duplicates', async () => {
+  const h = background(undefined, 'tiktok');
+  assert.equal((await h.start()).ok, true);
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  const posted = { text: 'the exact posted tiktok comment', url: 'https://tiktok.com/@creator/video/123', author: '@creator', status: 'confirmed', time: 100100, secret: 'omit this' };
+  const uncertain = { text: 'the exact unconfirmed tiktok comment', url: 'https://www.tiktok.com/@other/video/456/', author: '@other', status: 'uncertain', time: 100200 };
+  const patch = { phase: 'running', stats: { comment: 1, skipped: 1 }, comments: [posted, { ...posted, url: 'https://www.tiktok.com/@creator/video/123/' }, uncertain, { ...uncertain, url: 'https://tiktok.com/@other/video/456' }], message: 'comment not confirmed.' };
+  for (let i = 0; i < 2; i++) assert.equal((await h.message({ type: 'runner-update', token: job.token, patch }, sender)).ok, true);
+  for (let i = 0; i < 20; i++) await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: `watching tiktok ${i}` } }, sender);
+  const restarted = background(h.job());
+  await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'finished' } }, sender);
+  const state = (await restarted.message({ type: 'state' })).data;
+  assert.equal(state.settings.platform, 'tiktok');
+  assert.equal(state.running, false);
+  assert.equal(state.comments.length, 2);
+  assert.deepEqual(Array.from(state.comments, item => item.status), ['confirmed', 'uncertain']);
+  assert.deepEqual(Array.from(state.comments, item => item.url), ['https://www.tiktok.com/@creator/video/123/', 'https://www.tiktok.com/@other/video/456/']);
+  assert.deepEqual(Array.from(state.comments, item => item.text), [posted.text, uncertain.text]);
+  assert.equal(state.comments[0].author, 'creator');
+  assert.equal(state.comments[0].secret, undefined);
+  assert.equal(state.stats.comment, 1, 'an unconfirmed submission is not counted as posted');
+  assert.equal(state.activity.length, 12);
+  assert.ok(!state.activity.some(item => item.message === patch.message));
+  assert.equal((await restarted.start()).ok, true);
+  assert.equal((await restarted.message({ type: 'runner-update', token: job.token, patch }, sender)).ok, false);
+  assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
+});
+
+test('tiktok comment outcomes arriving during Stop survive restart and cannot revive a stopped session', async t => {
+  for (const status of ['confirmed', 'uncertain']) await t.test(status, async () => {
+    const h = background(undefined, 'tiktok');
+    assert.equal((await h.start()).ok, true);
+    const job = h.job();
+    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+    await h.message({ type: 'stop' });
+    const restarted = background(h.job());
+    const comment = { text: `tiktok comment ${status} while stopping`, url: 'https://www.tiktok.com/@creator/video/123/', author: '@creator', time: 100100, status };
+    const patch = { phase: 'running', comments: [comment], message: 'late comment result' };
+    for (let i = 0; i < 2; i++) await restarted.message({ type: 'runner-update', token: job.token, patch }, sender);
+    assert.equal(restarted.job().phase, 'stopping');
+    assert.match(restarted.job().message, /session stopped/);
+    await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'stopped' } }, sender);
+    await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', comments: [], message: 'late retry' } }, sender);
+    const state = (await restarted.message({ type: 'state' })).data;
+    assert.equal(state.running, false);
+    assert.equal(state.phase, 'stopped');
+    assert.equal(state.comments.length, 1);
+    assert.equal(state.comments[0].text, comment.text);
+    assert.equal(state.comments[0].status, status);
+    assert.match(state.message, /session stopped/);
+  });
 });

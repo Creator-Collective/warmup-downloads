@@ -62,7 +62,6 @@ function plan() {
     const result = sessionPlan.validateSettings(input());
     // Polling and recalculation must not replace a number while it is edited.
     for (const action of actions) if (editingLimit !== action) $(`limit-${action}`).value = String(result.limits[action]);
-    $('limit-comment').disabled = result.platform === 'tiktok';
     showError(requestError); valid = true;
   } catch (e) { showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message); }
   validPlan = valid;
@@ -98,18 +97,8 @@ function selectActiveTab(tabId) {
 }
 function platformChanged() {
   const platform = $('platform').value;
-  $('tiktok-comment-note').hidden = platform !== 'tiktok';
-  $('mix-comment').disabled = platform === 'tiktok';
   $('tab-label').textContent = `${platform} tab`;
   $('open-instagram').textContent = `open ${platform} to sign in ↗`;
-  if (platform === 'tiktok') {
-    delete limitOverrides.comment;
-    if (editingLimit === 'comment') editingLimit = null;
-    $('limit-comment').value = '0';
-    $('limit-comment').disabled = true;
-  } else {
-    $('limit-comment').disabled = false;
-  }
 }
 function displayPlan(state) {
   if (state.running && state.settings) {

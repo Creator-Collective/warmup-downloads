@@ -36,7 +36,7 @@ function inspectTikTok(request = {}) {
   // TikTok also serves full-page denials and plain banners, without a dialog.
   // Inspect visible warning text, excluding video captions and comments.
   const warningNodes = all(document, 'h1, h2, h3, p, div, span, [role="alert"], [role="dialog"]')
-    .filter(element => visible(element) && !element.closest('[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="comment"]') &&
+    .filter(element => visible(element) && !element.closest('[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-text"], [contenteditable="true"]') &&
       (!element.children.length || /^(H1|H2|H3|P)$/.test(element.tagName) || element.getAttribute('role') === 'alert'));
   const warnings = warningNodes.map(element => (element.innerText || element.textContent || '').trim().toLowerCase()).filter(text => text.length < 2000);
   if (warnings.some(text => /^access denied\b|you (?:do not|don't) have permission to access|access to this page (?:has been|is) denied/.test(text))) {
@@ -47,6 +47,9 @@ function inspectTikTok(request = {}) {
   }
   if (warnings.some(text => /(?:you(?:'re| are) )?(?:tapping|following|commenting|liking) too fast|too many (?:requests|attempts)|^try again later[.!]?$|temporarily (?:blocked|restricted)|account (?:is |has been )?suspended/.test(text))) {
     return { blocked: 'tiktok limited activity. the session has stopped; wait before starting another session.', blockReason: 'rate-limit' };
+  }
+  if (warnings.some(text => /couldn.t post (?:your |the )?comment|failed to post (?:your |the )?comment|unable to post (?:your |the )?comment/.test(text))) {
+    return { blocked: 'tiktok could not post the comment. the session has stopped; check tiktok before trying again.', blockReason: 'comment-failed' };
   }
   const links = all(document, 'a[href]');
   const sequence = unique(links.map(link => videoURL(link.href)).filter(Boolean));
@@ -118,18 +121,117 @@ function inspectTikTok(request = {}) {
   const following = Boolean(follow && (/^(?:following|friends|requested)(?:\s+@[\w.-]+)?$/.test(label(follow)) || follow.getAttribute('aria-pressed') === 'true' || /^(?:following|requested)$/.test(follow.getAttribute('data-state') || '')));
   const next = only(unique([...exact(main, '[data-e2e="arrow-right"], [data-e2e="arrow-down"], [data-e2e="browse-next"]'), ...semantic(main, /^(?:next|next video|go to next video|scroll down)$/)]));
   const close = viewer ? only(unique([...exact(viewer, '[data-e2e="browse-close"]'), ...semantic(viewer, /^close(?: video)?$/)])) : null;
-  const textNodes = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"], h1, h2, p, a[href*="/tag/"]')
-    .filter(visible).map(element => element.innerText || element.textContent || '').filter(Boolean);
+  const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(visible);
+  const textNodes = (descriptions.length ? descriptions : all(scope, 'h1, h2, p, a[href*="/tag/"]').filter(element => visible(element) && !excluded(element)))
+    .map(element => element.innerText || element.textContent || '').filter(Boolean);
   const caption = (textNodes.join(' ') || (pageId ? document.querySelector('meta[property="og:description"]')?.content : '') || '').slice(0, 6000);
+  // A permalink's comments panel can sit beside the video card. A browse
+  // dialog contains its own panel; never inspect another card's composer.
+  const commentRoot = viewer || (pageId ? document : scope);
+  const ownProfiles = unique(all(document, 'a[data-e2e="nav-profile"][href]').filter(visible).map(profileAuthor).filter(Boolean));
+  const ownProfile = ownProfiles.length === 1 ? ownProfiles[0] : null;
+  const inputContainers = all(commentRoot, '[data-e2e="comment-input"]').filter(visible);
+  const fields = unique(inputContainers.flatMap(container => all(container, '[contenteditable="true"][role="textbox"]')
+    .filter(field => visible(field) && container.contains(field.closest('[data-e2e="comment-text"]')))));
+  const composer = only(fields);
+  const composerHint = composer ? [(composer.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map(ref => document.getElementById(ref)?.textContent || '').join(' '), composer.getAttribute('aria-label') || ''].join(' ') : '';
+  const replying = /add (?:a )?reply|write (?:a )?reply|reply(?:ing)? to/i.test(composerHint);
+  const composerValue = field => (field?.textContent || '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
+  let commentContainer = null;
+  let submit = null;
+  for (let parent = composer?.parentElement; parent && commentRoot.contains(parent); parent = parent.parentElement) {
+    const submits = unique(all(parent, '[data-e2e="comment-post"]').filter(visible).map(node => target(node, parent)).filter(Boolean));
+    if (submits.length) {
+      if (submits.length === 1 && all(parent, '[contenteditable="true"][role="textbox"]').filter(visible).length === 1) {
+        commentContainer = parent; submit = submits[0];
+      }
+      break;
+    }
+    if (parent === commentRoot) break;
+  }
+  const commentOpen = only(unique(all(scope, '[data-e2e="comment-icon"], [data-e2e="browse-comment-icon"]')
+    .filter(visible).map(node => target(node, scope)).filter(Boolean)));
+  const commentRows = () => all(commentRoot, '[data-e2e="comment-level-1"]').flatMap(textNode => {
+    for (let row = textNode.parentElement; row && commentRoot.contains(row); row = row.parentElement) {
+      if (all(row, '[data-e2e="comment-level-1"]').length !== 1) return [];
+      const authors = unique(all(row, 'a[href]').map(profileAuthor).filter(Boolean));
+      if (authors.length > 1) return [];
+      if (authors.length === 1) return [{ node: row, textNode, author: authors[0], text: composerValue(textNode) }];
+      if (row === commentRoot) break;
+    }
+    return [];
+  });
   const videoRemainingMs = !video.paused && !video.ended && video.readyState >= 2 &&
     Number.isFinite(video.duration) && video.duration > 0 && video.duration <= 120 &&
     Number.isFinite(video.currentTime) && video.currentTime >= 0 && video.currentTime < video.duration &&
     Number.isFinite(video.playbackRate) && video.playbackRate > 0
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
-    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: false };
+    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
   if (!request.action) return { posts, sequence, post };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false };
+  if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {
+    return { changed: true, point: null, ready: false, clicked: false, opened: false, reason: 'caption-changed' };
+  }
+  if (request.action === 'click-comment-open') {
+    if (!ownProfile || fields.length > 1 || replying) return { opened: false };
+    if (composer && submit && point(composer)) return { opened: true };
+    if (!point(commentOpen) || typeof commentOpen.click !== 'function') return { opened: false };
+    commentOpen.click();
+    return { opened: true };
+  }
+  if (request.action === 'comment-field') {
+    if (!ownProfile || !composer || replying || !submit || !point(composer) || composerValue(composer) !== '' || typeof request.comment !== 'string' || !request.comment.trim()) return { point: null };
+    const previous = globalThis.collectiveCommentBefore;
+    if (previous?.platform === 'tiktok' && previous.postId === id && previous.postAuthor === author && previous.author === ownProfile && previous.caption === caption && previous.text === request.comment) {
+      if (previous.interrupted || previous.drafted || previous.submitted) return { point: null, reason: 'draft-already-owned' };
+      if (previous.composer?.isConnected === false) { previous.composer = composer; previous.container = commentContainer; }
+      return { point: previous.composer === composer ? point(composer) : null };
+    }
+    const rows = commentRows();
+    // TikTok does not expose stable comment IDs here. Existing identical own
+    // text makes a later confirmation ambiguous, so do not submit another copy.
+    if (rows.some(row => row.author === ownProfile && row.text === request.comment)) return { point: null, reason: 'own-comment-already-exists' };
+    globalThis.collectiveCommentBefore?.release?.();
+    const before = { platform: 'tiktok', postId: id, postAuthor: author, author: ownProfile, caption, text: request.comment, composer,
+      container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, rows };
+    const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
+    const interrupt = event => {
+      if (!event.isTrusted || (before.inputting && ['beforeinput', 'input'].includes(event.type))) return;
+      const input = event.target?.closest?.('[data-e2e="comment-input"]');
+      if (event.target === before.composer || before.composer?.contains(event.target) || before.container?.contains(event.target) || (input && commentRoot.contains(input))) before.interrupted = true;
+    };
+    for (const type of events) document.addEventListener(type, interrupt, true);
+    before.release = () => { for (const type of events) document.removeEventListener(type, interrupt, true); };
+    globalThis.collectiveCommentBefore = before;
+    return { point: point(composer) };
+  }
+  const before = globalThis.collectiveCommentBefore;
+  const identity = Boolean(ownProfile && before?.platform === 'tiktok' && before.postId === id && before.postAuthor === author && before.author === ownProfile && before.text === request.comment);
+  const sameDraft = identity && before.caption === caption && before.drafted && !before.submitted && !before.interrupted;
+  if (sameDraft && before.composer?.isConnected === false && composer &&
+      (composerValue(composer) === before.text || (request.action === 'comment-cleared' && before.clearing && composerValue(composer) === ''))) {
+    before.composer = composer; before.container = commentContainer;
+  }
+  const owned = Boolean(identity && composer && !replying && before.composer === composer && !before.interrupted);
+  if (request.action === 'comment-ready') return { ready: Boolean(owned && !before.drafted && !before.submitted && document.activeElement === composer && composerValue(composer) === '') };
+  if (request.action === 'comment-submit' || request.action === 'click-comment-submit') {
+    const ready = owned && before.caption === caption && before.drafted && !before.submitted && composerValue(composer) === request.comment && submit && point(submit);
+    if (request.action === 'comment-submit') return { point: ready || null };
+    if (!ready || typeof submit.click !== 'function') return { clicked: false };
+    before.submitted = true;
+    submit.click();
+    return { clicked: true };
+  }
+  if (request.action === 'comment-clear') return { point: owned && before.drafted && !before.submitted && composerValue(composer) === request.comment ? point(composer) : null };
+  if (request.action === 'comment-cleared') return { cleared: Boolean(owned && before.drafted && before.clearing && !before.submitted && composerValue(composer) === '') };
+  if (request.action === 'verify-comment') {
+    if (!identity || before.caption !== caption || !before.submitted || before.interrupted || !composer || replying || composerValue(composer) !== '') return { confirmed: false };
+    const rows = commentRows();
+    const baselineIntact = before.rows.every(previous => rows.some(row => row.node === previous.node && row.textNode === previous.textNode && row.author === previous.author && row.text === previous.text));
+    const added = rows.filter(row => row.author === ownProfile && row.text === request.comment && visible(row.textNode) && !before.rows.some(previous => previous.textNode === row.textNode));
+    return { confirmed: Boolean(baselineIntact && added.length === 1) };
+  }
   if (request.action === 'verify-like') return { confirmed: Boolean(liked && visible(like)) };
   if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };
   const controls = { like: post.like ? like : null, follow: post.follow ? follow : null, next, close };
@@ -140,7 +242,6 @@ function inspectTikTok(request = {}) {
     element.click();
     return { clicked: true };
   }
-  if (request.action === 'verify-comment') return { confirmed: false };
   return { point: null, ready: false };
 }
 

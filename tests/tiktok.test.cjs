@@ -1,92 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-const source = fs.readFileSync(path.join(__dirname, '../browser-extension/tiktok.js'), 'utf8');
+const { fixture, commentComposer } = require('./fixtures/tiktok-comment-composer.cjs');
 const id = 'https://www.tiktok.com/@creator/video/123/';
-
-// A small DOM tree fixture, with selector matching and bubbling click targets.
-// Unlike flat querySelector stubs, sibling and ancestor scoping are exercised.
-function fixture({ href = id, modal = false, tag = 'div', withVideo = true } = {}) {
-  const clicks = [];
-  const rect = (left = 0, top = 0, width = 60, height = 36) => ({ left, top, width, height, right: left + width, bottom: top + height });
-  class Element {
-    constructor(tagName, attrs = {}, text = '', bounds = rect()) {
-      this.tagName = tagName.toUpperCase(); this.attrs = { ...attrs }; this.ownText = text;
-      this.bounds = bounds; this.children = []; this.parentElement = null; this.disabled = false;
-    }
-    append(...nodes) { for (const node of nodes) { node.parentElement = this; this.children.push(node); } return this; }
-    remove() { this.parentElement.children = this.parentElement.children.filter(node => node !== this); this.parentElement = null; }
-    get textContent() { return this.ownText + this.children.map(child => child.textContent).join(' '); }
-    get innerText() { return this.textContent; }
-    get href() { return this.attrs.href; }
-    getAttribute(key) { return this.attrs[key] ?? null; }
-    getBoundingClientRect() { return this.bounds; }
-    contains(target) { return target === this || this.children.some(child => child.contains(target)); }
-    matches(selector) {
-      return selector.split(',').some(part => {
-        const rule = part.trim();
-        const tagName = rule.match(/^[a-z][\w-]*/i)?.[0];
-        if (tagName && tagName.toUpperCase() !== this.tagName) return false;
-        const id = rule.match(/#([\w-]+)/)?.[1];
-        if (id && this.attrs.id !== id) return false;
-        for (const match of rule.matchAll(/\[([\w-]+)(\*=|=)?(?:"([^"]*)")?\]/g)) {
-          const [, key, op, value] = match;
-          if (!(key in this.attrs) || (op === '=' && this.attrs[key] !== value) || (op === '*=' && !this.attrs[key].includes(value))) return false;
-        }
-        return true;
-      });
-    }
-    closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) || null; }
-    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-    click() { clicks.push(this); for (let node = this; node; node = node.parentElement) node.onClick?.(); }
-  }
-  const element = (tagName, attrs, text, bounds) => new Element(tagName, attrs, text, bounds);
-  const body = element('body', {}, '', rect(0, 0, 1000, 800));
-  const main = element('main', modal ? { role: 'dialog' } : {}, '', rect(0, 0, 800, 750));
-  const article = element('article', {}, '', rect(0, 0, 750, 650));
-  const media = element('div', { 'data-e2e': 'browse-video' }, '', rect(0, 60, 340, 500));
-  const video = element('video', {}, '', rect(0, 60, 340, 500));
-  Object.assign(video, { paused: false, ended: false, readyState: 4, duration: 20, currentTime: 8, playbackRate: 1 });
-  if (withVideo) media.append(video);
-  const details = element('div', {}, '', rect(350, 0, 300, 500));
-  const header = element('div', {}, '', rect(350, 0, 300, 60));
-  const author = element('a', { href: 'https://www.tiktok.com/@creator/' }, '@creator', rect(350, 0, 100, 30));
-  const follow = element(tag, { 'data-e2e': 'follow-button' }, 'Follow', rect(500, 0, 80, 30));
-  follow.onClick = () => { follow.ownText = 'Following'; };
-  const caption = element('p', { 'data-e2e': 'browse-video-desc' }, 'personal branding setup checklist', rect(350, 60, 280, 40));
-  const link = element('a', { href: id + '?lang=en' }, 'video', rect(350, 110, 200, 30));
-  const actions = element('div', {}, '', rect(350, 150, 240, 40));
-  const like = element(tag, { 'data-e2e': 'like-icon', 'aria-pressed': 'false' }, '', rect(350, 150, 60, 36));
-  const heart = element('svg', { fill: 'rgb(22, 24, 35)' }, '', rect(355, 155, 50, 26));
-  like.append(heart); like.onClick = () => { like.attrs['aria-pressed'] = 'true'; };
-  const next = element('button', { 'aria-label': 'Next video' }, '', rect(700, 500, 60, 36));
-  const close = element('button', { 'aria-label': 'Close' }, '', rect(700, 0, 60, 36));
-  header.append(author, follow); actions.append(like); details.append(header, caption, link, actions); article.append(media, details); main.append(article, next); if (modal) main.append(close); body.append(main);
-  const document = {
-    body,
-    querySelectorAll: selector => body.querySelectorAll(selector),
-    querySelector: selector => body.querySelector(selector),
-    elementFromPoint(x, y) {
-      function hit(node) {
-        if (node.hidden) return null;
-        for (const child of [...node.children].reverse()) { const found = hit(child); if (found) return found; }
-        const r = node.bounds;
-        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? node : null;
-      }
-      return hit(body);
-    }
-  };
-  const location = new URL(href);
-  const context = vm.createContext({ URL, document, location, innerWidth: 1000, innerHeight: 800,
-    getComputedStyle: node => ({ visibility: node.hidden ? 'hidden' : 'visible', display: node.hidden ? 'none' : 'block', fill: node.computedFill || node.attrs.fill || '' }) });
-  vm.runInContext(source, context);
-  return { element, rect, body, main, article, media, details, header, author, follow, caption, link, actions, like, heart, video, next, close, clicks, document, context,
-    inspect: request => context.inspectTikTok(request) };
-}
 
 test('a feed video includes its sibling action and author panels', () => {
   const page = fixture({ href: 'https://www.tiktok.com/foryou' });
@@ -292,9 +207,216 @@ test('visible captcha and passwordless login gates stop engagement', () => {
   }
 });
 
-test('comments stay unsupported and non-tiktok pages are blocked', () => {
+test('unknown comment composers stay unavailable and non-tiktok pages are blocked', () => {
   const page = fixture();
   assert.equal(page.inspect({ id, action: 'comment-field' }).point, null);
   assert.equal(page.inspect({ id, action: 'verify-comment' }).confirmed, false);
   assert.match(fixture({ href: 'https://example.com/' }).inspect().blocked, /open tiktok/);
+});
+
+
+for (const modal of [false, true]) {
+  test(`TikTok ${modal ? 'dialog' : 'permalink'} comments use their exact contenteditable and submit once`, () => {
+    const h = commentComposer({ modal });
+    assert.equal(h.context.inspectTikTok().post.comment, true);
+    assert.ok(h.inspect('comment-field').point);
+    h.field.focus();
+    assert.equal(h.inspect('comment-ready').ready, true);
+    h.field.textContent = h.request.comment; h.submit.disabled = false;
+    h.context.collectiveCommentBefore.drafted = true;
+    h.document.activeElement = h.heading;
+    assert.ok(h.inspect('comment-submit').point);
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.submitted, 1);
+    assert.equal(h.context.inspectTikTok().post.caption, h.request.caption);
+  });
+}
+
+test('a closed TikTok comment panel is opened once before preparing its composer', () => {
+  const h = commentComposer({ open: false, modal: false });
+  assert.equal(h.context.inspectTikTok().post.comment, true);
+  assert.equal(h.inspect('comment-field').point, null);
+  assert.equal(h.inspect('click-comment-open').opened, true);
+  assert.equal(h.state.opens, 1);
+  assert.equal(h.inspect('click-comment-open').opened, true);
+  assert.equal(h.state.opens, 1);
+  assert.ok(h.inspect('comment-field').point);
+});
+
+test('re-reading an empty TikTok field retains its baseline and manual interruption', () => {
+  const h = commentComposer();
+  assert.ok(h.inspect('comment-field').point);
+  const before = h.context.collectiveCommentBefore;
+  assert.ok(h.inspect('comment-field').point);
+  assert.equal(h.context.collectiveCommentBefore, before);
+  h.interact('pointerdown');
+  assert.equal(h.inspect('comment-field').point, null);
+  assert.equal(h.context.collectiveCommentBefore, before);
+  h.field.focus();
+  assert.equal(h.inspect('comment-ready').ready, false);
+});
+
+test('TikTok does not overwrite existing text or post without a resolved account', () => {
+  const existing = commentComposer(); existing.field.textContent = 'my unfinished comment';
+  assert.equal(existing.inspect('comment-field').point, null);
+  assert.equal(existing.field.textContent, 'my unfinished comment');
+  const unknown = commentComposer(); unknown.profile.attrs['data-e2e'] = 'someone-else';
+  assert.equal(unknown.context.inspectTikTok().post.comment, false);
+  assert.equal(unknown.inspect('comment-field').point, null);
+});
+
+test('an existing identical own TikTok comment prevents an ambiguous duplicate', () => {
+  const h = commentComposer(); h.addComment(h.request.comment);
+  assert.equal(h.inspect('comment-field').point, null);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.submitted, 0);
+});
+
+test('trusted browser input is allowed only inside the extension controlled input window', () => {
+  for (const controlled of [true, false]) {
+    const h = commentComposer(); h.inspect('comment-field'); h.field.focus();
+    const before = h.context.collectiveCommentBefore;
+    before.drafted = true; before.inputting = controlled;
+    const range = h.document.createRange(); range.selectNodeContents(h.field);
+    h.document.getSelection().addRange(range);
+    h.document.execCommand('insertText', false, h.request.comment);
+    before.inputting = false;
+    assert.equal(Boolean(h.inspect('comment-submit').point), controlled);
+    assert.equal(before.interrupted, !controlled);
+  }
+});
+
+test('TikTok manual edits and manual post interactions revoke draft ownership', () => {
+  for (const event of ['input', 'beforeinput', 'pointerdown', 'keydown', 'click', 'submit']) {
+    const h = commentComposer(); h.prepare();
+    h.interact(event, true, event === 'click' || event === 'submit' ? h.submit : h.field);
+    assert.equal(h.inspect('comment-submit').point, null);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.inspect('comment-clear').point, null);
+    assert.equal(h.field.textContent, h.request.comment);
+  }
+});
+
+test('TikTok rejects changed account, post author, caption and edited draft text', () => {
+  for (const change of [
+    h => { h.profile.attrs.href = 'https://www.tiktok.com/@someoneelse/'; },
+    h => { h.request.author = '@differentcreator'; },
+    h => { h.heading.ownText = 'a changed caption'; },
+    h => { h.field.textContent = 'an edited comment'; }
+  ]) {
+    const h = commentComposer(); h.prepare(); change(h);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.submitted, 0);
+  }
+});
+
+test('an untouched TikTok draft follows a detached editor replacement without being written twice', () => {
+  const h = commentComposer(); h.prepare();
+  const original = h.field;
+  h.replaceField(h.request.comment);
+  assert.equal(original.isConnected, false);
+  assert.ok(h.inspect('comment-submit').point);
+  assert.equal(h.context.collectiveCommentBefore.composer, h.field);
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(h.submitted, 1);
+  assert.equal(h.inspect('verify-comment').confirmed, true);
+});
+
+test('a replacement TikTok editor cannot be adopted after manual input or caption changes', () => {
+  for (const change of [h => h.interact('input'), h => { h.heading.ownText = 'changed caption'; }]) {
+    const h = commentComposer(); h.prepare(); h.replaceField(h.request.comment); change(h);
+    assert.equal(h.inspect('comment-submit').point, null);
+    assert.equal(h.inspect('comment-clear').point, null);
+  }
+});
+
+test('only an untouched unsubmitted TikTok draft can be cleared', () => {
+  const h = commentComposer(); h.prepare();
+  assert.ok(h.inspect('comment-clear').point);
+  h.context.collectiveCommentBefore.clearing = true;
+  h.field.textContent = '';
+  assert.equal(h.inspect('comment-cleared').cleared, true);
+  const submitted = commentComposer(); submitted.state.confirm = false; submitted.prepare();
+  submitted.inspect('click-comment-submit');
+  assert.equal(submitted.inspect('comment-clear').point, null);
+  assert.equal(submitted.field.textContent, submitted.request.comment);
+});
+
+test('TikTok comment confirmation requires a new own row, cleared editor and the submitted flag', () => {
+  for (const change of [
+    h => { h.state.confirm = false; },
+    h => { h.state.onSubmit = () => { h.rows.at(-1).author.attrs.href = 'https://www.tiktok.com/@someoneelse/'; }; },
+    h => { h.state.onSubmit = () => { h.field.textContent = h.request.comment; }; },
+    h => { h.state.onSubmit = () => { h.context.collectiveCommentBefore.submitted = false; }; },
+    h => { h.state.onSubmit = () => { h.rows[0].text.ownText = 'changed baseline'; }; },
+    h => { h.state.onSubmit = () => { h.rows[0].row.remove(); }; },
+    h => { h.state.onSubmit = () => { h.addComment(h.request.comment); }; },
+    h => { h.state.onSubmit = () => { h.rows.at(-1).row.hidden = true; }; }
+  ]) {
+    const h = commentComposer(); h.prepare(); change(h);
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('verify-comment').confirmed, false);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+  }
+});
+
+test('a TikTok rejection during drafting blocks submit and leaves the draft untouched', () => {
+  const h = commentComposer(); h.prepare(); h.state.blocked = true;
+  assert.equal(h.inspect('click-comment-submit').blockReason, 'rate-limit');
+  assert.equal(h.submitted, 0);
+  assert.equal(h.field.textContent, h.request.comment);
+});
+
+
+test('an empty Draft.js placeholder newline does not count as an existing comment', () => {
+  const h = commentComposer();
+  Object.defineProperty(h.field, 'innerText', { get: () => '\n' });
+  assert.equal(h.field.textContent, '');
+  assert.ok(h.inspect('comment-field').point);
+  h.field.focus();
+  assert.equal(h.inspect('comment-ready').ready, true);
+});
+
+
+test('comment text cannot trigger a warning, but a nearby platform rejection stops submission', () => {
+  const h = commentComposer(); h.addComment('Too many requests');
+  assert.ok(h.context.inspectTikTok().post);
+  h.prepare();
+  h.input.append(h.element('p', {}, "You're commenting too fast", h.rect(350, 670, 250, 25)));
+  assert.equal(h.inspect('click-comment-submit').blockReason, 'rate-limit');
+  assert.equal(h.submitted, 0);
+  const failed = commentComposer();
+  failed.input.append(failed.element('p', {}, "Couldn't post comment. Try again.", failed.rect(350, 670, 300, 25)));
+  assert.equal(failed.inspect('comment-field').blockReason, 'comment-failed');
+});
+
+
+test('a single TikTok reply composer cannot be used for a top-level comment before or after drafting', () => {
+  for (const drafted of [false, true]) {
+    const h = commentComposer();
+    if (drafted) h.prepare();
+    const placeholder = h.element('div', { id: 'reply-placeholder' }, 'Add a reply...', h.rect(350, 600, 200, 30));
+    h.input.append(placeholder); h.field.attrs['aria-describedby'] = 'reply-placeholder';
+    assert.equal(h.context.inspectTikTok().post.comment, false);
+    assert.equal(h.inspect('click-comment-open').opened, false);
+    assert.equal(h.inspect('comment-field').point, null);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.inspect('comment-clear').point, null);
+    assert.equal(h.submitted, 0);
+  }
+});
+
+test('the live two-editor reply layout never selects or toggles either composer', () => {
+  const h = commentComposer();
+  const input = h.element('div', { 'data-e2e': 'comment-input' }, '', h.rect(350, 420, 280, 60));
+  const editor = h.element('div', { 'data-e2e': 'comment-text' }, '', h.rect(350, 420, 280, 60));
+  const reply = h.element('div', { contenteditable: 'true', role: 'textbox', 'aria-label': 'Add a reply...' }, '', h.rect(350, 420, 280, 60));
+  editor.append(reply); input.append(editor); h.main.append(input);
+  assert.equal(h.context.inspectTikTok().post.comment, false);
+  assert.equal(h.inspect('click-comment-open').opened, false);
+  assert.equal(h.inspect('comment-field').point, null);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.state.opens, 0);
 });

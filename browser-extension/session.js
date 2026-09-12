@@ -28,7 +28,9 @@ function matchesNiche(text, terms) {
 // A recognizable detail is required; unknown topics skip instead of echoing a caption.
 function contextualComment(caption, terms, used = new Set()) {
   if (typeof caption !== 'string' || caption.length > 6000 || !matchesNiche(caption, terms)) return null;
-  const sentences = caption.split(/(?<=[.!?])\s+|\n+/u).map(text => text.trim()).filter(Boolean);
+  // Trailing discovery tags are metadata; keep the full caption for niche matching.
+  const sentences = caption.split(/(?<=[.!?])\s+|\n+/u)
+    .map(text => text.replace(/(?:\s+#[\p{L}\p{N}_]+)+\s*$/u, '').trim()).filter(Boolean);
   const candidates = sentences.filter(text => {
     const words = text.split(/\s+/);
     return words.length >= 4 && words.length <= 24 && text.length <= 180 &&
@@ -98,6 +100,7 @@ function engagementMessage(action, post, comment, result) {
   const details = action === 'comment' ? `: ${comment || ''}` : '';
   if (result === 'pending') return `${pending}${details || '...'}`;
   if (result === 'confirmed') return `${{ like: 'liked', follow: 'followed', comment: 'commented on' }[action]} ${subject}${details || '.'}`;
+  if (action === 'comment' && result === 'uncertain-draft') return `couldn't confirm commenting on ${subject}${details}. a draft may remain; comments are off for this session. continuing warm-up.`;
   if (result === 'uncertain') return `couldn't confirm ${pending}${details || '. continuing.'}`;
   if (action === 'comment' && result === 'draft-retained') return `comment skipped for ${subject}. a draft may remain; comments are off for this session. continuing warm-up.`;
   return `${action} skipped for ${subject}. the post changed or its control wasn't available.`;
@@ -386,17 +389,17 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
         update(engagementMessage(action, post, comment, 'pending'));
         const result = await adapter.engage(action, post, comment, signal);
-        if (action === 'comment' && ['confirmed', 'uncertain'].includes(result)) {
-          comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result });
+        if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
+          comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
-        else if (result === 'uncertain') {
+        else if (['uncertain', 'uncertain-draft'].includes(result)) {
           unconfirmed[action] += 1;
           stats.skipped += 1;
         }
         else stats.skipped += 1;
-        if (action === 'comment' && result === 'draft-retained') {
+        if (action === 'comment' && ['draft-retained', 'uncertain-draft'].includes(result)) {
           pausedActions.add('comment');
         }
         update(engagementMessage(action, post, comment, result));
