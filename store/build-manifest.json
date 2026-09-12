@@ -1,10 +1,11 @@
 {
-  "version": "0.6.32",
+  "version": "0.6.33",
   "files": [
     "manifest.json",
     "features.js",
     "background.js",
     "bridge.js",
+    "version-bridge.js",
     "guards.js",
     "signup.js",
     "signup-fields.js",

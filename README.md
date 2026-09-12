@@ -1,3 +1,9 @@
+# 0.6.33 student dashboard version check
+
+The student dashboard can read the installed warm-up version through a separate, read-only content script on the exact trycreatorcollective.com and www.trycreatorcollective.com origins. Requests must come from the top-level page with a valid matching nonce. Only the manifest version is returned; the existing warm-up command bridge and platform permissions are unchanged.
+
+Packaging generates public release.json from release-notes/0.6.33.json, with the current version, release date, notes and production download/setup links. Both archives include the version script and are compared with source. Replace files in the existing unpacked folder, reload its Chrome card and refresh the student dashboard to enable the check. Browser verification remains pending.
+
 # 0.6.32 tiktok comment parity
 
 TikTok now shares Instagram's editable like, follow and comment targets. Its comment flow opens the active video's panel, types through the native editor, submits once and confirms a newly visible exact comment from the signed-in account. Manual drafts and changed account/post/caption state are protected; unclear submissions are recorded as unconfirmed without retrying. TikTok comment links and history survive panel reopening, worker recovery and Stop. Trailing caption hashtags no longer suppress an otherwise recognized comment detail.

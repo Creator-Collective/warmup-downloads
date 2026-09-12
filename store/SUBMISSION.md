@@ -20,12 +20,15 @@ Permissions justification:
 - storage: retain session state locally and stop duplicate concurrent sessions; no cloud synchronization.
 - Instagram host access: inspect visible posts, scroll and operate exact visible controls in the selected tab.
 - TikTok host access: inspect visible videos, scroll and operate exact visible like/follow/comment controls in the selected tab.
-- dashboard content script: connect only the exact Creator Collective warm-up origin to the extension. Other websites and iframes cannot use the bridge.
+- dashboard content script: connect only the exact Creator Collective warm-up origin to the extension. Other websites and iframes cannot use the command bridge.
+- student version content script: allow only the top-level trycreatorcollective.com and www.trycreatorcollective.com pages to read the installed manifest version. This separate script cannot issue commands or read account/session data.
 
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.32.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.33.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+
+Version 0.6.33 adds a separate read-only student dashboard version check, public release notes and current download metadata. It returns only the installed extension version. Both archives are checked against source; installed browser verification remains pending.
 
 Version 0.6.32 adds TikTok comment targets, native editor drafting, one-time submission, exact own-comment confirmation and retained comment history. It includes 0.6.31's active-video like/follow repairs and visible access-denial/account-check stops. Both archives are checked against source. Signed-in live DOM was inspected; actual extension-driven live engagement remains unverified.
 

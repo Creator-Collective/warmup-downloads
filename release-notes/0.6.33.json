@@ -1,0 +1,9 @@
+{
+  "releasedAt": "2026-09-12",
+  "summary": "check your warm-up version from the student dashboard",
+  "changes": [
+    "the student dashboard can check which warm-up version is installed in this browser.",
+    "see the latest release notes, download and setup steps together.",
+    "the version check shares only the extension version. your accounts and session details stay in the extension."
+  ]
+}
