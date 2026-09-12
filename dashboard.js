@@ -98,6 +98,8 @@ function selectActiveTab(tabId) {
 }
 function platformChanged() {
   const platform = $('platform').value;
+  $('tiktok-comment-note').hidden = platform !== 'tiktok';
+  $('mix-comment').disabled = platform === 'tiktok';
   $('tab-label').textContent = `${platform} tab`;
   $('open-instagram').textContent = `open ${platform} to sign in ↗`;
   if (platform === 'tiktok') {

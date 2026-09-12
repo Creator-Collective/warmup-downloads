@@ -265,6 +265,118 @@ test('runner waits for delayed follow confirmation before treating it as uncerta
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
 });
 
+function tiktokRunner(operation, configure = () => {}) {
+ const id = 'https://www.tiktok.com/@creator/video/123/';
+ const search = 'https://www.tiktok.com/search?q=branding';
+ const requests = []; const clicks = []; const navigations = [];
+ const state = { url: id, liked: false, followed: false, blocked: null, loseActionResponse: false };
+ const h = runnerContext('starting', operation);
+ h.job.settings.platform = 'tiktok';
+ h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+ const post = { id, author: '@creator', viewer: true, close: true, like: true, follow: true, comment: false };
+ const page = vm.createContext({ URL, Date, location: new URL(state.url) });
+ const changeURL = url => {
+   state.url = url; page.location = new URL(url);
+   h.chrome.tabs.onUpdated.listeners[0](7, { url });
+ };
+ const inspect = request => {
+   requests.push(request || {});
+   if (state.blocked && (!state.blockOnClick || request?.action?.startsWith('click-'))) return { blocked: state.blocked };
+   if (request?.action === 'click-like' || request?.action === 'click-follow') {
+     clicks.push(request.action); state[request.action === 'click-like' ? 'liked' : 'followed'] = true;
+     return { clicked: true };
+   }
+   if (request?.action === 'verify-like') return { confirmed: state.liked };
+   if (request?.action === 'verify-follow') return { confirmed: state.followed };
+   if (request?.action === 'click-close') { clicks.push(request.action); changeURL(search + '&lang=en'); return { clicked: true }; }
+   return { post: state.url.includes('/video/123') ? post : null, posts: [id], sequence: [id] };
+ };
+ page.inspectTikTok = inspect;
+ page.document = {
+   // A TikTok marker need not have a button ancestor. Any runner fallback to
+   // coordinate/button resolution would fail this test instead of clicking.
+   elementFromPoint() { throw new Error('TikTok clicks must remain inside the inspector'); },
+   querySelectorAll() { return [{ href: id, getBoundingClientRect: () => ({ width: 100 }), scrollIntoView() {}, click() { clicks.push('open'); changeURL(id); } }]; }
+ };
+ h.chrome.tabs.get = async () => ({ id: 7, url: state.url, status: 'complete' });
+ h.chrome.tabs.update = async (tabId, options) => { navigations.push(options.url); changeURL(options.url); return { id: tabId, url: state.url }; };
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   if (request.files) return [{ result: null }];
+   page.injectionArgs = request.args || [];
+   const result = await vm.runInContext(`(${request.func.toString()})(...injectionArgs)`, page);
+   if (state.loseActionResponse && ['like', 'follow'].includes(request.args?.[0])) throw new Error('Frame with ID 0 was removed.');
+   return [{ result }];
+ };
+ const fixture = { h, id, search, post, page, state, requests, clicks, navigations, changeURL };
+ configure(fixture);
+ return fixture;
+}
+
+for (const action of ['like', 'follow']) {
+ test(`TikTok runner ${action} uses the exact inspector click without a button ancestor`, async () => {
+   let result;
+   const f = tiktokRunner(async (settings, adapter) => { result = await adapter.engage(action, f.post); });
+   await finishRunner(f.h);
+   assert.equal(result, 'confirmed');
+   assert.deepEqual(f.clicks, [`click-${action}`]);
+   const request = f.requests.find(request => request.action === `click-${action}`);
+   assert.equal(request.id, f.id); assert.equal(request.author, '@creator');
+   assert.ok(f.requests.some(request => request.action === `verify-${action}`));
+   assert.ok(f.h.calls.some(call => call.patch?.phase === 'complete'));
+ });
+ test(`a lost TikTok ${action} response stays uncertain and never replays the click`, async () => {
+   let result; let continued = false;
+   const f = tiktokRunner(async (settings, adapter) => {
+     result = await adapter.engage(action, f.post);
+     await adapter.inspect(); continued = true;
+   }, ({ state }) => { state.loseActionResponse = true; });
+   await finishRunner(f.h);
+   assert.equal(result, 'uncertain'); assert.equal(continued, true);
+   assert.deepEqual(f.clicks, [`click-${action}`]);
+   assert.equal(f.requests.filter(request => request.action === `click-${action}`).length, 1);
+   assert.ok(f.h.calls.some(call => call.patch?.phase === 'complete'));
+ });
+}
+
+test('an access denial appearing at the TikTok click remains visible in the terminal error', async () => {
+ let continued = false;
+ const message = 'tiktok denied access. the session has stopped; check tiktok before starting again.';
+ const f = tiktokRunner(async (settings, adapter) => { await adapter.engage('like', f.post); continued = true; }, ({ state }) => {
+   state.blocked = message; state.blockOnClick = true;
+ });
+ await finishRunner(f.h);
+ assert.equal(continued, false); assert.deepEqual(f.clicks, []);
+ const terminal = f.h.calls.find(call => call.patch?.phase === 'error').patch;
+ assert.match(terminal.message, /tiktok denied access/);
+ assert.notEqual(terminal.message, 'an action may have gone through. check tiktok before restarting.');
+});
+
+test('TikTok navigation does not reload a page that has denied access', async () => {
+ const f = tiktokRunner(async (settings, adapter) => { await adapter.search('branding'); }, ({ state }) => {
+   state.blocked = 'tiktok denied access. the session has stopped; check tiktok before starting again.';
+ });
+ await finishRunner(f.h);
+ assert.deepEqual(f.navigations, []); assert.deepEqual(f.clicks, []);
+ assert.ok(f.h.calls.some(call => call.patch?.phase === 'error' && /denied access/.test(call.patch.message)));
+});
+
+test('TikTok closes its search viewer without reloading results or cancelling the allowed URL change', async () => {
+ const results = [];
+ const f = tiktokRunner(async (settings, adapter, signal) => {
+   results.push(await adapter.search('branding'));
+   results.push(await adapter.open(f.id));
+   results.push(await adapter.leavePost(f.post));
+   results.push(signal.aborted);
+ });
+ await finishRunner(f.h);
+ assert.deepEqual(results, [true, true, true, false]);
+ assert.deepEqual(f.navigations, [f.search]);
+ assert.deepEqual(f.clicks, ['open', 'click-close']);
+ assert.equal(f.requests.filter(request => request.action === 'click-close').length, 1);
+ assert.ok(f.h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
 async function runHiddenFollow(configure = () => {}) {
  const viewer = commentComposer();
  const fresh = commentComposer();
