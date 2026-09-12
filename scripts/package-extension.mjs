@@ -2,9 +2,10 @@ import { readFile, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promi
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { releaseMetadata } from './release-metadata.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const extension = path.join(root, 'browser-extension');
-const files = ['manifest.json','features.js','background.js','bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','comment-history.js','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
+const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','comment-history.js','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
 await copyFile(path.join(root,'comment-history.js'),path.join(extension,'comment-history.js'));
 await copyFile(path.join(root,'dashboard.js'),path.join(extension,'dashboard.js'));
 await copyFile(path.join(root,'signup-ui.js'),path.join(extension,'signup-ui.js'));
@@ -18,6 +19,7 @@ await writeFile(path.join(extension,'sidepanel.html'), panel);
 await copyFile(path.join(root,'dashboard.css'),path.join(extension,'dashboard.css'));
 await copyFile(path.join(root,'INTER-LICENSE.txt'),path.join(extension,'INTER-LICENSE.txt'));
 const manifest = JSON.parse(await readFile(path.join(extension,'manifest.json'),'utf8'));
+const release = releaseMetadata(root, manifest.version);
 const staging = await mkdtemp(path.join(tmpdir(),'cc-extension-'));
 try {
   const folder = path.join(staging,'creator-collective-extension');
@@ -30,5 +32,6 @@ try {
   await rm(storeOutput,{force:true});
   execFileSync('/usr/bin/zip',['-q',storeOutput,...files],{cwd:folder});
   await writeFile(path.join(root,'store','build-manifest.json'),JSON.stringify({version:manifest.version,files},null,2)+'\n');
+  await writeFile(path.join(root,'release.json'),JSON.stringify(release,null,2)+'\n');
   console.log(`packaged ${files.length} explicit files for beta installation and store upload`);
 } finally { await rm(staging,{recursive:true,force:true}); }

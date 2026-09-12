@@ -1,11 +1,9 @@
-add tiktok comments and matching engagement controls
+add student dashboard warmup version detection
 
 misc:
-- enable editable comment targets on both platforms
-- draft through tiktok native editor and submit each comment once
-- verify new own comments and preserve manual drafts and reply mode
-- retain tiktok comment links and uncertain history across recovery
-- handle lost submission responses without replaying actions
-- recognize caption details before trailing discovery hashtags
-- release 0.6.32 with source-matching installation archives
-- cover both platforms and interrupted comment flows
+- release 0.6.33 with an isolated read-only student dashboard version bridge
+- generate current release metadata from validated versioned notes
+- refresh setup instructions and package both downloads from source
+security:
+- require exact student origins, top frame, same source and a scoped nonce
+- keep the privileged warmup bridge unchanged
