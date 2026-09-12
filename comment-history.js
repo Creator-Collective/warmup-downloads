@@ -7,12 +7,27 @@
           !['confirmed', 'uncertain'].includes(item.status) || !Number.isFinite(item.time) || item.time < 0 || item.time > 8640000000000000) return [];
       let url;
       try { url = new URL(item.url); } catch { return []; }
-      const post = url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/);
-      if (url.protocol !== 'https:' || !['www.instagram.com', 'instagram.com'].includes(url.hostname) || url.port ||
-          url.username || url.password || url.search || url.hash || !post || seen.has(post[1])) return [];
-      seen.add(post[1]);
-      const author = typeof item.author === 'string' ? item.author.replace(/^\/+|\/+$/g, '') : '';
-      return [{ text: item.text, url: `https://www.instagram.com/p/${post[1]}/`, author: /^[\w.]{1,30}$/.test(author) ? author : '', time: item.time, status: item.status }];
+      if (url.protocol !== 'https:' || url.port || url.username || url.password || url.search || url.hash) return [];
+      let canonical, author, identity;
+      if (['www.instagram.com', 'instagram.com'].includes(url.hostname)) {
+        const post = url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/);
+        if (!post) return [];
+        identity = `instagram:${post[1]}`;
+        canonical = `https://www.instagram.com/p/${post[1]}/`;
+        const value = typeof item.author === 'string' ? item.author.replace(/^\/+|\/+$/g, '') : '';
+        author = /^[\w.]{1,30}$/.test(value) ? value : '';
+      } else if (['www.tiktok.com', 'tiktok.com'].includes(url.hostname)) {
+        const post = url.pathname.match(/^\/@([\w.]{1,30})\/video\/(\d+)\/?$/);
+        if (!post) return [];
+        const value = typeof item.author === 'string' ? item.author.replace(/^\/+|\/+$/g, '').replace(/^@/, '') : '';
+        if (value && (!/^[\w.]{1,30}$/.test(value) || value.toLowerCase() !== post[1].toLowerCase())) return [];
+        identity = `tiktok:${post[2]}`;
+        author = post[1];
+        canonical = `https://www.tiktok.com/@${author}/video/${post[2]}/`;
+      } else return [];
+      if (seen.has(identity)) return [];
+      seen.add(identity);
+      return [{ text: item.text, url: canonical, author, time: item.time, status: item.status }];
     });
   }
 

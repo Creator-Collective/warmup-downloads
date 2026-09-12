@@ -277,6 +277,25 @@ async function scroll() {
 async function recoverCommentDraft(request) {
   await execute((request, deadline) => {
     if (Date.now() >= deadline) return;
+    if (location.hostname.includes('tiktok')) {
+      const target = globalThis.inspectTikTok({ ...request, action: 'comment-clear' });
+      if (target.blocked) throw new Error(target.blocked);
+      const before = globalThis.collectiveCommentBefore;
+      const field = before?.composer;
+      if (!target.point || !field?.isConnected || !field.isContentEditable || field.textContent !== request.comment) return;
+      before.clearing = true;
+      before.inputting = true;
+      try {
+        field.focus();
+        const range = document.createRange();
+        range.selectNodeContents(field);
+        const selection = document.getSelection();
+        if (!selection) return;
+        selection.removeAllRanges(); selection.addRange(range);
+        document.execCommand('delete', false);
+      } finally { before.inputting = false; }
+      return;
+    }
     const target = globalThis.inspectInstagram({ ...request, action: 'comment-clear' });
     if (target.blocked) throw new Error(target.blocked);
     if (!target.point) return;
@@ -346,7 +365,7 @@ async function engage(action, post, comment) {
     if (!transientPageError(error)) throw error;
     // A lost action result is never replayed. Keep browsing and suspend comments
     // if an unsent draft could remain in the replaced document.
-    const result = pendingDraft ? 'draft-retained' : pendingEngagement ? 'uncertain' : 'skipped';
+    const result = pendingDraft && pendingEngagement ? 'uncertain-draft' : pendingDraft ? 'draft-retained' : pendingEngagement ? 'uncertain' : 'skipped';
     pendingDraft = false; pendingEngagement = false;
     return result;
   }
@@ -358,12 +377,54 @@ async function performEngagement(action, post, comment) {
   if (page.blocked) throw new Error(page.blocked);
   if (page.unavailable) return 'skipped';
   assertRunning();
+  if (action === 'comment' && currentPlatform() === 'tiktok') {
+    const opened = await execute((request, deadline) => {
+      if (Date.now() >= deadline) return false;
+      const result = globalThis.inspectTikTok({ ...request, action: 'click-comment-open' });
+      if (result.blocked) throw new Error(result.blocked);
+      return result.opened === true;
+    }, [request, job.deadline]);
+    if (!opened) return 'skipped';
+    let ready = false;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const target = await inspect({ ...request, action: 'comment-field' });
+      if (target.blocked) throw new Error(target.blocked);
+      if (target.changed) return 'skipped';
+      if (target.point) { ready = true; break; }
+      await sleep(400);
+    }
+    if (!ready) return 'skipped';
+  }
   pendingDraft = action === 'comment';
   pendingEngagement = action !== 'comment';
   const clicked = await execute((action, request, deadline) => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     if (location.hostname.includes('tiktok')) {
+      if (action === 'comment') {
+        const target = inspector({ ...request, action: 'comment-field' });
+        if (target.blocked) throw new Error(target.blocked);
+        const before = globalThis.collectiveCommentBefore;
+        const field = before?.composer;
+        if (!target.point || !field?.isConnected || !field.isContentEditable || field.textContent.trim()) return false;
+        field.focus();
+        const ready = inspector({ ...request, action: 'comment-ready' });
+        if (ready.blocked) throw new Error(ready.blocked);
+        if (!ready.ready) return false;
+        before.drafted = true;
+        before.inputting = true;
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(field); range.collapse(false);
+          const selection = document.getSelection();
+          if (!selection) return 'draft';
+          selection.removeAllRanges(); selection.addRange(range);
+          // TikTok uses Draft.js. A browser editing command updates its editor
+          // state and input events; assigning textContent only changes the DOM.
+          document.execCommand('insertText', false, request.comment);
+        } finally { before.inputting = false; }
+        return 'draft';
+      }
       if (!['like', 'follow'].includes(action)) return false;
       const target = inspector({ ...request, action: `click-${action}` });
       if (target.blocked) throw new Error(target.blocked);
@@ -391,13 +452,18 @@ async function performEngagement(action, post, comment) {
   if (!clicked) { pendingDraft = false; pendingEngagement = false; return 'skipped'; }
   if (clicked === 'draft') {
     let submitted = false;
-    // Wait for Instagram's composer to settle, but never retry a submitted comment.
+    // Wait for the platform's composer, but never retry a submitted comment.
     for (let attempt = 0; attempt < 8 && !submitted; attempt++) {
       await sleep(400);
       assertRunning();
       pendingEngagement = true;
       submitted = await execute((request, deadline) => {
         if (Date.now() >= deadline) return false;
+        if (location.hostname.includes('tiktok')) {
+          const target = globalThis.inspectTikTok({ ...request, action: 'click-comment-submit' });
+          if (target.blocked) throw new Error(target.blocked);
+          return target.clicked === true;
+        }
         const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
         if (target.blocked) throw new Error(target.blocked);
         if (!target.point) { console.warn('Warm-up comment not ready:', target.reason || 'unknown'); return false; }

@@ -25,7 +25,7 @@ function validateSettings(input) {
   const limits = {
     like: Math.min(180, Math.ceil(activeMinutes * 3)),
     follow: Math.min(60, Math.ceil(activeMinutes * .9)),
-    comment: platform === 'tiktok' ? 0 : input.enableComments === true ? Math.min(20, Math.ceil(activeMinutes / 4)) : 0
+    comment: input.enableComments === true ? Math.min(20, Math.ceil(activeMinutes / 4)) : 0
   };
   const weights = { like: 2, follow: 1, comment: 1 };
   for (const action of Object.keys(weights)) {
@@ -37,7 +37,6 @@ function validateSettings(input) {
       if (typeof input.customLimits !== 'object' || Array.isArray(input.customLimits)) throw new Error('choose valid session targets.');
       if (input.customLimits[action] !== undefined) limits[action] = integer(input.customLimits[action], 0, { like: 180, follow: 60, comment: 20 }[action], `${action} target`);
     }
-    if (platform === 'tiktok' && action === 'comment' && limits[action] > 0) throw new Error('tiktok comments are not supported yet.');
     if (!weights[action] || (action === 'comment' && input.enableComments !== true)) limits[action] = 0;
     if (limits[action] === 0) weights[action] = 0;
   }

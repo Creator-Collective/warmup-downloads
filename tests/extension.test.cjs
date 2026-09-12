@@ -11,6 +11,7 @@ const origin = 'https://creator-collective-warmup.vercel.app';
 const sender = { id:'extension-id',url:origin+'/',frameId:0,tab:{id:2} };
 const event = () => ({listeners:[],addListener(fn){this.listeners.push(fn)}});
 const commentComposer = require('./fixtures/comment-composer.cjs');
+const { commentComposer: tiktokCommentComposer } = require('./fixtures/tiktok-comment-composer.cjs');
 function background(initial) {
   let job = initial;
   const created = [];
@@ -64,14 +65,14 @@ test('start validates settings, creates a dedicated runner and blocks duplicate 
  assert.equal(h.created.length,1);assert.equal(h.created[0].active,true);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,false);
 });
-test('tiktok tabs can be selected for warm-up and comments stay disabled',async()=>{
+test('tiktok tabs can start warm-up with likes, follows and comments',async()=>{
  const h=background();
  const tabs=await h.message({type:'tabs',platform:'tiktok'});
  assert.deepEqual(tabs.data.map(tab=>tab.id),[8]);
- const response=await h.message({type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',customLimits:{like:4,follow:1}}});
+ const response=await h.message({type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',enableComments:true,customLimits:{like:4,follow:1,comment:2}}});
  assert.equal(response.ok,true);
  assert.equal(h.job().settings.platform,'tiktok');
- assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:0});
+ assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:2});
  assert.equal((await h.message({type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}})).ok,false);
 });
 test('stop blocks replacement until runner acknowledges and preserves uncertain outcomes',async()=>{
@@ -497,8 +498,7 @@ test('account restrictions found during follow confirmation still stop the sessi
  assert.ok(h.calls.some(call => call.patch?.phase === 'error'));
 });
 
-async function runComment(configure = () => {}) {
- const composer = commentComposer();
+async function runComment(configure = () => {}, composer = commentComposer(), platform = 'instagram') {
  let result;
  let continued = false;
  const h = runnerContext('starting', async (settings, adapter) => {
@@ -506,6 +506,8 @@ async function runComment(configure = () => {}) {
    await adapter.inspect();
    continued = true;
  });
+ h.job.settings.platform = platform;
+ if (platform === 'tiktok') h.chrome.tabs.get = async () => ({ id: 7, url: composer.request.id });
  h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
  h.chrome.scripting.executeScript = async request => {
    h.calls.push({ injection: request });
@@ -518,6 +520,103 @@ async function runComment(configure = () => {}) {
  assert.ok(h.calls.some(call => call.patch), 'comment flow must settle');
  return { composer, h, result, continued };
 }
+
+const runTikTokComment = (configure, options) => runComment(configure, tiktokCommentComposer(options), 'tiktok');
+
+test('TikTok opens comments, types through its editor, submits once and confirms on both layouts', async () => {
+ for (const modal of [false, true]) {
+   const { composer, result, continued } = await runTikTokComment(undefined, { modal, open: false });
+   assert.equal(result, 'confirmed');
+   assert.equal(composer.state.opens, 1);
+   assert.equal(composer.submitted, 1);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(continued, true);
+ }
+});
+
+test('TikTok waits for an enabled Post and tolerates focus loss and editor replacement', async () => {
+ const { composer, result } = await runTikTokComment(composer => {
+   composer.state.onInput = field => {
+     composer.replaceField(field.textContent);
+     composer.document.activeElement = composer.heading;
+     composer.submit.disabled = true;
+   };
+   const inject = composer.inject;
+   let attempts = 0;
+   composer.inject = (func, args) => {
+     if (String(func).includes("action: 'click-comment-submit'") && ++attempts === 3) composer.submit.disabled = false;
+     return inject(func, args);
+   };
+ });
+ assert.equal(result, 'confirmed');
+ assert.equal(composer.submitted, 1);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+});
+
+test('TikTok clears only its unchanged unsent draft when Post stays unavailable', async () => {
+ const { composer, result, continued } = await runTikTokComment(composer => {
+   composer.state.onInput = () => { composer.submit.disabled = true; };
+ });
+ assert.equal(result, 'skipped');
+ assert.equal(composer.submitted, 0);
+ assert.equal(composer.field.textContent, '');
+ assert.deepEqual(composer.inputs, [composer.request.comment, '']);
+ assert.equal(continued, true);
+});
+
+test('TikTok preserves manual comments before and after drafting without clicking Post', async () => {
+ for (const when of ['before', 'after']) {
+   const { composer, result, continued } = await runTikTokComment(composer => {
+     if (when === 'before') composer.field.textContent = 'my own comment';
+     else composer.state.onInput = field => { field.textContent = 'my own comment'; composer.interact('input'); };
+   });
+   assert.equal(result, when === 'before' ? 'skipped' : 'draft-retained');
+   assert.equal(composer.field.textContent, 'my own comment');
+   assert.equal(composer.submitted, 0);
+   assert.equal(continued, true);
+ }
+});
+
+test('TikTok never retries or deletes an unconfirmed submitted comment', async () => {
+ const { composer, result, continued } = await runTikTokComment(composer => { composer.state.confirm = false; });
+ assert.equal(result, 'uncertain');
+ assert.equal(composer.submitted, 1);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
+test('TikTok lost draft and submit responses preserve uncertainty without replay or cleanup', async () => {
+ for (const duringSubmit of [false, true]) {
+   const { composer, result, continued } = await runTikTokComment((composer, h) => {
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       const result = await execute(request);
+       if (duringSubmit ? String(request.func).includes("action: 'click-comment-submit'") : request.args?.[0] === 'comment') throw new Error('Frame with ID 0 was removed.');
+       return result;
+     };
+   });
+   assert.equal(result, duringSubmit ? 'uncertain-draft' : 'draft-retained');
+   assert.equal(composer.submitted, duringSubmit ? 1 : 0);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(continued, true);
+ }
+});
+
+test('TikTok stop, timeout and platform restrictions prevent comment submission and cleanup', async () => {
+ for (const reason of ['stop', 'timeout', 'blocked']) {
+   const { composer, h, continued } = await runTikTokComment((composer, h) => {
+     composer.state.onInput = () => {
+       if (reason === 'timeout') h.job.deadline = Date.now() - 1;
+       else if (reason === 'blocked') composer.state.blocked = true;
+       else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+     };
+   });
+   assert.equal(composer.submitted, 0);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(continued, false);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'error'));
+ }
+});
 
 test('runner waits for Post readiness and submits a focus-lost draft only once', async () => {
  const { composer, h, result, continued } = await runComment(composer => {

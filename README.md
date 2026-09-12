@@ -1,3 +1,9 @@
+# 0.6.32 tiktok comment parity
+
+TikTok now shares Instagram's editable like, follow and comment targets. Its comment flow opens the active video's panel, types through the native editor, submits once and confirms a newly visible exact comment from the signed-in account. Manual drafts and changed account/post/caption state are protected; unclear submissions are recorded as unconfirmed without retrying. TikTok comment links and history survive panel reopening, worker recovery and Stop. Trailing caption hashtags no longer suppress an otherwise recognized comment detail.
+
+Both installation archives include the new flow and are compared against source. Live signed-in TikTok DOM was inspected for permalink and search-dialog editors; actual extension-driven posting and a ten-minute live session on this version remain unverified. Update the files inside the existing unpacked folder and reload its Chrome card to install 0.6.32.
+
 # 0.6.31 tiktok engagement repair
 
 The downloadable extension now includes the TikTok feed repair and resolves likes/follows within one active video, including sibling controls and div/span targets. Search/profile previews remain results until opened. Explicit pressed/liked/following states confirm actions; uncertain clicks are never replayed. Recognized viewer close controls preserve search results. Visible access denials, sign-in, challenges and activity limits stop with clear recovery guidance. TikTok comments remain unavailable and are labelled in the controls.

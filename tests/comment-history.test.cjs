@@ -61,3 +61,79 @@ test('every activity surface includes the shared comment history before its acti
     assert.match(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), /commentHistory.render\(document, state.comments\)/);
   }
 });
+
+
+test('tiktok comment history canonicalizes exact video links and normalizes their matching authors', () => {
+  const { normalize } = require('../comment-history.js');
+  const comments = normalize([
+    entry({ url: 'https://tiktok.com/@creator.name_1/video/123', author: '@creator.name_1', status: 'uncertain' }),
+    entry({ url: 'https://www.tiktok.com/@other/video/456/', author: '/@other/' }),
+    entry({ url: 'https://www.tiktok.com/@third/video/789', author: undefined }),
+    entry({ url: 'https://www.tiktok.com/@fourth/video/987', author: '@FOURTH' }),
+  ]);
+  assert.deepEqual(comments.map(({ url, author, status }) => ({ url, author, status })), [
+    { url: 'https://www.tiktok.com/@creator.name_1/video/123/', author: 'creator.name_1', status: 'uncertain' },
+    { url: 'https://www.tiktok.com/@other/video/456/', author: 'other', status: 'confirmed' },
+    { url: 'https://www.tiktok.com/@third/video/789/', author: 'third', status: 'confirmed' },
+    { url: 'https://www.tiktok.com/@fourth/video/987/', author: 'fourth', status: 'confirmed' },
+  ]);
+});
+
+test('comment history deduplicates post aliases within each platform without losing cross-platform posts', () => {
+  const { normalize } = require('../comment-history.js');
+  const comments = normalize([
+    entry({ url: 'https://www.instagram.com/p/123/' }),
+    entry({ url: 'https://instagram.com/reel/123' }),
+    entry({ url: 'https://tiktok.com/@creator/video/123', author: '@creator', status: 'uncertain' }),
+    entry({ url: 'https://www.tiktok.com/@creator/video/123/', author: 'creator' }),
+  ]);
+  assert.equal(comments.length, 2);
+  assert.equal(comments[0].url, 'https://www.instagram.com/p/123/');
+  assert.equal(comments[1].url, 'https://www.tiktok.com/@creator/video/123/');
+  assert.equal(comments[1].status, 'uncertain');
+});
+
+test('tiktok history rejects off-platform and ambiguous URLs, false authors, and unposted drafts', () => {
+  const { normalize } = require('../comment-history.js');
+  const unsafeURLs = [
+    'http://www.tiktok.com/@creator/video/123',
+    'https://tiktok.com.evil.test/@creator/video/123',
+    'https://www.tiktok.com@evil.test/@creator/video/123',
+    'https://name:secret@www.tiktok.com/@creator/video/123',
+    'https://www.tiktok.com:444/@creator/video/123',
+    'https://www.tiktok.com/@creator/video/123?redirect=https://evil.test',
+    'https://www.tiktok.com/@creator/video/123#comment',
+    'https://www.tiktok.com/@creator/photo/123',
+    'https://www.tiktok.com/@creator/video/not-a-video',
+    'https://www.tiktok.com/@%63reator/video/123',
+    'https://www.tiktok.com/@creator/video/123/extra',
+    'https://www.tiktok.com/@creator-name/video/123',
+    'https://www.tiktok.com/@' + 'a'.repeat(31) + '/video/123',
+    'javascript:alert(1)',
+  ];
+  for (const url of unsafeURLs) assert.deepEqual(normalize([entry({ url, author: '@creator' })]), [], url);
+  const url = 'https://www.tiktok.com/@creator/video/123/';
+  for (const author of ['@someone_else', '@@creator', '<img src=x>', 'creator/other']) {
+    assert.deepEqual(normalize([entry({ url, author })]), [], author);
+  }
+  for (const status of ['draft', 'skipped', 'draft-retained']) {
+    assert.deepEqual(normalize([entry({ url, author: '@creator', status })]), [], status);
+  }
+});
+
+test('tiktok comments render one author marker, plain text and separate confirmed outcomes', () => {
+  const { render } = require('../comment-history.js');
+  const document = documentFixture();
+  const text = '<script>alert(1)</script> this is the exact comment';
+  render(document, [
+    entry({ url: 'https://tiktok.com/@creator/video/123', author: '@creator', text }),
+    entry({ url: 'https://www.tiktok.com/@other/video/456/', author: '@other', status: 'uncertain' }),
+  ]);
+  const rows = document.getElementById('comments').children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].children[0].children[0].textContent, "@creator's post");
+  assert.equal(rows[0].children[0].children[0].href, 'https://www.tiktok.com/@creator/video/123/');
+  assert.equal(rows[0].children[1].textContent, text);
+  assert.equal(rows[0].children[0].children[1].textContent, 'posted');
+  assert.equal(rows[1].children[0].children[1].textContent, 'not confirmed');
+});
