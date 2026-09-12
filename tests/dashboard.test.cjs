@@ -5,20 +5,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { publicState } = require('../browser-extension/guards.js');
 const { validateSettings } = require('../plan.js');
-function dashboard(panel = false, saved = null) {
+function dashboard(panel = false, saved = null, respond = null) {
   const requests = [];
   const nodes = new Map();
+  const intervals = new Map();
   let stored = saved === null ? null : JSON.stringify(saved);
   const defaults = { platform:'instagram', niche:'personal branding', minutes:'10', pace:'auto', 'mix-like':'2', 'mix-follow':'1', 'mix-comment':'1', 'instagram-tab':'7' };
   const element = id => {
-    if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, options:[], listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(...children){this.options=children}, add(option){this.options.push(option)}, append(){} });
+    if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, options:[], listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(...children){this.options=children;this.value=children[0]?.value || ''}, add(option){this.options.push(option)}, append(){} });
     return nodes.get(id);
   };
-  const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);return {ok:true,data:message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:message.platform==='tiktok'?8:7,title:message.platform==='tiktok'?'tiktok':'instagram'}]:message.type==='start'?{running:true,message:'started',activity:[]}:null}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(){},Option:function(text,value){this.text=text;this.value=value},console });
+  const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);const data=message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:message.platform==='tiktok'?8:7,title:message.platform==='tiktok'?'tiktok':'instagram'}]:message.type==='state'?{running:false,message:'ready',activity:[]}:message.type==='start'?{running:true,message:'started',activity:[]}:null;return {ok:true,data:respond?await respond(message,data):data}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(callback,delay){intervals.set(delay,callback)},Option:function(text,value){this.text=text;this.value=value},console });
   context.commentHistory = require('../comment-history.js');
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../plan.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../dashboard.js'),'utf8'),context);
-  return {context,element,requests,saved:()=>JSON.parse(stored),edit(id,value){element(id).value=value;element(id).listeners.input()},settings:()=>JSON.parse(vm.runInContext('JSON.stringify(sessionPlan.validateSettings(input()))',context))};
+  return {context,element,requests,poll:()=>intervals.get(1500)(),saved:()=>JSON.parse(stored),edit(id,value){element(id).value=value;element(id).listeners.input()},settings:()=>JSON.parse(vm.runInContext('JSON.stringify(sessionPlan.validateSettings(input()))',context))};
 }
 test('operation errors remain visible across activity polls and clear on deliberate input',()=>{
  const h=dashboard();
@@ -216,4 +217,142 @@ test('public running plan excludes runner tokens and unrelated stored data',()=>
  assert.deepEqual(state.settings,{platform:'instagram',minutes:10,terms:['branding'],pace:'auto',limits:{like:30,follow:0,comment:0},weights:{like:2,follow:0,comment:0}});
  assert.equal(state.tabId,7);assert.equal(state.token,undefined);assert.equal(state.runnerTabId,undefined);
  assert.equal(state.privateData,undefined);assert.equal(state.settings.privateData,undefined);
+});
+
+async function settleDashboard() {
+  for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve));
+}
+
+test('idle discovery finds a tiktok tab opened after the panel connected', async () => {
+  let availableTabs = [];
+  const h = dashboard(true, { platform: 'tiktok' }, (message, data) => message.type === 'tabs' ? availableTabs : data);
+  await settleDashboard();
+  assert.equal(h.element('connection').textContent, 'connected');
+  assert.equal(h.element('instagram-tab').value, '');
+  assert.equal(h.element('start').disabled, true);
+
+  availableTabs = [{ id: 8, title: 'TikTok' }];
+  await h.poll();
+  assert.equal(h.element('instagram-tab').value, '8');
+  assert.equal(h.element('start').disabled, false);
+  assert.equal(h.requests.at(-1).platform, 'tiktok');
+  assert.equal(h.requests.some(request => request.type === 'start'), false);
+});
+
+test('the open-platform action recovers when its new tab has not loaded yet', async () => {
+  for (const platform of ['instagram', 'tiktok']) {
+    let availableTabs = [];
+    const h = dashboard(true, { platform }, (message, data) => message.type === 'tabs' ? availableTabs : data);
+    await settleDashboard();
+    await h.element('open-instagram').listeners.click();
+    assert.equal(h.requests.find(request => request.type === 'open-platform').platform, platform);
+    assert.equal(h.element('start').disabled, true);
+    availableTabs = [{ id: 12, title: platform }];
+    await h.poll();
+    assert.equal(h.element('instagram-tab').value, '12');
+    assert.equal(h.element('start').disabled, false);
+  }
+});
+
+test('idle discovery preserves an explicit choice and never silently replaces a closed selected tab', async () => {
+  let availableTabs = [{ id: 8, title: 'TikTok one' }, { id: 9, title: 'TikTok two' }];
+  const h = dashboard(true, { platform: 'tiktok' }, (message, data) => message.type === 'tabs' ? availableTabs : data);
+  await settleDashboard();
+  assert.equal(h.element('instagram-tab').value, '');
+  h.element('instagram-tab').value = '9';
+  h.element('instagram-tab').listeners.change();
+  const unchangedOptions = h.element('instagram-tab').options;
+  await h.poll();
+  assert.equal(h.element('instagram-tab').options, unchangedOptions);
+  availableTabs = [...availableTabs, { id: 10, title: 'TikTok three' }];
+  await h.poll();
+  assert.equal(h.element('instagram-tab').value, '9');
+  availableTabs = [{ id: 8, title: 'TikTok one' }];
+  await h.poll();
+  await h.poll();
+  assert.equal(h.element('instagram-tab').value, '');
+  assert.equal(h.element('start').disabled, true);
+});
+
+test('rapid platform changes discard old responses even after switching back to the same platform', async () => {
+  const pendingTabs = [];
+  let defer = false;
+  const h = dashboard(true, null, (message, data) => {
+    if (message.type === 'tabs' && defer) return new Promise(resolve => pendingTabs.push({ platform: message.platform, resolve }));
+    return data;
+  });
+  await settleDashboard();
+  defer = true;
+  for (const platform of ['tiktok', 'instagram', 'tiktok']) {
+    h.element('platform').value = platform;
+    h.element('platform').listeners.change();
+    assert.deepEqual(Array.from(h.element('instagram-tab').options, option => option.value), ['']);
+  }
+  assert.deepEqual(pendingTabs.map(request => request.platform), ['tiktok', 'instagram', 'tiktok']);
+  pendingTabs[2].resolve([{ id: 10, title: 'new TikTok' }]);
+  await settleDashboard();
+  pendingTabs[1].resolve([{ id: 7, title: 'Instagram' }]);
+  pendingTabs[0].resolve([{ id: 8, title: 'old TikTok' }]);
+  await settleDashboard();
+  assert.equal(h.element('instagram-tab').value, '10');
+  assert.deepEqual(Array.from(h.element('instagram-tab').options, option => option.value), ['', '10']);
+  assert.equal(h.element('start').disabled, false);
+});
+
+test('tab responses arriving after disconnect cannot repopulate or enable the panel', async () => {
+  let resolveTabs;
+  let defer = false;
+  const h = dashboard(true, null, (message, data) => message.type === 'tabs' && defer ? new Promise(resolve => { resolveTabs = resolve; }) : data);
+  await settleDashboard();
+  defer = true;
+  const refresh = h.element('refresh-tabs').listeners.click();
+  const optionsBefore = h.element('instagram-tab').options;
+  vm.runInContext('connection(false)', h.context);
+  resolveTabs([{ id: 12, title: 'new Instagram' }]);
+  await refresh;
+  assert.equal(h.element('instagram-tab').options, optionsBefore);
+  assert.equal(h.element('connection').textContent, 'extension needed');
+  assert.equal(h.element('start').disabled, true);
+});
+
+test('active sessions retain their exact tab and do not poll discovery', async () => {
+  let resolveTabs;
+  let defer = false;
+  let liveState = null;
+  const h = dashboard(true, null, (message, data) => {
+    if (message.type === 'tabs' && defer) return new Promise(resolve => { resolveTabs = resolve; });
+    return message.type === 'state' && liveState ? liveState : data;
+  });
+  await settleDashboard();
+  defer = true;
+  const refresh = h.element('refresh-tabs').listeners.click();
+  liveState = publicState({ phase: 'running', tabId: 42, settings: validateSettings({ platform: 'tiktok', niche: 'branding', minutes: 10 }), activity: [], message: 'watching' });
+  h.context.liveState = liveState;
+  vm.runInContext('render(liveState)', h.context);
+  resolveTabs([{ id: 12, title: 'Instagram' }]);
+  await refresh;
+  const discoveryCount = h.requests.filter(request => request.type === 'tabs').length;
+  await h.poll();
+  assert.equal(h.requests.filter(request => request.type === 'tabs').length, discoveryCount);
+  assert.equal(h.element('instagram-tab').value, '42');
+  assert.equal(h.element('platform').value, 'tiktok');
+  assert.equal(h.element('start').disabled, true);
+});
+
+test('a transient discovery failure stays connected and recovers on the next idle poll', async () => {
+  let failed = true;
+  const h = dashboard(true, { platform: 'tiktok' }, (message, data) => {
+    if (message.type === 'tabs' && failed) throw new Error('could not list tabs');
+    return data;
+  });
+  await settleDashboard();
+  assert.equal(h.element('connection').textContent, 'connected');
+  assert.equal(h.element('form-error').textContent, 'could not list tabs');
+  await h.poll();
+  assert.equal(h.element('connection').textContent, 'connected');
+  failed = false;
+  await h.poll();
+  assert.equal(h.element('instagram-tab').value, '8');
+  assert.equal(h.element('start').disabled, false);
+  assert.equal(h.element('form-error').hidden, true);
 });

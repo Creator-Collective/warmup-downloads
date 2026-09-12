@@ -7,6 +7,9 @@ let running = false;
 let busy = false;
 let currentState;
 let polling = false;
+let tabDiscoveryVersion = 0;
+let canAutoSelectTab = true;
+let tabDiscoveryError = '';
 let requestError = '';
 let validPlan = false;
 const actions = ['like','follow','comment'];
@@ -69,6 +72,7 @@ function plan() {
   try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 2, ...Object.fromEntries(fields.filter(field => !field.startsWith('limit-')).map(field => [field, $(field).value])), customLimits: limitOverrides })); } catch { /* in-memory settings still work */ }
 }
 function connection(value) {
+  if (connected !== value) tabDiscoveryVersion += 1;
   connected = value;
   $('connection').textContent = value ? (inPanel ? 'connected' : 'extension connected') : 'extension needed';
   $('connection').classList.toggle('connected', value);
@@ -78,14 +82,30 @@ function connection(value) {
   platformChanged();
   plan();
 }
-async function tabs() {
+async function tabs({ reportError = false } = {}) {
+  if (!connected || running || busy) return;
   const platform = $('platform').value;
-  const list = await request('tabs', { platform });
-  const selected = running ? String(currentState.tabId) : $('instagram-tab').value;
-  $('instagram-tab').replaceChildren(new Option(list.length ? `choose a ${platform} tab` : `open ${platform}, then refresh`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id))));
-  if (running) selectActiveTab(currentState.tabId);
-  else if (list.some(tab => String(tab.id) === selected)) $('instagram-tab').value = selected;
-  else if (list.length === 1) $('instagram-tab').value = String(list[0].id);
+  const version = ++tabDiscoveryVersion;
+  const isCurrent = () => connected && !running && !busy && version === tabDiscoveryVersion && platform === $('platform').value;
+  let list;
+  try { list = await request('tabs', { platform }); }
+  catch (e) {
+    if (isCurrent() && reportError) { tabDiscoveryError = e.message; error(e.message); }
+    return;
+  }
+  if (!isCurrent()) return;
+  if (tabDiscoveryError && requestError === tabDiscoveryError) error('');
+  tabDiscoveryError = '';
+  const select = $('instagram-tab');
+  const selected = select.value;
+  const options = [new Option(list.length ? `choose a ${platform} tab` : `open ${platform} in this chrome profile`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id)))];
+  // Keep an open picker stable when polling has found nothing new.
+  if (options.length !== select.options.length || options.some((option, index) => option.value !== select.options[index].value || option.text !== select.options[index].text)) select.replaceChildren(...options);
+  if (list.some(tab => String(tab.id) === selected)) select.value = selected;
+  else if (canAutoSelectTab && list.length === 1) select.value = String(list[0].id);
+  else select.value = '';
+  // A closed selection must not silently switch the session to another account.
+  if (select.value) canAutoSelectTab = false;
   plan();
 }
 function selectActiveTab(tabId) {
@@ -126,6 +146,7 @@ function displayPlan(state) {
 function render(state) {
   commentHistory.render(document, state.comments);
   currentState = state;
+  if (running !== state.running) tabDiscoveryVersion += 1;
   running = state.running;
   displayPlan(state);
   $('start').hidden = running; $('stop').hidden = !running;
@@ -155,7 +176,12 @@ $('session-form').addEventListener('submit', async event => {
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
 for (const field of fields.filter(field => !field.startsWith('limit-'))) $(field).addEventListener('input', edited);
-$('platform').addEventListener('change', () => { $('instagram-tab').value = ''; platformChanged(); edited(); if (connected && !running) tabs().catch(e => error(e.message)); });
+$('platform').addEventListener('change', () => {
+  tabDiscoveryVersion += 1; canAutoSelectTab = true;
+  $('instagram-tab').replaceChildren(new Option(`open ${$('platform').value} in this chrome profile`, ''));
+  $('instagram-tab').value = '';
+  platformChanged(); edited(); if (connected && !running) tabs({ reportError: true });
+});
 for (const action of actions) {
   const field = $(`limit-${action}`);
   field.addEventListener('focus', () => { editingLimit = action; });
@@ -166,20 +192,20 @@ for (const action of actions) {
     plan();
   });
 }
-$('instagram-tab').addEventListener('change', edited);
+$('instagram-tab').addEventListener('change', () => { canAutoSelectTab = false; edited(); });
 $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
 $('reset-mix').addEventListener('click', () => { for (const action of actions) $(`mix-${action}`).value = action === 'like' ? '2' : '1'; edited(); });
-$('refresh-tabs').addEventListener('click', () => tabs().catch(e => error(e.message)));
-$('open-instagram').addEventListener('click', () => request('open-platform', { platform: $('platform').value }).then(tabs).catch(e => error(e.message)));
+$('refresh-tabs').addEventListener('click', () => tabs({ reportError: true }));
+$('open-instagram').addEventListener('click', () => request('open-platform', { platform: $('platform').value }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => request('stop').then(render).catch(e => error(e.message)));
 async function connect() {
-  try { const hello = await request('hello'); error(''); connection(true); render(hello.state); await tabs(); }
+  try { const hello = await request('hello'); error(''); connection(true); render(hello.state); await tabs({ reportError: true }); }
   catch { connection(false); }
 }
 setInterval(async () => {
   if (!connected || polling) return;
   polling = true;
-  try { render(await request('state')); } catch { connection(false); $('message').textContent = 'connection lost. the session tab has the latest activity. refresh to reconnect.'; }
+  try { render(await request('state')); if (!running && !busy) await tabs(); } catch { connection(false); $('message').textContent = 'connection lost. the session tab has the latest activity. refresh to reconnect.'; }
   finally { polling = false; }
 }, 1500);
 setInterval(() => {

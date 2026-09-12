@@ -1,3 +1,12 @@
+2026-09-12 — 0.6.34: detect newly opened platform tabs and repair web tiktok controls
+- reproduced: panel connected before tiktok appeared; five state polls left start disabled, while manual refresh immediately found the tab. screenshot also shows the pre-0.6.32 disabled-comment interface.
+- fix: idle discovery now refreshes with state, preserves a valid chosen tab, leaves a closed choice unselected, skips unchanged option lists, ignores stale platform/connection/session replies, and recovers from tab-query errors without claiming the extension disconnected.
+- web fix: the public bridge had dropped platform and rejected open-platform, so tiktok selectors queried instagram and the open button timed out. forward the strict instagram/tiktok choice and allow only the existing open-platform command; keep exact origin, top-frame, source and field restrictions.
+- release: bump 0.6.34, update setup/release notes and regenerate both 30-file archives plus shared dashboard mirror. existing action logic, permissions and account state remain unchanged.
+- files: dashboard.js, browser-extension/{dashboard,bridge}.js, browser-extension/manifest.json, tests/{dashboard,extension}.test.cjs, package.json, setup.html, release{.json,-notes/0.6.34.json}, README.md, store/{SUBMISSION.md,build-manifest.json}, both 0.6.34 zips.
+- verified: 381 tests passed, both archives and mirrors match source, general, JavaScript and security reviews passed. Covers delayed tab navigation, selection retention, obsolete responses, connection/session fencing, error recovery, and actual bridge-to-background platform routing/security boundaries. No local app build or live platform engagement.
+- follow-ups: normal PR release and live download verification; user must update the existing unpacked folder and reload/reopen the extension. A real extension-driven tiktok session remains unverified.
+
 2026-09-12 | 0.6.33 student dashboard version check
 - add a separate isolated read-only content script for the exact student production origins, top frame only. validate page source/origin and a 32-character lowercase hex nonce; return only that nonce and the installed manifest version. warm-up commands, account data and platform permissions remain unchanged.
 - generate public release.json from versioned release notes during packaging; keep current version/download/setup links checked against manifest, package metadata, setup instructions and both explicit-file archives. include release.json in the existing static deployment allowlist.

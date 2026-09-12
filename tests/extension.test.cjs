@@ -23,6 +23,16 @@ function background(initial) {
   const message=(request,source=sender)=>new Promise(resolve=>{const accepted=chrome.runtime.onMessage.listeners[0](request,source,resolve);if(!accepted)resolve(undefined)});
   return {message,created,chrome,job:()=>job};
 }
+function webBridge(worker, { pageOrigin = origin, subframe = false } = {}) {
+  const forwarded = [];
+  const responses = [];
+  let listener;
+  const window = { addEventListener(type, callback) { if (type === 'message') listener = callback; }, postMessage(data, targetOrigin) { responses.push({ data, targetOrigin }); } };
+  window.top = subframe ? {} : window;
+  const ctx = vm.createContext({ window, location: { origin: pageOrigin }, chrome: { runtime: { sendMessage(message) { forwarded.push(message); return worker.message(message); } } } });
+  vm.runInContext(fs.readFileSync(path.join(extension, 'bridge.js'), 'utf8'), ctx);
+  return { forwarded, responses, async request(data, eventOverrides = {}) { if (listener) await listener({ source: window, origin: pageOrigin, data: { channel: 'cc-warmup-request', id: 'request-id', ...data }, ...eventOverrides }); } };
+}
 test('only exact dashboard origin, top frame and intended platform hosts are accepted',()=>{
  assert.equal(dashboardSender(sender),true);
  for(const url of ['https://evil.example/','https://creator-collective-warmup.vercel.app.evil.example/','http://creator-collective-warmup.vercel.app/'])assert.equal(dashboardSender({...sender,url}),false);
@@ -74,6 +84,55 @@ test('tiktok tabs can start warm-up with likes, follows and comments',async()=>{
  assert.equal(h.job().settings.platform,'tiktok');
  assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:2});
  assert.equal((await h.message({type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}})).ok,false);
+});
+test('the public web bridge lists and opens the requested platform through the real background handler', async () => {
+  const h = background();
+  const bridge = webBridge(h);
+  for (const [platform, tabId] of [['instagram', 7], ['tiktok', 8]]) {
+    await bridge.request({ type: 'tabs', platform });
+    assert.equal(bridge.forwarded.at(-1).platform, platform);
+    assert.equal(bridge.responses.at(-1).data.ok, true);
+    assert.deepEqual(Array.from(bridge.responses.at(-1).data.data, tab => tab.id), [tabId]);
+    assert.equal(bridge.responses.at(-1).targetOrigin, origin);
+    await bridge.request({ type: 'open-platform', platform });
+    assert.equal(bridge.responses.at(-1).data.ok, true);
+    assert.equal(h.created.at(-1).url, platforms[platform].home);
+  }
+  await bridge.request({ type: 'open-instagram' });
+  assert.equal(h.created.at(-1).url, platforms.instagram.home);
+  assert.equal(h.job(), undefined);
+});
+test('the public bridge rejects malformed platforms without querying or opening another destination', async () => {
+  const h = background();
+  const bridge = webBridge(h);
+  for (const platform of ['https://evil.example/', 'youtube', '__proto__', null, [], ['tiktok'], { platform: 'tiktok' }, 8]) {
+    for (const type of ['tabs', 'open-platform']) {
+      await bridge.request({ type, platform });
+      assert.equal(bridge.responses.at(-1).data.ok, false);
+      assert.match(bridge.responses.at(-1).data.error, /choose instagram or tiktok/);
+    }
+  }
+  assert.equal(bridge.forwarded.length, 0);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.job(), undefined);
+});
+test('public bridge routing keeps its exact origin, frame, command and field boundaries', async () => {
+  const h = background();
+  for (const options of [{ pageOrigin: 'https://evil.example' }, { pageOrigin: origin + '.evil.example' }, { subframe: true }]) {
+    const bridge = webBridge(h, options);
+    await bridge.request({ type: 'open-platform', platform: 'tiktok' });
+    assert.equal(bridge.forwarded.length, 0);
+    assert.equal(bridge.responses.length, 0);
+  }
+  const bridge = webBridge(h);
+  for (const eventOverrides of [{ source: {} }, { origin: 'https://evil.example' }]) await bridge.request({ type: 'open-platform', platform: 'tiktok' }, eventOverrides);
+  for (const type of ['signup-start', 'runner-job', 'runner-update', 'signup-runner-stop', 'arbitrary-command']) await bridge.request({ type, platform: 'tiktok' });
+  assert.equal(bridge.forwarded.length, 0);
+  assert.equal(h.created.length, 0);
+  await bridge.request({ type: 'tabs', platform: 'tiktok', token: 'must-not-forward', url: 'https://evil.example', capability: 'must-not-forward', patch: { phase: 'running' } });
+  assert.deepEqual(Object.keys(bridge.forwarded[0]).sort(), ['platform', 'settings', 'tabId', 'type']);
+  assert.equal(bridge.responses.at(-1).data.ok, true);
+  assert.equal(h.job(), undefined);
 });
 test('stop blocks replacement until runner acknowledges and preserves uncertain outcomes',async()=>{
  const h=background();
