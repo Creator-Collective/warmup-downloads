@@ -652,6 +652,115 @@ test('TikTok comment confirmation requires a new own row, cleared editor and the
   }
 });
 
+test('unchanged TikTok baseline comments can remount with equivalent normalized text', () => {
+  for (const modal of [false, true]) {
+    const h = commentComposer({ modal });
+    const old = h.rows[0];
+    old.text.ownText = 'an\u00a0existing\r\ncomment';
+    h.prepare();
+    h.state.onSubmit = () => {
+      old.row.remove();
+      h.addComment('an existing\ncomment', '@someone');
+    };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(old.row.isConnected, false);
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.submitted, 1);
+  }
+});
+
+test('remounting cannot conceal a missing or changed TikTok baseline comment', () => {
+  for (const change of ['missing', 'text', 'author']) {
+    const h = commentComposer();
+    const old = h.rows[0];
+    h.prepare();
+    h.state.onSubmit = () => {
+      old.row.remove();
+      if (change !== 'missing') h.addComment(change === 'text' ? 'changed text' : old.text.textContent, change === 'author' ? '@different' : '@someone');
+    };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    const result = h.inspect('verify-comment');
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, 'baseline-changed');
+  }
+});
+
+test('TikTok baseline preservation retains duplicate comment cardinality after remounting', () => {
+  for (const copies of [1, 2]) {
+    const h = commentComposer();
+    const text = h.rows[0].text.textContent;
+    h.addComment(text, '@someone');
+    const baseline = [...h.rows];
+    h.prepare();
+    h.state.onSubmit = () => {
+      for (const old of baseline) old.row.remove();
+      for (let index = 0; index < copies; index++) h.addComment(text, '@someone');
+    };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    const result = h.inspect('verify-comment');
+    assert.equal(result.confirmed, copies === 2);
+    if (copies === 1) assert.equal(result.reason, 'baseline-changed');
+  }
+});
+
+test('an older own TikTok row cannot become the new comment even when its baseline text is restored elsewhere', () => {
+  for (const replaceTextNode of [false, true]) {
+    const h = commentComposer();
+    const old = h.addComment('an older own comment');
+    h.prepare();
+    h.state.confirm = false;
+    h.state.onSubmit = () => {
+      h.field.textContent = '';
+      if (replaceTextNode) {
+        old.text.remove();
+        old.row.append(h.element('span', { 'data-e2e': 'comment-level-1' }, h.request.comment, old.text.bounds));
+      } else old.text.ownText = h.request.comment;
+      h.addComment('an older own comment');
+    };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    const result = h.inspect('verify-comment');
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, 'own-row-not-new');
+  }
+});
+
+test('TikTok confirmation failures expose only a compact reason for each confirmation gate', () => {
+  for (const [reason, change] of [
+    ['identity-changed', h => { h.profile.attrs.href = 'https://www.tiktok.com/@different/'; }],
+    ['caption-changed', h => { h.heading.ownText = 'a changed caption'; }],
+    ['not-submitted', h => { h.context.collectiveCommentBefore.submitted = false; }],
+    ['interrupted', h => h.interact('pointerdown')],
+    ['composer-unavailable', h => h.field.remove()],
+    ['reply-mode', h => { h.field.attrs['aria-label'] = 'Add a reply'; }],
+    ['composer-not-empty', h => { h.field.textContent = 'another draft'; }],
+    ['own-row-missing', h => h.rows.at(-1).row.remove()],
+    ['own-row-ambiguous', h => h.addComment(h.request.comment)]
+  ]) {
+    const h = commentComposer(); h.prepare();
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    change(h);
+    const result = h.inspect('verify-comment');
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, reason);
+    assert.deepEqual(Object.keys(result).sort(), ['confirmed', 'reason']);
+  }
+});
+
+test('TikTok comment diagnostics distinguish a changed post from an unavailable viewer', () => {
+  for (const [reason, change] of [
+    ['post-changed', h => { h.request.author = '@anothercreator'; }],
+    ['post-unavailable', h => { h.video.hidden = true; }]
+  ]) {
+    const h = commentComposer(); h.prepare();
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    change(h);
+    const result = h.inspect('verify-comment');
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, reason);
+  }
+});
+
 test('a TikTok rejection during drafting blocks submit and leaves the draft untouched', () => {
   const h = commentComposer(); h.prepare(); h.state.blocked = true;
   assert.equal(h.inspect('click-comment-submit').blockReason, 'rate-limit');

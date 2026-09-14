@@ -1,13 +1,9 @@
 {
-  "version": "0.6.41",
   "releasedAt": "2026-09-14",
   "summary": "tiktok comment counting improvements",
   "changes": [
     "comment confirmation now tolerates tiktok redrawing unchanged comments while preserving duplicate and account checks.",
     "a live test confirmed that a comment was posted and remained after reopening the post. photo browsing also completed normally.",
     "comment counting and accepted follows are still being verified; tiktok is not yet fully confirmed."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.41.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

@@ -480,9 +480,11 @@ async function performEngagement(action, post, comment) {
     pendingDraft = false;
   }
   const confirmationAttempts = { like: 6, follow: 10, comment: 8 }[action] || 6;
+  let confirmationReason;
   for (let i = 0; i < confirmationAttempts; i++) {
     await sleep(750);
     const result = await inspect({ ...request, action: `verify-${action}` });
+    confirmationReason = result.reason;
     if (result.blocked) throw new Error(result.blocked);
     if (result.confirmed) {
       // TikTok can show Following optimistically even when the follow is lost.
@@ -490,6 +492,9 @@ async function performEngagement(action, post, comment) {
       if (action === 'follow' && currentPlatform() === 'tiktok') break;
       pendingEngagement = false; pendingDraft = false; return 'confirmed';
     }
+  }
+  if (action === 'comment' && currentPlatform() === 'tiktok') {
+    console.warn('Warm-up comment confirmation:', confirmationReason || 'not-confirmed');
   }
   const confirmed = action === 'follow' && await verifyFollowOnFreshPost(request);
   pendingEngagement = false;

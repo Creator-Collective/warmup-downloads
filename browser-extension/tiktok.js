@@ -72,7 +72,8 @@ function inspectTikTok(request = {}) {
   // Keep rendered offscreen results in order, but never select hidden preload anchors.
   const sequence = unique(links.filter(rendered).map(link => postURL(link.href)).filter(Boolean));
   const posts = unique(links.filter(visible).map(link => postURL(link.href)).filter(Boolean));
-  const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false } : { posts, sequence, post: null };
+  const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false,
+    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null };
   const pageId = postURL(location.href);
   const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
   const area = element => {
@@ -112,7 +113,7 @@ function inspectTikTok(request = {}) {
       closeControl.click();
       return { clicked: true };
     }
-    return { changed: true, point: null, clicked: false, confirmed: false };
+    return empty();
   }
   // Search/profile cards can autoplay previews. Opening one is required first.
   if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty();
@@ -245,7 +246,8 @@ function inspectTikTok(request = {}) {
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
     like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
   if (!request.action) return { posts, sequence, post };
-  if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false };
+  if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false,
+    ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : {}) };
   if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {
     return { changed: true, point: null, ready: false, clicked: false, opened: false, reason: 'caption-changed' };
   }
@@ -318,11 +320,34 @@ function inspectTikTok(request = {}) {
   if (request.action === 'comment-clear') return { point: owned && before.drafted && !before.submitted && composerValue(composer) === request.comment ? point(composer) : null };
   if (request.action === 'comment-cleared') return { cleared: Boolean(owned && before.drafted && before.clearing && !before.submitted && composerValue(composer) === '') };
   if (request.action === 'verify-comment') {
-    if (!identity || before.caption !== caption || !before.submitted || before.interrupted || !composer || replying || composerValue(composer) !== '') return { confirmed: false };
+    const unconfirmed = reason => ({ confirmed: false, reason });
+    if (!identity) return unconfirmed('identity-changed');
+    if (before.caption !== caption) return unconfirmed('caption-changed');
+    if (!before.submitted) return unconfirmed('not-submitted');
+    if (before.interrupted) return unconfirmed('interrupted');
+    if (!composer) return unconfirmed('composer-unavailable');
+    if (replying) return unconfirmed('reply-mode');
+    if (composerValue(composer) !== '') return unconfirmed('composer-not-empty');
     const rows = commentRows();
-    const baselineIntact = before.rows.every(previous => rows.some(row => row.node === previous.node && row.textNode === previous.textNode && row.author === previous.author && row.text === previous.text));
-    const added = rows.filter(row => row.author === ownProfile && row.text === request.comment && visible(row.textNode) && !before.rows.some(previous => previous.textNode === row.textNode));
-    return { confirmed: Boolean(baselineIntact && added.length === 1) };
+    // React can remount unchanged comments after submission. Preserve every
+    // author/text occurrence, including duplicates, instead of requiring old DOM.
+    const rowKey = row => JSON.stringify([row.author, row.text]);
+    const remaining = new Map();
+    for (const row of rows) {
+      const key = rowKey(row);
+      remaining.set(key, (remaining.get(key) || 0) + 1);
+    }
+    for (const previous of before.rows) {
+      const key = rowKey(previous);
+      const count = remaining.get(key) || 0;
+      if (!count) return unconfirmed('baseline-changed');
+      remaining.set(key, count - 1);
+    }
+    const added = rows.filter(row => row.author === ownProfile && row.text === request.comment && visible(row.textNode));
+    if (!added.length) return unconfirmed('own-row-missing');
+    if (added.length !== 1) return unconfirmed('own-row-ambiguous');
+    if (before.rows.some(previous => previous.node === added[0].node || previous.textNode === added[0].textNode)) return unconfirmed('own-row-not-new');
+    return { confirmed: true };
   }
   if (request.action === 'verify-like') return { confirmed: Boolean(liked && visible(like)) };
   if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };
