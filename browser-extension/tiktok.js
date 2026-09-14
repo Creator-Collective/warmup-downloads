@@ -86,13 +86,16 @@ function inspectTikTok(request = {}) {
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
-  const viewerText = (viewer?.innerText || viewer?.textContent || '').toLowerCase();
-  const failedViewer = Boolean(viewer && pageId && /something went wrong/.test(viewerText) && /sorry about that[.!]?\s*please try again later/.test(viewerText));
+  const failureText = viewer ? all(viewer, 'h1, h2, h3, p, [role="alert"]')
+    .filter(element => visible(element) && !element.closest('[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-text"]'))
+    .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
+  const failedViewer = Boolean(viewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
+    failureText.some(text => /^sorry about that[.!]?\s*please try again later[.!]?$/.test(text)));
   if (failedViewer) {
     const closeControls = unique([
       ...all(viewer, '[data-e2e="browse-close"]'),
       ...all(viewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
-    ].filter(visible));
+    ].filter(visible).map(element => element.closest('button, [role="button"]') || element));
     const closeControl = closeControls.length === 1 ? closeControls[0] : null;
     if (!request.action) return { posts, sequence, post: null, ...(closeControl ? { unavailableViewer: pageId } : {}) };
     if (request.action === 'click-close' && request.id === pageId && closeControl && typeof closeControl.click === 'function') {

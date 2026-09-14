@@ -1,3 +1,7 @@
+# 0.6.37 tiktok comment and failed-post recovery
+
+TikTok comment drafts keep their extension ownership while TikTok delivers the delayed editor event that enables Post. Manual edits, duplicate prevention, single-submit handling and confirmed-comment counting remain enforced. Known failed photo viewers close before search resumes, so their overlay cannot trap the session in repeated result-opening attempts.
+
 # 0.6.36 tiktok search engagement controls
 
 A signed-in live test reproduced 18 post advances and no engagement in 2 minutes 43 seconds. TikTok nests its primary post controls and author inside `search-comment-container`; the observer excluded that entire panel as comment content. Narrow exclusions to actual comment rows, replies and composers while preserving the active post and author checks.

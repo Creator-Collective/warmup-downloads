@@ -1,13 +1,9 @@
 {
-  "version": "0.6.37",
   "releasedAt": "2026-09-13",
   "summary": "tiktok comments and failed photo posts recover correctly",
   "changes": [
     "fixed the editor timing issue that caused tiktok comment drafts to be abandoned before post could be pressed.",
     "unavailable tiktok photo posts now close and return to the search instead of trapping the session.",
     "manual draft protection, single-submit handling and confirmed-action counting remain in place."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.37.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
