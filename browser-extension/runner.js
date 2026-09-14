@@ -295,25 +295,9 @@ async function scroll() {
 async function recoverCommentDraft(request) {
   await execute((request, deadline) => {
     if (Date.now() >= deadline) return;
-    if (location.hostname.includes('tiktok')) {
-      const target = globalThis.inspectTikTok({ ...request, action: 'comment-clear' });
-      if (target.blocked) throw new Error(target.blocked);
-      const before = globalThis.collectiveCommentBefore;
-      const field = before?.composer;
-      if (!target.point || !field?.isConnected || !field.isContentEditable || field.textContent !== request.comment) return;
-      before.clearing = true;
-      before.inputting = true;
-      try {
-        field.focus();
-        const range = document.createRange();
-        range.selectNodeContents(field);
-        const selection = document.getSelection();
-        if (!selection) return;
-        selection.removeAllRanges(); selection.addRange(range);
-        document.execCommand('delete', false);
-      } finally { before.inputting = false; }
-      return;
-    }
+    // Never delete native DOM from TikTok's controlled editor. If submission
+    // was unavailable, preserve the draft and let the session pause comments.
+    if (location.hostname.includes('tiktok')) return;
     const target = globalThis.inspectInstagram({ ...request, action: 'comment-clear' });
     if (target.blocked) throw new Error(target.blocked);
     if (!target.point) return;
@@ -331,7 +315,9 @@ async function recoverCommentDraft(request) {
 }
 async function verifyFollowOnFreshPost(request) {
   assertRunning();
-  if (currentPlatform() !== 'instagram' || !request.author || !platformConfig().validPost(request.id)) return false;
+  const config = platformConfig();
+  if (!request.author || !config.validPost(request.id)) return false;
+  const matches = url => config.platform === 'tiktok' ? platformURL(url, 'tiktok') && sameDestination(url, request.id) : url === request.id;
   let tabId;
   const until = Math.min(Date.now() + 8000, job.deadline);
   try {
@@ -342,21 +328,21 @@ async function verifyFollowOnFreshPost(request) {
     while (Date.now() < until) {
       assertRunning();
       const current = await chrome.tabs.get(tabId);
-      if (current.pendingUrl && current.pendingUrl !== request.id) return false;
-      if (current.url !== request.id && current.url !== 'about:blank' && current.url) return false;
-      if (current.status === 'complete' && current.url === request.id && !current.pendingUrl) {
-        await chrome.scripting.executeScript({ target: { tabId }, files: ['instagram.js'] });
+      if (current.pendingUrl && !matches(current.pendingUrl)) return false;
+      if (!matches(current.url) && current.url !== 'about:blank' && current.url) return false;
+      if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
+        await chrome.scripting.executeScript({ target: { tabId }, files: [config.script] });
         assertRunning();
         const results = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (request, deadline) => Date.now() < deadline ? globalThis.inspectInstagram({ ...request, action: 'verify-follow' }) : {},
-          args: [request, job.deadline]
+          func: (inspector, request, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: 'verify-follow' }) : {},
+          args: [config.inspector, request, job.deadline]
         });
         assertRunning();
         const result = results[0]?.result;
         const committed = await chrome.tabs.get(tabId);
         assertRunning();
-        if (committed.url !== request.id || committed.pendingUrl) return false;
+        if (!matches(committed.url) || committed.pendingUrl) return false;
         if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
         if (result?.confirmed) return true;
       }
@@ -371,7 +357,7 @@ async function verifyFollowOnFreshPost(request) {
     if (tabId !== undefined) {
       try {
         const current = await chrome.tabs.get(tabId);
-        if ((!current.pendingUrl || current.pendingUrl === request.id) && [request.id, 'about:blank', ''].includes(current.url || '')) await chrome.tabs.remove(tabId);
+        if ((!current.pendingUrl || matches(current.pendingUrl)) && (matches(current.url) || ['about:blank', ''].includes(current.url || ''))) await chrome.tabs.remove(tabId);
       } catch { /* The user may already have closed the temporary tab. */ }
     }
   }
@@ -433,14 +419,11 @@ async function performEngagement(action, post, comment) {
         before.inputting = true;
         before.inputtingUntil = Date.now() + 1000;
         try {
-          const range = document.createRange();
-          range.selectNodeContents(field); range.collapse(false);
-          const selection = document.getSelection();
-          if (!selection) return 'draft';
-          selection.removeAllRanges(); selection.addRange(range);
-          // TikTok uses Draft.js. A browser editing command updates its editor
-          // state and input events; assigning textContent only changes the DOM.
-          document.execCommand('insertText', false, request.comment);
+          // Draft.js owns the editor DOM. Its paste handler updates editor state;
+          // native insertText can remove nodes that React still expects to own.
+          const clipboardData = new DataTransfer();
+          clipboardData.setData('text/plain', request.comment);
+          field.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
         } finally { before.inputting = false; }
         return 'draft';
       }
@@ -501,7 +484,12 @@ async function performEngagement(action, post, comment) {
     await sleep(750);
     const result = await inspect({ ...request, action: `verify-${action}` });
     if (result.blocked) throw new Error(result.blocked);
-    if (result.confirmed) { pendingEngagement = false; pendingDraft = false; return 'confirmed'; }
+    if (result.confirmed) {
+      // TikTok can show Following optimistically even when the follow is lost.
+      // Require a separate loaded page before counting it as accepted.
+      if (action === 'follow' && currentPlatform() === 'tiktok') break;
+      pendingEngagement = false; pendingDraft = false; return 'confirmed';
+    }
   }
   const confirmed = action === 'follow' && await verifyFollowOnFreshPost(request);
   pendingEngagement = false;

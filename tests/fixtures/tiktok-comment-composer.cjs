@@ -150,18 +150,24 @@ function commentComposer({ modal = true, open = true, postId = id, withPhoto = f
   page.document.createRange = () => ({ field: null, selectNodeContents(element) { this.field = element; }, collapse() {} });
   page.document.getSelection = () => ({ removeAllRanges() { selectionRange = null; }, addRange(range) { selectionRange = range; } });
   page.context.getSelection = page.document.getSelection;
-  page.document.execCommand = (command, _ui, value) => {
-    if (selectionRange?.field !== field || page.document.activeElement !== field) return false;
-    page.interact('beforeinput', field);
-    if (command === 'insertText') field.textContent = value;
-    else if (command === 'delete') field.textContent = '';
-    else return false;
+  page.context.DataTransfer = class {
+    constructor() { this.data = new Map(); }
+    setData(type, value) { this.data.set(type, value); }
+    getData(type) { return this.data.get(type) || ''; }
+  };
+  page.context.ClipboardEvent = class {
+    constructor(type, options) { this.type = type; Object.assign(this, options); this.isTrusted = false; }
+  };
+  const dispatch = Object.getPrototypeOf(field).dispatchEvent;
+  Object.getPrototypeOf(field).dispatchEvent = function(event) {
+    dispatch.call(this, event);
+    if (event.type !== 'paste' || this !== field || page.document.activeElement !== field || state.ignorePaste) return;
+    field.textContent = event.clipboardData.getData('text/plain');
     submit.disabled = field.textContent === '';
     inputs.push(field.textContent);
-    page.interact('input', field);
-    state.onInput(field, command);
-    return true;
+    state.onInput(field, 'paste');
   };
+  page.document.execCommand = () => { throw new Error('native DOM editing must not touch Draft.js'); };
   return {
     ...page, request, profile, footer, editor, input, submit, openButton, list, rows, state, inputs, addComment, heading: page.caption,
     interact(type, isTrusted = true, target = field) { page.interact(type, target, isTrusted); },
