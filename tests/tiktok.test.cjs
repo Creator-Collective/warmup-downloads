@@ -158,6 +158,20 @@ test('search panel photo ownership ignores comment authors but rejects a differe
   assert.equal(h.clicks.length, 0);
 });
 
+test('a failed TikTok photo viewer exposes only its close recovery', () => {
+  const h = searchCommentViewer({ withPhoto: true });
+  h.header.remove(); h.caption.remove(); h.actions.remove();
+  h.details.append(
+    h.element('h2', {}, 'Something went wrong', h.rect(400, 120, 220, 35)),
+    h.element('p', {}, 'Sorry about that! Please try again later.', h.rect(400, 170, 280, 35))
+  );
+  const page = h.context.inspectTikTok();
+  assert.equal(page.post, null);
+  assert.equal(page.unavailableViewer, h.request.id);
+  assert.equal(h.inspect('click-close').clicked, true);
+  assert.deepEqual(h.clicks, [h.close]);
+});
+
 test('a restriction displayed beside the search panel composer still stops actions', () => {
   const h = searchCommentViewer();
   h.input.append(h.element('p', {}, "You're commenting too fast", h.rect(350, 670, 250, 25)));

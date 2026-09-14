@@ -166,6 +166,22 @@ test('sessions do not start an engagement without time left for its confirmation
   }
 });
 
+test('a failed TikTok viewer returns to search instead of reopening covered result tiles', async () => {
+  const unavailableViewer = 'https://www.tiktok.com/@creator/photo/123/';
+  let recovered;
+  const h = harness({
+    inspect: async () => ({ post: null, posts: [unavailableViewer], sequence: [unavailableViewer], unavailableViewer }),
+    leavePost: async post => {
+      recovered = post;
+      h.controller.abort(new Error('recovery observed'));
+      return true;
+    }
+  });
+  await runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  assert.deepEqual(recovered, { id: unavailableViewer, viewer: true, close: true });
+  assert.equal(h.calls.some(call => call[0] === 'open'), false);
+});
+
 test('random pauses stay within their automatic bounds', () => {
   assert.equal(randomBetween(5000, 8000, () => 0), 5000);
   assert.equal(randomBetween(5000, 8000, () => 1), 8000);

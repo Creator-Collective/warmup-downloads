@@ -1,5 +1,5 @@
-fix tiktok delayed comment input ownership
+test: add reproducer for failed tiktok photo viewers
 
 misc:
-- keep the extension-owned draft through tiktok's delayed editor event
-- preserve manual edit and single-submit protections
+- reproduce an unavailable photo covering search results until it is closed
+- require recovery before another result tile can open
