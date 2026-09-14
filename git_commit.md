@@ -1,8 +1,11 @@
-fix tiktok editor ownership and failed viewer recovery
+fix tiktok photo author detection beside comment composer
 
 misc:
-- preserve exact replacement drafts after fresh identity checks
-- allow a submitted empty editor to await independent comment confirmation
-- recover failed viewers without clicking covered or disabled controls
-- add regression cases and package version 0.6.38
-- clarify that live comment verification remains pending
+- exclude signed-in composer avatars from primary photo author checks
+- preserve real conflicting authors and one-time comment identity checks
+- cover observed photo and video composer layouts with regression fixtures
+- package 0.6.39 and record incomplete live comment verification
+
+verification:
+- 424 automated checks pass
+- both 30-file extension archives match source

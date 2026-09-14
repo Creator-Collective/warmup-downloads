@@ -187,6 +187,16 @@ function searchCommentViewer({ withPhoto = false, open = true } = {}) {
   const panelContent = page.element('div', { class: 'DivCommentListContainer' }, '', page.rect(350, 0, 400, 580));
   for (const child of [...page.details.children]) { child.remove(); panelContent.append(child); }
   panelContent.append(page.list); page.details.append(panelContent);
+  // The signed-in avatar sits beside the editor, outside comment-input, in
+  // the search viewer's separate bottom composer bar.
+  page.footer.attrs.class = 'css-search-DivCommentBarContainer';
+  const enhancedCommentBar = page.element('div', { class: 'css-search-DivEnhancedBottomCommentContainer' }, '', page.footer.bounds);
+  const composerContent = page.element('div', { class: 'css-search-DivContentContainer' }, '', page.footer.bounds);
+  const composerAvatar = page.element('a', { href: 'https://www.tiktok.com/@me/' }, '', page.rect(300, 610, 36, 36));
+  composerAvatar.append(page.element('img', { alt: 'Your profile' }, '', page.rect(300, 610, 36, 36)));
+  page.input.remove(); page.submit.remove();
+  composerContent.append(composerAvatar, page.input, page.submit);
+  enhancedCommentBar.append(composerContent); page.footer.append(enhancedCommentBar);
   const preload = page.element('div', { 'aria-hidden': 'true' }, '', page.rect(0, 900, 750, 650));
   const nextVideo = page.element('video', {}, '', page.rect(0, 900, 340, 500));
   Object.assign(nextVideo, { paused: false, ended: false, readyState: 4 });
@@ -196,7 +206,7 @@ function searchCommentViewer({ withPhoto = false, open = true } = {}) {
     page.element('button', { 'data-e2e': 'like-icon' }, 'Like', page.rect(350, 1000, 60, 36)),
     page.element('button', { 'data-e2e': 'follow-button' }, 'Follow', page.rect(500, 900, 80, 30)));
   page.main.append(preload);
-  return Object.assign(page, { preload, nextVideo, panelContent });
+  return Object.assign(page, { preload, nextVideo, panelContent, enhancedCommentBar, composerContent, composerAvatar });
 }
 
 module.exports = { fixture, commentComposer, searchCommentViewer };
