@@ -1,3 +1,16 @@
+2026-09-13 — 0.6.37: repair tiktok comments and failed photo recovery
+- reproduced the live comment outcome with a delayed trusted editor input after the extension draft; kept ownership only for the exact extension text during a one-second controlled window so Post can enable without weakening manual edit, duplicate or single-submit guards.
+- recognized the exact tiktok failed-photo viewer and closes its unique recovery control before returning to search, instead of reopening result tiles behind the overlay.
+- files: browser-extension/runner.js, browser-extension/tiktok.js, browser-extension/session.js, tests/extension.test.cjs, tests/tiktok.test.cjs, tests/session.test.cjs, version/release/package files.
+- verified: both regressions failed before implementation; 410 tests pass, relevant coverage 96.88% lines / 96.20% branches / 95.71% functions; both 30-file 0.6.37 archives match source.
+- follow-up: installed signed-in live comment verification remains pending under the no-chrome-control instruction.
+
+2026-09-13 — live 0.6.36 verification: likes/follows pass, comment submission fails
+- fresh installed handshake confirmed 0.6.36; signed-in @ollyexplains, personal branding, 10 minutes, targets 1/1/1. run 22:19:11–22:29:11 ET completed automatically with 32 advances, 1 like, 1 follow, 0 comments.
+- confirmed like @jamieegabrielle video/7559649022097526030; confirmed follow @justinschumanofficial. comment attempt @juliabroome video/7625708232819920142 text "the personal part gets forgotten so fast" returned draft-retained and disabled further comments without counting a submission. no manual public engagement added.
+- final search period repeatedly failed openings after reaching a photo URL; completed timer is verified, full functionality is not. original draft state was no longer visible after the runner continued navigating.
+- follow-ups: diagnose comment editor/submit readiness with focused live observation; fix proven issues, preserve no-repeat submission and manual draft protection, rerun installed verification.
+
 2026-09-13 — 0.6.36: repair tiktok search post controls found by live testing
 - live reproduction: installed 0.6.35 confirmed through a fresh student-page handshake. started a signed-in tiktok session at 21:16:52 ET, 10 minutes, personal branding, manual targets 1 like/1 follow/1 comment. stopped at 2:43 after 18 advances and zero confirmed actions; this is a failed test, not completed verification.
 - observed cause: tiktok places post author, caption and primary action buttons inside search-comment-container. the observer treated every descendant as comment content; actual comments use separate item/content wrappers within that panel.

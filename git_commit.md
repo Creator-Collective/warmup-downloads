@@ -1,7 +1,6 @@
-fix tiktok search post engagement controls
+release tiktok comment and failed-post recovery
 
 misc:
-- distinguish primary search post controls from comment rows and editors
-- preserve active author, photo identity and confirmed-action checks
-- cover the observed live search panel with video and photo regressions
-- release 0.6.36 with checked extension archives and setup metadata
+- keep tiktok comment drafts through delayed editor updates
+- close failed photo viewers before resuming search
+- package version 0.6.37 with matching release notes and archives

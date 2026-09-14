@@ -86,6 +86,24 @@ function inspectTikTok(request = {}) {
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
+  const failureText = viewer ? all(viewer, 'h1, h2, h3, p, [role="alert"]')
+    .filter(element => visible(element) && !element.closest('[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-text"]'))
+    .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
+  const failedViewer = Boolean(viewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
+    failureText.some(text => /^sorry about that[.!]?\s*please try again later[.!]?$/.test(text)));
+  if (failedViewer) {
+    const closeControls = unique([
+      ...all(viewer, '[data-e2e="browse-close"]'),
+      ...all(viewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
+    ].filter(visible).map(element => element.closest('button, [role="button"]') || element));
+    const closeControl = closeControls.length === 1 ? closeControls[0] : null;
+    if (!request.action) return { posts, sequence, post: null, ...(closeControl ? { unavailableViewer: pageId } : {}) };
+    if (request.action === 'click-close' && request.id === pageId && closeControl && typeof closeControl.click === 'function') {
+      closeControl.click();
+      return { clicked: true };
+    }
+    return { changed: true, point: null, clicked: false, confirmed: false };
+  }
   // Search/profile cards can autoplay previews. Opening one is required first.
   if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty();
   const main = viewer || document.querySelector('main, [role="main"]') || document.body;
@@ -251,10 +269,13 @@ function inspectTikTok(request = {}) {
     if (rows.some(row => row.author === ownProfile && row.text === request.comment)) return { point: null, reason: 'own-comment-already-exists' };
     globalThis.collectiveCommentBefore?.release?.();
     const before = { platform: 'tiktok', postId: id, postAuthor: author, author: ownProfile, caption, text: request.comment, composer,
-      container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, rows };
+      container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, inputtingUntil: 0, rows };
     const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
     const interrupt = event => {
-      if (!event.isTrusted || (before.inputting && ['beforeinput', 'input'].includes(event.type))) return;
+      const controlledInput = ['beforeinput', 'input'].includes(event.type) &&
+        (before.inputting || (before.drafted && Date.now() <= before.inputtingUntil &&
+          (event.target === before.composer || before.composer?.contains(event.target)) && ['', before.text].includes(composerValue(before.composer))));
+      if (!event.isTrusted || controlledInput) return;
       const input = event.target?.closest?.('[data-e2e="comment-input"]');
       if (event.target === before.composer || before.composer?.contains(event.target) || before.container?.contains(event.target) || (input && commentRoot.contains(input))) before.interrupted = true;
     };
