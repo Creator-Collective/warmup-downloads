@@ -614,6 +614,21 @@ test('TikTok waits for an enabled Post and tolerates focus loss and editor repla
  assert.deepEqual(composer.inputs, [composer.request.comment]);
 });
 
+test('TikTok keeps its draft after the editor delivers a delayed controlled input event', async () => {
+ const { composer, result, continued } = await runTikTokComment(composer => {
+   const inject = composer.inject;
+   composer.inject = (func, args) => {
+     const result = inject(func, args);
+     if (args?.[0] === 'comment' && result === 'draft') composer.interact('input');
+     return result;
+   };
+ });
+ assert.equal(result, 'confirmed');
+ assert.equal(composer.submitted, 1);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
+});
+
 test('TikTok clears only its unchanged unsent draft when Post stays unavailable', async () => {
  const { composer, result, continued } = await runTikTokComment(composer => {
    composer.state.onInput = () => { composer.submit.disabled = true; };

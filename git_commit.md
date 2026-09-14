@@ -1,7 +1,4 @@
-fix tiktok search post engagement controls
+test: add reproducer for delayed tiktok comment input
 
 misc:
-- distinguish primary search post controls from comment rows and editors
-- preserve active author, photo identity and confirmed-action checks
-- cover the observed live search panel with video and photo regressions
-- release 0.6.36 with checked extension archives and setup metadata
+- reproduce tiktok revoking its own draft after a delayed editor input event
