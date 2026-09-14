@@ -105,7 +105,7 @@ function fixture({ postId = id, href = postId, modal = false, tag = 'div', withV
     inspect: request => context.inspectTikTok(request) };
 }
 
-function commentComposer({ modal = true, open = true, postId = id, withPhoto = false } = {}) {
+function commentComposer({ modal = true, open = true, postId = id, withPhoto = false, searchPanel = false } = {}) {
   const page = fixture({ modal, postId, withPhoto });
   const caption = page.caption.textContent;
   const request = { id: postId, author: '@creator', caption, comment: 'this setup tip is useful for personal branding' };
@@ -124,11 +124,11 @@ function commentComposer({ modal = true, open = true, postId = id, withPhoto = f
   const warning = page.element('div', {}, 'Too many requests', page.rect(0, 720, 900, 60));
   warning.hidden = true; page.body.append(warning);
   Object.defineProperty(state, 'blocked', { get: () => !warning.hidden, set: value => { warning.hidden = !value; } });
-  const list = page.element('div', { 'data-e2e': 'comment-list' }, '', page.rect(350, 230, 380, 320));
+  const list = page.element('div', searchPanel ? {} : { 'data-e2e': 'comment-list' }, '', page.rect(350, 230, 380, 320));
   const rows = [];
   function addComment(text, author = '@me') {
     const top = 250 + rows.length * 55;
-    const row = page.element('div', {}, '', page.rect(350, top, 340, 50));
+    const row = page.element('div', searchPanel ? { class: 'DivCommentItemContainer' } : {}, '', page.rect(350, top, 340, 50));
     const authorLink = page.element('a', { href: `https://www.tiktok.com/${author}/` }, author, page.rect(350, top, 80, 20));
     const textNode = page.element('span', { 'data-e2e': 'comment-level-1' }, text, page.rect(350, top + 20, 330, 25));
     row.append(authorLink, textNode); list.append(row);
@@ -175,4 +175,28 @@ function commentComposer({ modal = true, open = true, postId = id, withPhoto = f
   };
 }
 
-module.exports = { fixture, commentComposer };
+// Captured TikTok search viewer: the right-hand panel's "comment" name also
+// covers the post author, caption and primary engagement controls.
+function searchCommentViewer({ withPhoto = false, open = true } = {}) {
+  const postId = withPhoto ? 'https://www.tiktok.com/@creator/photo/234/' : id;
+  const page = commentComposer({ modal: true, postId, withPhoto, open, searchPanel: true });
+  page.article.tagName = 'DIV';
+  page.details.attrs['data-e2e'] = 'search-comment-container';
+  page.details.bounds = page.rect(350, 0, 400, 720);
+  page.list.remove();
+  const panelContent = page.element('div', { class: 'DivCommentListContainer' }, '', page.rect(350, 0, 400, 580));
+  for (const child of [...page.details.children]) { child.remove(); panelContent.append(child); }
+  panelContent.append(page.list); page.details.append(panelContent);
+  const preload = page.element('div', { 'aria-hidden': 'true' }, '', page.rect(0, 900, 750, 650));
+  const nextVideo = page.element('video', {}, '', page.rect(0, 900, 340, 500));
+  Object.assign(nextVideo, { paused: false, ended: false, readyState: 4 });
+  preload.append(nextVideo,
+    page.element('a', { href: 'https://www.tiktok.com/@next/video/456/' }, 'next post', page.rect(350, 950, 100, 30)),
+    page.element('a', { href: 'https://www.tiktok.com/@next/' }, '@next', page.rect(350, 900, 100, 30)),
+    page.element('button', { 'data-e2e': 'like-icon' }, 'Like', page.rect(350, 1000, 60, 36)),
+    page.element('button', { 'data-e2e': 'follow-button' }, 'Follow', page.rect(500, 900, 80, 30)));
+  page.main.append(preload);
+  return Object.assign(page, { preload, nextVideo, panelContent });
+}
+
+module.exports = { fixture, commentComposer, searchCommentViewer };

@@ -1,13 +1,9 @@
 {
-  "version": "0.6.36",
   "releasedAt": "2026-09-13",
   "summary": "tiktok search posts can use their own engagement controls",
   "changes": [
     "fixed a live-tested issue where tiktok’s search panel made the extension skip the post’s like and follow buttons.",
     "post controls are separated from individual comments and replies, including on photo posts.",
     "existing action limits, pacing, account checks and confirmed-action counting remain in place."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.36.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

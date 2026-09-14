@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { fixture, commentComposer } = require('./fixtures/tiktok-comment-composer.cjs');
+const { fixture, commentComposer, searchCommentViewer } = require('./fixtures/tiktok-comment-composer.cjs');
 const id = 'https://www.tiktok.com/@creator/video/123/';
 
 test('a feed video includes its sibling action and author panels', () => {
@@ -95,6 +95,75 @@ test('a search dialog ignores offscreen preload videos while finding sibling act
   assert.equal(post.id, id); assert.equal(post.like, true); assert.equal(post.follow, true);
   assert.equal(page.inspect({ id, action: 'click-like' }).clicked, true);
   assert.deepEqual(page.clicks, [page.like]);
+});
+
+for (const withPhoto of [false, true]) {
+  test(`the live search ${withPhoto ? 'photo' : 'video'} panel keeps primary actions separate from its comments`, () => {
+    const h = searchCommentViewer({ withPhoto });
+    const commentLike = h.element('button', { 'data-e2e': 'like-icon', 'aria-label': 'Unlike', 'aria-pressed': 'true' }, '', h.rect(680, 270, 40, 25));
+    const commentFollow = h.element('button', { 'data-e2e': 'follow-button' }, 'Following', h.rect(550, 250, 70, 25));
+    h.rows[0].row.append(commentLike, commentFollow);
+    const post = h.context.inspectTikTok().post;
+    assert.equal(post?.id, h.request.id);
+    assert.equal(post.caption, h.request.caption);
+    assert.equal(post.like, true); assert.equal(post.follow, true); assert.equal(post.comment, true);
+    assert.equal(h.inspect('verify-like').confirmed, false);
+    assert.equal(h.inspect('verify-follow').confirmed, false);
+    assert.equal(h.inspect('click-like').clicked, true);
+    assert.equal(h.inspect('verify-like').confirmed, true);
+    assert.equal(h.inspect('click-follow').clicked, true);
+    assert.equal(h.inspect('verify-follow').confirmed, true);
+    h.prepare();
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.submitted, 1);
+    assert.deepEqual(h.clicks, [h.like, h.follow, h.submit]);
+  });
+}
+
+test('search comment and reply controls cannot replace missing primary post controls', () => {
+  for (const attrs of [
+    ...['comment-list', 'comment-item', 'comment-level-1', 'comment-level-2', 'comment-input', 'comment-text'].map(marker => ({ 'data-e2e': marker })),
+    { class: 'DivCommentItemContainer' }, { class: 'DivCommentContentContainer' }
+  ]) {
+    const marker = attrs['data-e2e'] || attrs.class;
+    const h = searchCommentViewer({ open: false });
+    h.like.remove(); h.follow.remove(); h.openButton.remove();
+    const row = h.element('div', attrs, '', h.rect(350, 220, 350, 120));
+    row.append(h.element('a', { href: 'https://www.tiktok.com/@creator/' }, '@creator', h.rect(350, 220, 100, 25)),
+      h.element('button', { 'data-e2e': 'like-icon', 'aria-label': 'Unlike', 'aria-pressed': 'true' }, '', h.rect(350, 260, 60, 30)),
+      h.element('button', { 'data-e2e': 'follow-button' }, 'Following', h.rect(500, 260, 80, 30)),
+      h.element('button', { 'data-e2e': 'comment-icon' }, 'Comments', h.rect(600, 260, 80, 30)));
+    h.details.append(row);
+    const post = h.context.inspectTikTok().post;
+    assert.equal(post.like, false, marker); assert.equal(post.follow, false, marker); assert.equal(post.comment, false, marker);
+    assert.equal(h.inspect('verify-like').confirmed, false, marker);
+    assert.equal(h.inspect('verify-follow').confirmed, false, marker);
+    assert.equal(h.inspect('click-like').clicked, false, marker);
+    assert.equal(h.inspect('click-follow').clicked, false, marker);
+    assert.equal(h.inspect('click-comment-open').opened, false, marker);
+    assert.equal(h.clicks.length, 0, marker);
+  }
+});
+
+test('search panel photo ownership ignores comment authors but rejects a different primary author', () => {
+  const h = searchCommentViewer({ withPhoto: true });
+  assert.equal(h.context.inspectTikTok().post?.id, h.request.id);
+  h.author.attrs.href = 'https://www.tiktok.com/@wrongcreator/';
+  assert.equal(h.context.inspectTikTok().post, null);
+  assert.equal(h.inspect('click-like').clicked, false);
+  assert.equal(h.inspect('click-follow').clicked, false);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.clicks.length, 0);
+});
+
+test('a restriction displayed beside the search panel composer still stops actions', () => {
+  const h = searchCommentViewer();
+  h.input.append(h.element('p', {}, "You're commenting too fast", h.rect(350, 670, 250, 25)));
+  assert.equal(h.inspect('click-like').blockReason, 'rate-limit');
+  assert.equal(h.inspect('click-comment-submit').blockReason, 'rate-limit');
+  assert.equal(h.clicks.length, 0);
 });
 
 test('the verified browse-follow wrapper resolves its contained button once', () => {
