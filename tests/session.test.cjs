@@ -184,6 +184,33 @@ test('a failed TikTok viewer returns to search instead of reopening covered resu
   assert.equal(h.calls.some(call => call[0] === 'open'), false);
 });
 
+test('an observed failed photo viewer without close never opens covered search results', async () => {
+  const { searchCommentViewer } = require('./fixtures/tiktok-comment-composer.cjs');
+  const page = searchCommentViewer({ withPhoto: true });
+  page.header.remove(); page.caption.remove(); page.actions.remove(); page.close.remove();
+  page.details.append(
+    page.element('h2', {}, 'Something went wrong', page.rect(400, 120, 220, 35)),
+    page.element('p', {}, 'Sorry about that! Please try again later.', page.rect(400, 170, 280, 35))
+  );
+  for (let i = 0; i < 20; i++) page.body.append(page.element('a', {
+    href: `https://www.tiktok.com/@result/video/${i + 1000}/`
+  }, 'result', page.rect(0, 0, 200, 200)));
+  let recoveryAttempts = 0;
+  const h = harness({
+    inspect: async () => page.context.inspectTikTok(),
+    leavePost: async post => {
+      recoveryAttempts++;
+      return page.context.inspectTikTok({ id: post.id, action: 'click-close' }).clicked;
+    },
+    open: async id => { h.calls.push(['open', id]); return false; }
+  });
+  await runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  assert.ok(recoveryAttempts > 0);
+  assert.ok(h.calls.filter(call => call[0] === 'search').length > 1);
+  assert.equal(h.calls.some(call => call[0] === 'open'), false);
+  assert.match(h.updates.at(-1).message, /session is complete/);
+});
+
 test('random pauses stay within their automatic bounds', () => {
   assert.equal(randomBetween(5000, 8000, () => 0), 5000);
   assert.equal(randomBetween(5000, 8000, () => 1), 8000);
