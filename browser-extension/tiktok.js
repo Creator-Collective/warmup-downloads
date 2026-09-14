@@ -18,6 +18,15 @@ function inspectTikTok(request = {}) {
   };
   const all = (scope, selector) => [...scope.querySelectorAll(selector)];
   const unique = values => [...new Set(values)];
+  const target = (node, root) => {
+    const button = node.closest('button, [role="button"]');
+    if (button && root.contains(button)) return button;
+    // Normalize wrappers and their one visible button to the same control.
+    const contained = all(node, 'button, [role="button"]').filter(visible);
+    if (contained.length) return contained.length === 1 ? contained[0] : null;
+    // Some TikTok layouts attach the handler to a div/span instead of a button.
+    return node;
+  };
   const label = element => (element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent || '').trim().toLowerCase();
   const point = element => {
     if (!visible(element)) return null;
@@ -86,8 +95,7 @@ function inspectTikTok(request = {}) {
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
-  const failureText = viewer ? all(viewer, 'h1, h2, h3, p, [role="alert"]')
-    .filter(element => visible(element) && !element.closest('[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-text"]'))
+  const failureText = viewer ? warningNodes.filter(element => viewer.contains(element))
     .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
   const failedViewer = Boolean(viewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
     failureText.some(text => /^sorry about that[.!]?\s*please try again later[.!]?$/.test(text)));
@@ -95,10 +103,11 @@ function inspectTikTok(request = {}) {
     const closeControls = unique([
       ...all(viewer, '[data-e2e="browse-close"]'),
       ...all(viewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
-    ].filter(visible).map(element => element.closest('button, [role="button"]') || element));
+    ].filter(visible).map(element => target(element, viewer)).filter(Boolean));
     const closeControl = closeControls.length === 1 ? closeControls[0] : null;
-    if (!request.action) return { posts, sequence, post: null, ...(closeControl ? { unavailableViewer: pageId } : {}) };
-    if (request.action === 'click-close' && request.id === pageId && closeControl && typeof closeControl.click === 'function') {
+    // A missing or obstructed close does not make the covered results usable.
+    if (!request.action) return { posts, sequence, post: null, unavailableViewer: pageId };
+    if (request.action === 'click-close' && request.id === pageId && point(closeControl) && typeof closeControl.click === 'function') {
       closeControl.click();
       return { clicked: true };
     }
@@ -130,15 +139,6 @@ function inspectTikTok(request = {}) {
   const id = pageId || (scopedIds.length === 1 ? scopedIds[0] : null);
   if (!id || photo !== photoId(id) || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty();
   const author = new URL(id).pathname.split('/')[1];
-  const target = (node, root) => {
-    const button = node.closest('button, [role="button"]');
-    if (button && root.contains(button)) return button;
-    // browse-follow wraps its actual button; normalize both discoveries to it.
-    const contained = all(node, 'button, [role="button"]').filter(visible);
-    if (contained.length) return contained.length === 1 ? contained[0] : null;
-    // Some TikTok layouts attach the handler to a div/span instead of a button.
-    return node;
-  };
   const exact = (root, selector) => unique(all(root, selector).filter(node => visible(node) && !excluded(node)).map(node => target(node, root)).filter(Boolean));
   const only = values => values.length === 1 ? values[0] : null;
   const semantic = (root, pattern) => all(root, 'button, [role="button"]').filter(element => visible(element) && !excluded(element) && pattern.test(label(element)));
@@ -272,10 +272,18 @@ function inspectTikTok(request = {}) {
       container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, inputtingUntil: 0, rows };
     const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
     const interrupt = event => {
-      const controlledInput = ['beforeinput', 'input'].includes(event.type) &&
-        (before.inputting || (before.drafted && Date.now() <= before.inputtingUntil &&
-          (event.target === before.composer || before.composer?.contains(event.target)) && ['', before.text].includes(composerValue(before.composer))));
-      if (!event.isTrusted || controlledInput) return;
+      if (!event.isTrusted) return;
+      const targetsComposer = () => event.target === before.composer || before.composer?.contains(event.target);
+      if (before.inputting && ['beforeinput', 'input'].includes(event.type) && targetsComposer()) return;
+      // Draft.js can replace its editor before delivering the native input
+      // event. Recheck current post/account/caption and exact draft ownership
+      // before adopting that node; manual beforeinput/key/pointer events revoke it.
+      if (event.type === 'input' && before.drafted && !before.interrupted && Date.now() <= before.inputtingUntil) {
+        // Submit can clear this same editor before its new row is rendered.
+        // Keep that confirmation pending without authorizing another submit.
+        const checked = inspectTikTok({ ...request, action: 'comment-input' });
+        if ((checked.owned || checked.awaitingConfirmation) && targetsComposer()) return;
+      }
       const input = event.target?.closest?.('[data-e2e="comment-input"]');
       if (event.target === before.composer || before.composer?.contains(event.target) || before.container?.contains(event.target) || (input && commentRoot.contains(input))) before.interrupted = true;
     };
@@ -292,12 +300,17 @@ function inspectTikTok(request = {}) {
     before.composer = composer; before.container = commentContainer;
   }
   const owned = Boolean(identity && composer && !replying && before.composer === composer && !before.interrupted);
+  if (request.action === 'comment-input') return {
+    owned: Boolean(sameDraft && owned && composerValue(composer) === before.text),
+    awaitingConfirmation: Boolean(owned && before.caption === caption && before.submitted && composerValue(composer) === '')
+  };
   if (request.action === 'comment-ready') return { ready: Boolean(owned && !before.drafted && !before.submitted && document.activeElement === composer && composerValue(composer) === '') };
   if (request.action === 'comment-submit' || request.action === 'click-comment-submit') {
     const ready = owned && before.caption === caption && before.drafted && !before.submitted && composerValue(composer) === request.comment && submit && point(submit);
     if (request.action === 'comment-submit') return { point: ready || null };
     if (!ready || typeof submit.click !== 'function') return { clicked: false };
     before.submitted = true;
+    before.inputtingUntil = Date.now() + 1000;
     submit.click();
     return { clicked: true };
   }

@@ -1,3 +1,9 @@
+# 0.6.38 tiktok editor and failed-viewer safeguards
+
+Delayed editor input can keep an exact extension draft after TikTok replaces the editor, with fresh post, account and caption checks. After a single submit, an empty editor can wait for the new comment row to appear; an empty editor alone never confirms a comment. Manual edits still cancel ownership. Failed viewers remain recognized when their close button is missing, ambiguous, disabled or covered, allowing the existing search recovery to run without clicking covered results.
+
+These cases are verified with simulated pages. The cause of the earlier live comment failure remains unconfirmed; a successful installed live comment test is still required. The 0.6.36 live run confirmed one like, one follow and timer completion, but no comment.
+
 # 0.6.37 tiktok comment and failed-post recovery
 
 TikTok comment drafts keep their extension ownership while TikTok delivers the delayed editor event that enables Post. Manual edits, duplicate prevention, single-submit handling and confirmed-comment counting remain enforced. Known failed photo viewers close before search resumes, so their overlay cannot trap the session in repeated result-opening attempts.

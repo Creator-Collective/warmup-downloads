@@ -1,13 +1,9 @@
 {
-  "version": "0.6.38",
   "releasedAt": "2026-09-13",
   "summary": "more reliable tiktok drafts and failed-post recovery",
   "changes": [
     "keeps an unchanged comment draft when tiktok replaces the editor, while protecting manual edits.",
     "returns to search when a failed post has no usable close button.",
     "automated checks cover these fixes; live tiktok comment verification is still pending."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.38.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

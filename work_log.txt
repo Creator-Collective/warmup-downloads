@@ -1,3 +1,11 @@
+2026-09-13 — 0.6.38: close verified editor and failed-viewer gaps
+- exact replacement drafts now accept delayed native input only after fresh post/account/caption checks; a single submitted comment can await its new own row after the same composer clears. manual input revokes ownership, uncertain outcomes never replay, and clearing alone never counts as success.
+- failed viewers keep their recovery marker without a usable close; unique close controls normalize wrappers and require enabled, visible center-hit targets. missing/covered closes reach the existing search fallback instead of opening covered tiles.
+- files: browser-extension/tiktok.js; tests/tiktok.test.cjs and tests/session.test.cjs; README, setup, version/release metadata and both 0.6.38 archives.
+- verified: new regression cases failed before fixes; all 420 checks pass and both 30-file archives match source. general, JavaScript and security reviews approve the final diff. no app build.
+- correction to 0.6.37 record: delayed editor input was a simulated possible cause, not an observed explanation of the original live failure. the quoted coverage percentages did not measure all injected production functions and should not be treated as production observer/runner coverage.
+- follow-up: no new live session started. visible Chrome test tab awaits the user's exception to their background-only preference because the browser tool cannot open a hidden Chrome tab; live comment verification remains pending.
+
 2026-09-13 — 0.6.37: repair tiktok comments and failed photo recovery
 - reproduced the live comment outcome with a delayed trusted editor input after the extension draft; kept ownership only for the exact extension text during a one-second controlled window so Post can enable without weakening manual edit, duplicate or single-submit guards.
 - recognized the exact tiktok failed-photo viewer and closes its unique recovery control before returning to search, instead of reopening result tiles behind the overlay.

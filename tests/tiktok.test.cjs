@@ -172,6 +172,60 @@ test('a failed TikTok photo viewer exposes only its close recovery', () => {
   assert.deepEqual(h.clicks, [h.close]);
 });
 
+function failedPhotoViewer() {
+  const h = searchCommentViewer({ withPhoto: true });
+  h.header.remove(); h.caption.remove(); h.actions.remove();
+  h.details.append(
+    h.element('h2', {}, 'Something went wrong', h.rect(400, 120, 220, 35)),
+    h.element('p', {}, 'Sorry about that! Please try again later.', h.rect(400, 170, 280, 35))
+  );
+  return h;
+}
+
+test('failed TikTok viewers remain unavailable when close is missing, ambiguous, disabled or covered', () => {
+  for (const change of [
+    h => h.close.remove(),
+    h => h.main.append(h.element('button', { 'aria-label': 'Close' }, '', h.rect(620, 0, 60, 36))),
+    h => { h.close.disabled = true; },
+    h => { h.close.attrs['aria-disabled'] = 'true'; },
+    h => h.body.append(h.element('div', {}, 'overlay', h.close.bounds))
+  ]) {
+    const h = failedPhotoViewer(); change(h);
+    assert.equal(h.context.inspectTikTok().unavailableViewer, h.request.id);
+    assert.equal(h.inspect('click-close').clicked, false);
+    assert.equal(h.clicks.length, 0);
+  }
+});
+
+test('failed viewer close normalizes a wrapper to its one usable button and retains post identity', () => {
+  const h = failedPhotoViewer();
+  h.close.attrs = { 'data-e2e': 'browse-close' }; h.close.tagName = 'DIV';
+  const button = h.element('button', { 'aria-label': 'Close' }, '', h.close.bounds);
+  h.close.append(button);
+  assert.equal(h.context.inspectTikTok({ ...h.request, id: id, action: 'click-close' }).clicked, false);
+  assert.equal(h.inspect('click-close').clicked, true);
+  assert.deepEqual(h.clicks, [button]);
+});
+
+test('failed viewer recovery ignores caption, comment and editor text and preserves platform restrictions', () => {
+  for (const parent of ['caption', 'field', 'comment']) {
+    const h = searchCommentViewer({ withPhoto: true });
+    const container = parent === 'comment' ? h.rows[0].text : h[parent];
+    container.append(
+      h.element('h2', {}, 'Something went wrong', h.rect(400, 120, 220, 35)),
+      h.element('p', {}, 'Sorry about that! Please try again later.', h.rect(400, 170, 280, 35))
+    );
+    assert.equal(h.context.inspectTikTok().unavailableViewer, undefined, parent);
+  }
+  for (const warning of ['Too many requests', 'Verify to continue', 'Access denied']) {
+    const h = failedPhotoViewer();
+    h.details.append(h.element('p', {}, warning, h.rect(400, 220, 280, 35)));
+    assert.ok(h.context.inspectTikTok().blocked, warning);
+    assert.ok(h.inspect('click-close').blocked, warning);
+    assert.equal(h.clicks.length, 0, warning);
+  }
+});
+
 test('a restriction displayed beside the search panel composer still stops actions', () => {
   const h = searchCommentViewer();
   h.input.append(h.element('p', {}, "You're commenting too fast", h.rect(350, 670, 250, 25)));
@@ -368,6 +422,120 @@ test('trusted browser input is allowed only inside the extension controlled inpu
     before.inputting = false;
     assert.equal(Boolean(h.inspect('comment-submit').point), controlled);
     assert.equal(before.interrupted, !controlled);
+  }
+});
+
+test('delayed trusted input keeps exact extension drafts owned after an editor replacement', () => {
+  for (const replace of [false, true]) {
+    const h = commentComposer(); h.prepare();
+    const before = h.context.collectiveCommentBefore;
+    before.inputtingUntil = Date.now() + 1000;
+    if (replace) h.replaceField(h.request.comment);
+    h.interact('input');
+    assert.equal(before.interrupted, false);
+    assert.ok(h.inspect('comment-submit').point);
+    assert.equal(before.composer, h.field);
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.submitted, 1);
+  }
+});
+
+test('the delayed input window never excuses manual events, unknown text or a changed comment context', () => {
+  for (const change of [
+    h => h.interact('beforeinput'),
+    h => h.interact('pointerdown'),
+    h => h.interact('keydown'),
+    h => h.interact('click'),
+    h => { h.field.textContent = ''; h.interact('input'); },
+    h => { h.field.textContent = 'my edit'; h.interact('input'); },
+    h => { h.heading.ownText = 'changed caption'; h.interact('input'); },
+    h => { h.profile.attrs.href = 'https://www.tiktok.com/@someoneelse/'; h.interact('input'); },
+    h => { h.context.location = new URL(id.replace('123', '999')); h.interact('input'); },
+    h => { h.context.collectiveCommentBefore.inputtingUntil = Date.now() - 1; h.interact('input'); },
+    h => {
+      const other = h.element('div', { contenteditable: 'true', role: 'textbox' }, h.request.comment, h.field.bounds);
+      h.editor.append(other); h.interact('input', true, other);
+    }
+  ]) {
+    for (const replace of [false, true]) {
+      const h = commentComposer(); h.prepare();
+      const before = h.context.collectiveCommentBefore;
+      before.inputtingUntil = Date.now() + 1000;
+      if (replace) h.replaceField(h.request.comment);
+      change(h);
+      assert.equal(before.interrupted, true);
+      assert.equal(h.inspect('click-comment-submit').clicked, false);
+      assert.equal(h.inspect('comment-clear').point, null);
+      assert.equal(h.submitted, 0);
+    }
+  }
+});
+
+test('a post-submit trusted clear input preserves independently confirmed own comments', () => {
+  const h = commentComposer(); h.prepare();
+  const before = h.context.collectiveCommentBefore;
+  before.inputtingUntil = Date.now() + 1000;
+  h.state.onSubmit = () => h.interact('input');
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(before.interrupted, false);
+  assert.equal(h.inspect('verify-comment').confirmed, true);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.submitted, 1);
+});
+
+test('a submitted editor clear can precede the new own row but never confirms without that row', () => {
+  const h = commentComposer(); h.prepare();
+  const before = h.context.collectiveCommentBefore;
+  before.inputtingUntil = Date.now() - 1;
+  h.state.confirm = false;
+  h.state.onSubmit = () => { h.field.textContent = ''; h.interact('input'); };
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(before.interrupted, false);
+  assert.equal(h.inspect('verify-comment').confirmed, false);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  h.addComment(h.request.comment);
+  assert.equal(h.inspect('verify-comment').confirmed, true);
+  assert.equal(h.submitted, 1);
+});
+
+test('post-submit input still revokes ownership after manual interaction or changed context', () => {
+  for (const change of [
+    h => h.interact('beforeinput'),
+    h => h.interact('pointerdown'),
+    h => h.interact('keydown'),
+    h => h.interact('click'),
+    h => { h.field.textContent = 'my new draft'; },
+    h => { h.heading.ownText = 'changed caption'; },
+    h => { h.profile.attrs.href = 'https://www.tiktok.com/@someoneelse/'; },
+    h => { h.context.location = new URL(id.replace('123', '999')); },
+    h => { h.context.collectiveCommentBefore.inputtingUntil = Date.now() - 1; }
+  ]) {
+    const h = commentComposer(); h.prepare();
+    const before = h.context.collectiveCommentBefore;
+    before.inputtingUntil = Date.now() + 1000;
+    h.state.onSubmit = () => { change(h); h.interact('input'); };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(before.interrupted, true);
+    assert.equal(h.inspect('verify-comment').confirmed, false);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.submitted, 1);
+  }
+});
+
+test('a pending post-submit clear cannot confirm missing, wrong, hidden or ambiguous new rows', () => {
+  for (const change of [
+    h => { h.rows.at(-1).row.remove(); },
+    h => { h.rows.at(-1).author.attrs.href = 'https://www.tiktok.com/@someoneelse/'; },
+    h => { h.rows.at(-1).row.hidden = true; },
+    h => h.addComment(h.request.comment),
+    h => { h.rows[0].text.ownText = 'changed baseline'; }
+  ]) {
+    const h = commentComposer(); h.prepare();
+    h.state.onSubmit = () => { change(h); h.interact('input'); };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('verify-comment').confirmed, false);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.submitted, 1);
   }
 });
 
