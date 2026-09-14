@@ -120,12 +120,29 @@ for (const withPhoto of [false, true]) {
     assert.equal(h.submitted, 1);
     assert.deepEqual(h.clicks, [h.like, h.follow, h.submit]);
   });
+
+  test(`the search ${withPhoto ? 'photo' : 'video'} composer avatar does not replace the post author or comment identity`, () => {
+    const h = searchCommentViewer({ withPhoto });
+    assert.equal(h.input.contains(h.composerAvatar), false);
+    assert.equal(h.footer.contains(h.composerAvatar), true);
+    const post = h.context.inspectTikTok().post;
+    assert.equal(post?.id, h.request.id);
+    assert.equal(post.author, '@creator');
+    assert.equal(post.follow, true);
+    h.prepare();
+    assert.equal(h.context.collectiveCommentBefore.author, '@me');
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.rows.at(-1).author.href, 'https://www.tiktok.com/@me/');
+    assert.equal(h.submitted, 1);
+  });
 }
 
 test('search comment and reply controls cannot replace missing primary post controls', () => {
   for (const attrs of [
     ...['comment-list', 'comment-item', 'comment-level-1', 'comment-level-2', 'comment-input', 'comment-text'].map(marker => ({ 'data-e2e': marker })),
-    { class: 'DivCommentItemContainer' }, { class: 'DivCommentContentContainer' }
+    { class: 'DivCommentItemContainer' }, { class: 'DivCommentContentContainer' },
+    { class: 'DivCommentBarContainer' }, { class: 'DivEnhancedBottomCommentContainer' }
   ]) {
     const marker = attrs['data-e2e'] || attrs.class;
     const h = searchCommentViewer({ open: false });
@@ -155,6 +172,27 @@ test('search panel photo ownership ignores comment authors but rejects a differe
   assert.equal(h.inspect('click-like').clicked, false);
   assert.equal(h.inspect('click-follow').clicked, false);
   assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.clicks.length, 0);
+});
+
+test('a genuine second photo author outside the composer still makes ownership ambiguous', () => {
+  const h = searchCommentViewer({ withPhoto: true });
+  assert.equal(h.context.inspectTikTok().post?.id, h.request.id);
+  const otherDetails = h.element('div', { class: 'DivContentContainer' }, '', h.rect(350, 190, 200, 30));
+  otherDetails.append(h.element('a', { href: 'https://www.tiktok.com/@othercreator/' }, '@othercreator', h.rect(350, 190, 150, 25)));
+  h.panelContent.append(otherDetails);
+  assert.equal(h.context.inspectTikTok().post, null);
+  assert.equal(h.inspect('click-like').clicked, false);
+  assert.equal(h.inspect('click-follow').clicked, false);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.clicks.length, 0);
+});
+
+test('a genuine second video author still prevents following the ambiguous header', () => {
+  const h = searchCommentViewer();
+  h.header.append(h.element('a', { href: 'https://www.tiktok.com/@othercreator/' }, '@othercreator', h.rect(600, 0, 120, 25)));
+  assert.equal(h.context.inspectTikTok().post?.follow, false);
+  assert.equal(h.inspect('click-follow').clicked, false);
   assert.equal(h.clicks.length, 0);
 });
 

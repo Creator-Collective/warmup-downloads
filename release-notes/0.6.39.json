@@ -1,13 +1,9 @@
 {
-  "version": "0.6.39",
   "releasedAt": "2026-09-14",
   "summary": "fix for tiktok photo posts getting stuck",
   "changes": [
     "recognizes photo posts when your profile picture appears beside the comment box.",
     "keeps comment controls separate from the post author and engagement buttons.",
     "live likes and follows were confirmed on 0.6.38; comments and this photo fix still need live verification."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.39.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

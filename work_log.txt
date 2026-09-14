@@ -1,3 +1,10 @@
+2026-09-14 — 0.6.39: fix observed photo author confusion; retain honest live status
+- loaded photo viewers no longer mistake the signed-in avatar beside the composer for a second post author. exclude only the observed bottom composer wrappers; retain true conflicting-author rejection, manual draft protection and one-time comment confirmation.
+- files: browser-extension/tiktok.js; tests/tiktok.test.cjs and fixtures/tiktok-comment-composer.cjs; version/setup/release metadata, archives, README, store/SUBMISSION and LIVE_VERIFICATION.md.
+- verified: 424 automated checks pass; both 30-file archives and mirrors match source. focused checks pass; prior general and JavaScript reviews approved the same three-file source/test diff. no app build or Chrome control during this continuation.
+- live evidence: earlier installed 0.6.38 ten-minute run finished with 32 advances, one like, one follow and zero comments; photo loop reproduced. later short comment runs did not confirm a comment. this is not a full pass.
+- follow-ups: publish through PR; verify production package. installed 0.6.39 photo transitions and accepted TikTok comments remain unverified; the latest no-Chrome-control instruction leaves that live step pending until explicitly reauthorized.
+
 2026-09-13 — 0.6.38: close verified editor and failed-viewer gaps
 - exact replacement drafts now accept delayed native input only after fresh post/account/caption checks; a single submitted comment can await its new own row after the same composer clears. manual input revokes ownership, uncertain outcomes never replay, and clearing alone never counts as success.
 - failed viewers keep their recovery marker without a usable close; unique close controls normalize wrappers and require enabled, visible center-hit targets. missing/covered closes reach the existing search fallback instead of opening covered tiles.

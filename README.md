@@ -1,3 +1,9 @@
+# 0.6.39 tiktok photo composer identity fix
+
+The 0.6.38 live run found a loaded photo viewer repeatedly rejected as unavailable. Its bottom comment bar includes the signed-in profile avatar outside the comment editor; that avatar was mistaken for a second post author. Exclude the two observed bottom composer wrappers when locating the primary post, while retaining the real author and comment identity checks.
+
+Regression fixtures include the observed avatar placement for videos and photos, genuine conflicting authors, comment controls, and one-time comment submission. These are simulated checks, not a successful installed live test. The recorded 0.6.38 ten-minute session completed with one like, one follow and zero comments; full TikTok readiness remains unconfirmed. See LIVE_VERIFICATION.md.
+
 # 0.6.38 tiktok editor and failed-viewer safeguards
 
 Delayed editor input can keep an exact extension draft after TikTok replaces the editor, with fresh post, account and caption checks. After a single submit, an empty editor can wait for the new comment row to appear; an empty editor alone never confirms a comment. Manual edits still cancel ownership. Failed viewers remain recognized when their close button is missing, ambiguous, disabled or covered, allowing the existing search recovery to run without clicking covered results.

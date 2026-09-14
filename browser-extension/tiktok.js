@@ -80,8 +80,9 @@ function inspectTikTok(request = {}) {
     return Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
   };
   // Search's "search-comment-container" also contains the primary author and
-  // post controls. Exclude actual comment/reply rows and editors, not that panel.
-  const excluded = element => Boolean(element.closest('aside, nav, [data-e2e="comment-list"], [data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-input"], [data-e2e="comment-text"], [class*="DivCommentItemContainer"], [class*="DivCommentContentContainer"]'));
+  // post controls. Exclude actual rows and the bottom composer bar, including
+  // its signed-in avatar outside comment-input, without excluding that panel.
+  const excluded = element => Boolean(element.closest('aside, nav, [data-e2e="comment-list"], [data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-input"], [data-e2e="comment-text"], [class*="DivCommentItemContainer"], [class*="DivCommentContentContainer"], [class*="DivCommentBarContainer"], [class*="DivEnhancedBottomCommentContainer"]'));
   // Recognize TikTok's observed photo-slide structure, not a video's poster
   // image that may linger while the URL is already changing to a photo.
   const photoCarousel = image => image.matches('[class*="ImgPhotoSlide"]') ? image.closest('.swiper-horizontal') : null;
