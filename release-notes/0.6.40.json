@@ -1,13 +1,9 @@
 {
-  "version": "0.6.40",
   "releasedAt": "2026-09-14",
   "summary": "tiktok comment entry and follow confirmation update",
   "changes": [
     "comment drafts use the editor’s paste handler instead of changing its native content. unsent drafts are preserved if posting is unavailable.",
     "follows count only after a fresh page confirms them; temporary following labels no longer count as success.",
     "live 0.6.39 testing confirmed a saved like and timer completion. installed comment retesting and accepted follows remain pending."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.40.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

@@ -1,9 +1,17 @@
+2026-09-14 — 0.6.40: use controlled comment input and confirm durable tiktok follows
+- installed 0.6.39 ten-minute test failed: 23 advances, one persisted like, an optimistic follow that disappeared on fresh navigation, and zero comments. captured React removeChild error exactly during draft input. a direct normal TikTok follow also reverted after reload; no further retry.
+- changes: use the editor paste handler instead of native DOM editing; retain unsent drafts if posting is unavailable. require a separate read-only post to confirm TikTok follows, preserving navigation ownership, stop/deadline and restriction checks.
+- files: runner.js; real Draft.js editor test plus dev dependencies/lockfile/CI install; follow/comment fixtures and tests; 0.6.40 metadata/setup/archives, README and LIVE_VERIFICATION.md.
+- verified: real controlled Draft.js entry/rerender/local-submit check passes and hidden local browser entry survives rerender. focused follow tests cover optimistic rollback, missing/mismatched state, redirects, moved tabs, cancellation and restriction. all 430 checks pass; both 30-file archives and shared mirrors match source. no app build.
+- follow-ups: installed 0.6.40 comment acceptance, durable follows and a photo transition still require live verification. a one-minute browsing-only check finished with five advances but reached no photos. browser policy blocks extension-management automation; the user must apply the package.
+
 2026-09-14 — 0.6.39: fix observed photo author confusion; retain honest live status
 - loaded photo viewers no longer mistake the signed-in avatar beside the composer for a second post author. exclude only the observed bottom composer wrappers; retain true conflicting-author rejection, manual draft protection and one-time comment confirmation.
 - files: browser-extension/tiktok.js; tests/tiktok.test.cjs and fixtures/tiktok-comment-composer.cjs; version/setup/release metadata, archives, README, store/SUBMISSION and LIVE_VERIFICATION.md.
 - verified: 424 automated checks pass; both 30-file archives and mirrors match source. focused checks pass; prior general and JavaScript reviews approved the same three-file source/test diff. no app build or Chrome control during this continuation.
 - live evidence: earlier installed 0.6.38 ten-minute run finished with 32 advances, one like, one follow and zero comments; photo loop reproduced. later short comment runs did not confirm a comment. this is not a full pass.
-- follow-ups: publish through PR; verify production package. installed 0.6.39 photo transitions and accepted TikTok comments remain unverified; the latest no-Chrome-control instruction leaves that live step pending until explicitly reauthorized.
+- published: PR #44 merged as 2ad9dac5acea0719234dd37480b6ceb7a5c77e2c. production release/setup show 0.6.39; the 139379-byte download matches source archive SHA-256 7eb9517aa8e301ce81f4e3b08b77edb3f6ed41223e4a9183d4d7d775c42a4217. CI passed; optional Cubic review was still running at merge and subsequently reported skipped.
+- follow-ups: installed 0.6.39 photo transitions and accepted TikTok comments remain unverified; the latest no-Chrome-control instruction leaves that live step pending until explicitly reauthorized.
 
 2026-09-13 — 0.6.38: close verified editor and failed-viewer gaps
 - exact replacement drafts now accept delayed native input only after fresh post/account/caption checks; a single submitted comment can await its new own row after the same composer clears. manual input revokes ownership, uncertain outcomes never replay, and clearing alone never counts as success.

@@ -380,7 +380,7 @@ for (const action of ['like', 'follow']) {
    let result;
    const f = tiktokRunner(async (settings, adapter) => { result = await adapter.engage(action, f.post); });
    await finishRunner(f.h);
-   assert.equal(result, 'confirmed');
+   assert.equal(result, action === 'follow' ? 'uncertain' : 'confirmed');
    assert.deepEqual(f.clicks, [`click-${action}`]);
    const request = f.requests.find(request => request.action === `click-${action}`);
    assert.equal(request.id, f.id); assert.equal(request.author, '@creator');
@@ -629,14 +629,14 @@ test('TikTok keeps its draft after the editor delivers a delayed controlled inpu
  assert.equal(continued, true);
 });
 
-test('TikTok clears only its unchanged unsent draft when Post stays unavailable', async () => {
+test('TikTok preserves its unsent draft without native DOM deletion when Post stays unavailable', async () => {
  const { composer, result, continued } = await runTikTokComment(composer => {
    composer.state.onInput = () => { composer.submit.disabled = true; };
  });
- assert.equal(result, 'skipped');
+ assert.equal(result, 'draft-retained');
  assert.equal(composer.submitted, 0);
- assert.equal(composer.field.textContent, '');
- assert.deepEqual(composer.inputs, [composer.request.comment, '']);
+ assert.equal(composer.field.textContent, composer.request.comment);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
  assert.equal(continued, true);
 });
 
@@ -1089,4 +1089,87 @@ test('actual TikTok next-post navigation preserves mixed photo order and same-ph
    h.ctx.expectedPhoto = photoId; h.ctx.differentPhoto = different;
    assert.equal(vm.runInContext('sameDestination(differentPhoto, expectedPhoto)', h.ctx), false, different);
  }
+});
+
+async function runTikTokFreshFollow(configure = () => {}) {
+ const viewer = tiktokCommentComposer();
+ const fresh = tiktokCommentComposer();
+ fresh.follow.textContent = 'Following';
+ let now = Date.now(); let result; let continued = false;
+ const created = []; const removed = [];
+ const confirmationTab = { id: 81, url: viewer.request.id, status: 'complete' };
+ const h = runnerContext('starting', async (_settings, adapter) => {
+   result = await adapter.engage('follow', viewer.request);
+   await adapter.inspect(); continued = true;
+ });
+ h.job.settings.platform = 'tiktok';
+ h.ctx.Date = { now: () => now };
+ h.ctx.setTimeout = (fn, ms) => setTimeout(() => { if (ms < 3000) now += ms; fn(); }, ms >= 3000 ? 100 : 0);
+ h.chrome.tabs.get = async id => id === 81 ? confirmationTab : { id: 7, url: viewer.request.id };
+ h.chrome.tabs.create = async options => { created.push(options); return confirmationTab; };
+ h.chrome.tabs.remove = async id => removed.push(id);
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   const page = request.target.tabId === 81 ? fresh : viewer;
+   if (request.files) { assert.deepEqual(Array.from(request.files), ['tiktok.js']); page.load(); return [{ result: null }]; }
+   return [{ result: await page.inject(request.func, request.args) }];
+ };
+ configure({ viewer, fresh, h, confirmationTab });
+ await finishRunner(h);
+ return { viewer, fresh, h, created, removed, result, continued };
+}
+
+test('TikTok counts an optimistic follow only after a separate page confirms it, including canonical redirects', async () => {
+ for (const canonical of [false, true]) {
+   const f = await runTikTokFreshFollow(({ confirmationTab }) => { if (canonical) confirmationTab.url = confirmationTab.url.replace(/\/$/, ''); });
+   assert.equal(f.result, 'confirmed');
+   assert.deepEqual(f.created.map(value => JSON.parse(JSON.stringify(value))), [{ url: f.viewer.request.id, active: false }]);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1);
+   assert.equal(f.fresh.clicks.length, 0);
+   assert.deepEqual(f.removed, [81]);
+ }
+});
+
+test('TikTok follow rollback, missing state and mismatched author remain uncertain without retrying', async () => {
+ for (const change of [f => { f.follow.textContent = 'Follow'; }, f => f.follow.remove(), f => { f.author.attrs.href = 'https://www.tiktok.com/@different/'; }]) {
+   const f = await runTikTokFreshFollow(({ fresh }) => change(fresh));
+   assert.equal(f.result, 'uncertain');
+   assert.equal(f.viewer.follow.textContent, 'Following');
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1);
+   assert.equal(f.fresh.clicks.length, 0);
+   assert.equal(f.continued, true);
+   assert.deepEqual(f.removed, [81]);
+ }
+});
+
+test('TikTok fresh follow confirmation preserves moved tabs and refuses pending navigation', async () => {
+ for (const field of ['url', 'pendingUrl']) {
+   const f = await runTikTokFreshFollow(({ confirmationTab }) => { confirmationTab[field] = 'https://www.tiktok.com/@other/video/999/'; });
+   assert.equal(f.result, 'uncertain');
+   assert.deepEqual(f.removed, []);
+   assert.equal(f.h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+ }
+});
+
+test('TikTok fresh follow checks obey Stop, deadline and account restrictions without further actions', async () => {
+ for (const reason of ['stop', 'deadline', 'restriction']) {
+   const f = await runTikTokFreshFollow(({ h, fresh, confirmationTab }) => {
+     if (reason === 'restriction') fresh.state.blocked = true;
+     else h.chrome.tabs.create = async () => {
+       if (reason === 'deadline') h.job.deadline = Date.now() - 1;
+       else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+       return confirmationTab;
+     };
+   });
+   assert.equal(f.continued, false);
+   assert.equal(f.fresh.clicks.length, 0);
+   assert.deepEqual(f.removed, [81]);
+ }
+});
+
+test('TikTok ignored paste is not submitted or counted and does not use native DOM editing', async () => {
+ const f = await runTikTokComment(composer => { composer.state.ignorePaste = true; });
+ assert.equal(f.result, 'draft-retained');
+ assert.equal(f.composer.submitted, 0);
+ assert.deepEqual(f.composer.inputs, []);
 });

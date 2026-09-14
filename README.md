@@ -1,3 +1,11 @@
+# 0.6.40 tiktok editor input and durable follow confirmation
+
+The installed 0.6.39 ten-minute live test failed: one like persisted, the counted follow reverted after refresh, and the comment viewer crashed during draft input. A direct follow using TikTok's normal profile button also reverted after refresh. This does not establish the reason TikTok declined that follow.
+
+Comment drafts now use Draft.js's paste handler to update its controlled state instead of native DOM editing. Failed submissions retain their draft and pause comments. Follow counts require a separate loaded post to confirm acceptance, including ordinary canonical URL rewrites. Verification tabs only read, obey cancellation and restrictions, and are left open if the user moves them elsewhere.
+
+A real React 18 / Draft.js regression test checks controlled text, rerendering and local submission; this is not a successful installed TikTok comment. See LIVE_VERIFICATION.md for the live failures and remaining checks. No new extension permissions.
+
 # 0.6.39 tiktok photo composer identity fix
 
 The 0.6.38 live run found a loaded photo viewer repeatedly rejected as unavailable. Its bottom comment bar includes the signed-in profile avatar outside the comment editor; that avatar was mistaken for a second post author. Exclude the two observed bottom composer wrappers when locating the primary post, while retaining the real author and comment identity checks.

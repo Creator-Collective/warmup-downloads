@@ -454,9 +454,10 @@ test('trusted browser input is allowed only inside the extension controlled inpu
     const h = commentComposer(); h.inspect('comment-field'); h.field.focus();
     const before = h.context.collectiveCommentBefore;
     before.drafted = true; before.inputting = controlled;
-    const range = h.document.createRange(); range.selectNodeContents(h.field);
-    h.document.getSelection().addRange(range);
-    h.document.execCommand('insertText', false, h.request.comment);
+    h.interact('beforeinput');
+    h.field.textContent = h.request.comment;
+    h.submit.disabled = false;
+    h.interact('input');
     before.inputting = false;
     assert.equal(Boolean(h.inspect('comment-submit').point), controlled);
     assert.equal(before.interrupted, !controlled);
