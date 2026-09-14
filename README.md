@@ -1,3 +1,9 @@
+# 0.6.36 tiktok search engagement controls
+
+A signed-in live test reproduced 18 post advances and no engagement in 2 minutes 43 seconds. TikTok nests its primary post controls and author inside `search-comment-container`; the observer excluded that entire panel as comment content. Narrow exclusions to actual comment rows, replies and composers while preserving the active post and author checks.
+
+The failed run was stopped. A completed live run with confirmed likes, follows and comments remains pending; automated coverage is not live verification.
+
 # 0.6.35 tiktok photo posts and steadier sessions
 
 TikTok search discovery excludes hidden links while keeping the order of rendered results. Video and photo post identities are preserved through opening, advancing, same-post query changes and comment history. Photo viewers resolve only their own media and action panel; slide arrows cannot advance to another post. Different manual destinations still stop the session.

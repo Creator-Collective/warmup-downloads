@@ -1,3 +1,10 @@
+2026-09-13 — 0.6.36: repair tiktok search post controls found by live testing
+- live reproduction: installed 0.6.35 confirmed through a fresh student-page handshake. started a signed-in tiktok session at 21:16:52 ET, 10 minutes, personal branding, manual targets 1 like/1 follow/1 comment. stopped at 2:43 after 18 advances and zero confirmed actions; this is a failed test, not completed verification.
+- observed cause: tiktok places post author, caption and primary action buttons inside search-comment-container. the observer treated every descendant as comment content; actual comments use separate item/content wrappers within that panel.
+- files: browser-extension/tiktok.js; tiktok tests/fixture; manifest/package/setup/readme/store/release metadata and both 0.6.36 archives.
+- verification: 407 full checks passed; captured current signed-in DOM reproduced in video/photo regression fixtures. both 30-file archives match source; general and JavaScript reviews approved. security review pending. no local app build.
+- follow-ups: finish and ship narrowed comment exclusions, then verify an updated installed extension with real like/follow/comment and session completion. do not claim the failed 0.6.35 run passed.
+
 2026-09-12 — 0.6.35: tiktok search, photo navigation and pacing repairs
 - reproduced: hidden zero-size anchors entered sequence before visible search results, then the real opener rejected them; generic failure text incorrectly claimed the post was unavailable. mixed search results omitted /photo/, so next predicted a video while tiktok opened a photo and the ownership guard stopped. overdue likes also forced subsecond skims/one-second watch caps.
 - fixed: rendered candidate filtering and click-time visibility/hit checks; video/photo canonical IDs across observer, runner and comment history; strict photo carousel/media/creator scoping, same-photo query rewrites and post-next vs slide-next controls. retain legacy video next controls and different-destination cancellation.

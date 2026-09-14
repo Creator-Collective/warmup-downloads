@@ -1,9 +1,7 @@
-fix tiktok photo sessions and rapid scrolling
+fix tiktok search post engagement controls
 
 misc:
-- skip hidden search links and report failed openings accurately
-- preserve photo post identity through navigation and comment history
-- bind photo controls to loaded media across page transitions
-- distinguish carousel slide arrows from next-post controls
-- slow tiktok watches and retries without changing instagram pacing
-- release 0.6.35 with verified downloads and regression coverage
+- distinguish primary search post controls from comment rows and editors
+- preserve active author, photo identity and confirmed-action checks
+- cover the observed live search panel with video and photo regressions
+- release 0.6.36 with checked extension archives and setup metadata

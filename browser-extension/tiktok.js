@@ -70,6 +70,9 @@ function inspectTikTok(request = {}) {
     const r = element.getBoundingClientRect();
     return Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
   };
+  // Search's "search-comment-container" also contains the primary author and
+  // post controls. Exclude actual comment/reply rows and editors, not that panel.
+  const excluded = element => Boolean(element.closest('aside, nav, [data-e2e="comment-list"], [data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [data-e2e="comment-input"], [data-e2e="comment-text"], [class*="DivCommentItemContainer"], [class*="DivCommentContentContainer"]'));
   // Recognize TikTok's observed photo-slide structure, not a video's poster
   // image that may linger while the URL is already changing to a photo.
   const photoCarousel = image => image.matches('[class*="ImgPhotoSlide"]') ? image.closest('.swiper-horizontal') : null;
@@ -78,7 +81,7 @@ function inspectTikTok(request = {}) {
     const slide = image.closest('.swiper-slide');
     if (!photoCarousel(image) || !slide?.matches('.swiper-slide-active')) return false;
     return visible(image) && image.complete === true && image.naturalWidth >= 240 && image.naturalHeight >= 240 &&
-      rect.width >= 240 && rect.height >= 240 && area(image) >= 70000 && !image.closest('a[href], nav, aside, [data-e2e*="comment"]');
+      rect.width >= 240 && rect.height >= 240 && area(image) >= 70000 && !image.closest('a[href]') && !excluded(image);
   });
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
@@ -109,7 +112,6 @@ function inspectTikTok(request = {}) {
   const id = pageId || (scopedIds.length === 1 ? scopedIds[0] : null);
   if (!id || photo !== photoId(id) || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty();
   const author = new URL(id).pathname.split('/')[1];
-  const excluded = element => Boolean(element.closest('[data-e2e*="comment"], aside, nav'));
   const target = (node, root) => {
     const button = node.closest('button, [role="button"]');
     if (button && root.contains(button)) return button;
@@ -161,7 +163,7 @@ function inspectTikTok(request = {}) {
   }
   const belongsToAuthor = element => {
     for (let parent = element.parentElement; parent && scope.contains(parent); parent = parent.parentElement) {
-      const authors = unique(all(parent, 'a[href]').map(profileAuthor).filter(Boolean));
+      const authors = unique(all(parent, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
       if (authors.length) return authors.length === 1 && authors[0] === author;
       if (parent === scope) break;
     }
@@ -176,7 +178,7 @@ function inspectTikTok(request = {}) {
   const nextLabel = photo ? /^(?:next (?:video|post)|go to next (?:video|post)|scroll down)$/ : /^(?:next|next (?:video|post)|go to next (?:video|post)|scroll down)$/;
   const next = only(unique([...exact(main, nextMarkers), ...semantic(main, nextLabel)]).filter(node => !photo || !node.closest('.swiper-horizontal, .swiper-slide')));
   const close = viewer ? only(unique([...exact(viewer, '[data-e2e="browse-close"]'), ...semantic(viewer, /^close(?: video)?$/)])) : null;
-  const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(visible);
+  const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(element => visible(element) && !excluded(element));
   const textNodes = (descriptions.length ? descriptions : all(scope, 'h1, h2, p, a[href*="/tag/"]').filter(element => visible(element) && !excluded(element)))
     .map(element => element.innerText || element.textContent || '').filter(Boolean);
   const caption = (textNodes.join(' ') || (pageId ? document.querySelector('meta[property="og:description"]')?.content : '') || '').slice(0, 6000);
@@ -205,7 +207,7 @@ function inspectTikTok(request = {}) {
     if (parent === commentRoot) break;
   }
   const commentOpen = only(unique(all(scope, '[data-e2e="comment-icon"], [data-e2e="browse-comment-icon"]')
-    .filter(visible).map(node => target(node, scope)).filter(Boolean)));
+    .filter(element => visible(element) && !excluded(element)).map(node => target(node, scope)).filter(Boolean)));
   const commentRows = () => all(commentRoot, '[data-e2e="comment-level-1"]').flatMap(textNode => {
     for (let row = textNode.parentElement; row && commentRoot.contains(row); row = row.parentElement) {
       if (all(row, '[data-e2e="comment-level-1"]').length !== 1) return [];
