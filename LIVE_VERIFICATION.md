@@ -32,4 +32,20 @@ The runner uses the editor's standard paste event instead of native insertText. 
 
 Native automatic draft deletion is removed for TikTok: failed submissions preserve the draft and pause comments. A trial of selection plus Backspace in the local fixture removed only the final character, so that approach was discarded and is not shipped. Follow confirmation now requires a separate loaded post, never retries the click, and checks the same post/author while respecting cancellation, navigation and platform restrictions.
 
-An installed 0.6.40 run still must demonstrate a new visible own comment, a follow that survives fresh navigation, a photo transition, and normal timer completion. The browser tool blocks the extension-management page, so applying an installed update requires the user; no alternate control path is used. Do not label TikTok fully ready based on automated checks or counters alone.
+The initial 0.6.40 handoff required a new visible own comment, a follow that survives fresh navigation, a photo transition, and normal timer completion. Results from the next installed test are recorded below. The browser tool blocks the extension-management page, so applying an installed update requires the user; no alternate control path is used. Do not label TikTok fully ready based on automated checks or counters alone.
+
+## installed 0.6.40 live tests, September 14 afternoon
+
+The student dashboard confirmed installed 0.6.40. Signed-in @ollyexplains. All runs used relaxed pacing.
+
+- Three-minute comment-only run, 18:15:35–18:18:36 UTC, personal branding, targets 0 likes / 0 follows / 1 comment: timer completed normally with 11 advances. At 18:18:11 UTC the own comment “the personal part gets forgotten so fast” appeared on @salemkinging/video/7662645033958526215, the editor cleared and the visible comment count changed from 2066 to 2067. Fresh permalink navigation and reopening Comments retained the same /@ollyexplains row. No editor crash occurred. The app nevertheless recorded zero comments and “not confirmed”; posting and persistence passed, automatic confirmation failed.
+- A subsequent three-minute 1 like / 1 follow / 0 comment run recorded a like on the same Salem post and six advances, then stopped after its background runner tab closed. The platform and dashboard tabs remained open; what closed the runner was not observed. This is not a completed timer or follow test.
+- One-minute browsing-only run, approximately 18:26:02–18:27:03 UTC, great_reads_library, targets 0/0/0: completed normally with four advances. Observed distinct photo permalinks under @great_reads_library: 7684263591825919252 → 7683585987947023636 → 7681985656582589716. These were post transitions, not horizontal carousel slides. No unavailable-post loop or early stop occurred.
+
+- Focused follow run started 18:27:35 UTC with personal branding and targets 0/1/0. At 18:29:24 UTC @jamieegabrielle/video/7559649022097526030 showed Following after the attempt; the fresh-page check returned uncertain and the app correctly retained zero follows. The run was deliberately stopped at 18:29:47 UTC after six advances to inspect persistence without further attempts. Fresh @jamieegabrielle profile showed Follow again. No follow retry was made. Follow persistence failed; the underlying platform reason is unknown.
+
+## 0.6.41 change and remaining checks
+
+A reproduced false-negative confirmation used DOM node identity for every prior comment. Remounting unchanged older rows invalidated an otherwise new own comment. The baseline now compares a multiset of author and normalized text, preserving duplicate counts; changed/missing rows, old own duplicates, reused nodes and interrupted ownership remain unconfirmed. The precise cause of the observed live false negative was not captured before navigation, so this is a demonstrated robustness fix, not a claim that the installed counter test has passed. Fixed failure reasons are logged once without comment/account payloads.
+
+A successful installed comment-counter retest and a follow that remains accepted after fresh navigation are still required before calling TikTok fully ready.

@@ -1,3 +1,9 @@
+# 0.6.41 tiktok comment confirmation after redraws
+
+Installed 0.6.40 posted a real comment that remained after fresh navigation, but the app counter stayed at zero. A separate photo browsing test completed normally with four advances. The precise live counter failure remains undetermined.
+
+This release fixes a reproduced confirmation failure when TikTok replaces unchanged older comment rows. Baseline author/text occurrence counts must remain intact, and the exact own comment must still be new, visible and submitted once with an empty editor. Fixed diagnostic reasons explain future confirmation failures without logging comment text or account details. Follow acceptance and an installed counter retest remain open; see LIVE_VERIFICATION.md.
+
 # 0.6.40 tiktok editor input and durable follow confirmation
 
 The installed 0.6.39 ten-minute live test failed: one like persisted, the counted follow reverted after refresh, and the comment viewer crashed during draft input. A direct follow using TikTok's normal profile button also reverted after refresh. This does not establish the reason TikTok declined that follow.

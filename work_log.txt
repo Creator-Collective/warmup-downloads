@@ -1,3 +1,10 @@
+2026-09-14 — 0.6.41: tolerate unchanged comment redraws and record installed live results
+- installed 0.6.40 live comment posted and persisted after fresh navigation, but counter stayed zero; exact live false-negative cause was not captured. photo-only run completed with four genuine post advances. follow again reverted after refresh and correctly remained unconfirmed; no retry.
+- changes: confirm baseline comments by author/text multiset instead of node identity, preserving duplicate counts and fresh own-row guards. log fixed failure reasons without account/comment payloads.
+- files: browser-extension/tiktok.js and runner.js; tests/tiktok.test.cjs; version metadata, setup, release notes and both archives; README and LIVE_VERIFICATION.md.
+- verified: all 436 checks pass; both 30-file archives and mirrors match source; general and JavaScript reviews found no issues. no app build.
+- follow-ups: installed 0.6.41 comment counter retest; TikTok follow persistence still fails with unknown cause. do not claim fully ready. user-applied extension updates remain necessary because browser policy blocks extension management.
+
 2026-09-14 — 0.6.40: use controlled comment input and confirm durable tiktok follows
 - installed 0.6.39 ten-minute test failed: 23 advances, one persisted like, an optimistic follow that disappeared on fresh navigation, and zero comments. captured React removeChild error exactly during draft input. a direct normal TikTok follow also reverted after reload; no further retry.
 - changes: use the editor paste handler instead of native DOM editing; retain unsent drafts if posting is unavailable. require a separate read-only post to confirm TikTok follows, preserving navigation ownership, stop/deadline and restriction checks.
