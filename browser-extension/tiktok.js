@@ -251,10 +251,13 @@ function inspectTikTok(request = {}) {
     if (rows.some(row => row.author === ownProfile && row.text === request.comment)) return { point: null, reason: 'own-comment-already-exists' };
     globalThis.collectiveCommentBefore?.release?.();
     const before = { platform: 'tiktok', postId: id, postAuthor: author, author: ownProfile, caption, text: request.comment, composer,
-      container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, rows };
+      container: commentContainer, drafted: false, submitted: false, interrupted: false, inputting: false, inputtingUntil: 0, rows };
     const events = ['beforeinput', 'input', 'pointerdown', 'keydown', 'click', 'submit'];
     const interrupt = event => {
-      if (!event.isTrusted || (before.inputting && ['beforeinput', 'input'].includes(event.type))) return;
+      const controlledInput = ['beforeinput', 'input'].includes(event.type) &&
+        (before.inputting || (before.drafted && Date.now() <= before.inputtingUntil &&
+          (event.target === before.composer || before.composer?.contains(event.target)) && ['', before.text].includes(composerValue(before.composer))));
+      if (!event.isTrusted || controlledInput) return;
       const input = event.target?.closest?.('[data-e2e="comment-input"]');
       if (event.target === before.composer || before.composer?.contains(event.target) || before.container?.contains(event.target) || (input && commentRoot.contains(input))) before.interrupted = true;
     };

@@ -431,6 +431,7 @@ async function performEngagement(action, post, comment) {
         if (!ready.ready) return false;
         before.drafted = true;
         before.inputting = true;
+        before.inputtingUntil = Date.now() + 1000;
         try {
           const range = document.createRange();
           range.selectNodeContents(field); range.collapse(false);

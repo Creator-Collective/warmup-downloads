@@ -1,4 +1,5 @@
-test: add reproducer for delayed tiktok comment input
+fix tiktok delayed comment input ownership
 
 misc:
-- reproduce tiktok revoking its own draft after a delayed editor input event
+- keep the extension-owned draft through tiktok's delayed editor event
+- preserve manual edit and single-submit protections
