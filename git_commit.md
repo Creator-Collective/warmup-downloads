@@ -1,5 +1,5 @@
-test: add reproducer for failed tiktok photo viewers
+fix tiktok failed photo viewer recovery
 
 misc:
-- reproduce an unavailable photo covering search results until it is closed
-- require recovery before another result tile can open
+- close known failed photo viewers before resuming search
+- prevent covered result tiles from being reopened

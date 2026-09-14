@@ -86,6 +86,21 @@ function inspectTikTok(request = {}) {
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
+  const viewerText = (viewer?.innerText || viewer?.textContent || '').toLowerCase();
+  const failedViewer = Boolean(viewer && pageId && /something went wrong/.test(viewerText) && /sorry about that[.!]?\s*please try again later/.test(viewerText));
+  if (failedViewer) {
+    const closeControls = unique([
+      ...all(viewer, '[data-e2e="browse-close"]'),
+      ...all(viewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
+    ].filter(visible));
+    const closeControl = closeControls.length === 1 ? closeControls[0] : null;
+    if (!request.action) return { posts, sequence, post: null, ...(closeControl ? { unavailableViewer: pageId } : {}) };
+    if (request.action === 'click-close' && request.id === pageId && closeControl && typeof closeControl.click === 'function') {
+      closeControl.click();
+      return { clicked: true };
+    }
+    return { changed: true, point: null, clicked: false, confirmed: false };
+  }
   // Search/profile cards can autoplay previews. Opening one is required first.
   if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty();
   const main = viewer || document.querySelector('main, [role="main"]') || document.body;

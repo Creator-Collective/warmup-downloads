@@ -178,7 +178,9 @@ test('a failed TikTok viewer returns to search instead of reopening covered resu
     }
   });
   await runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options);
-  assert.deepEqual(recovered, { id: unavailableViewer, viewer: true, close: true });
+  assert.equal(recovered.id, unavailableViewer);
+  assert.equal(recovered.viewer, true);
+  assert.equal(recovered.close, true);
   assert.equal(h.calls.some(call => call[0] === 'open'), false);
 });
 

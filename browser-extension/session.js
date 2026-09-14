@@ -306,6 +306,21 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (running() && stalled >= 3) await search();
       continue;
     }
+    if (page.unavailableViewer) {
+      stats.skipped += 1;
+      update('that post is unavailable. returning to search...');
+      const recovered = await adapter.leavePost({ id: page.unavailableViewer, viewer: true, close: true }, signal);
+      if (!running()) break;
+      if (recovered) {
+        stalled = 0;
+        update('continuing from your search results...');
+      } else {
+        stalled += 1;
+        await search();
+      }
+      if (running()) await pause('transition');
+      continue;
+    }
     if (page.post?.id) seen.add(postIdentity(page.post.id));
     const candidates = [...new Set([...(page.sequence || []), ...(page.posts || [])])].filter(id => !hasSeen(id));
     if (now() >= nextTermAt || retrySearch) {
