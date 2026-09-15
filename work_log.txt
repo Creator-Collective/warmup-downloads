@@ -1,3 +1,60 @@
+2026-09-15 — preserve tested tiktok repairs for the blocked live handoff
+- change: roll the reviewed source fixes and evidence into the existing feature branch for a draft pr. no public release; private manifest remains0.6.41.1 and public archives remain0.6.41.
+- files: browser-extension/{manifest.json,runner.js,session.js,tiktok.js}; focused extension/session/tiktok fixtures and tests; tests/tiktok-real-dom.test.cjs; LIVE_VERIFICATION.md; work_log.txt; git_commit.md.
+- verified: branch is based on current origin/main; source-only file audit and secret scan clear; prior focused tests and specialist reviews recorded above. no redundant app build or live action. package consistency checks are intentionally not satisfied because public archives are held.
+- follow-ups: keep draft unmerged until installed-source acceptance and retained follows are demonstrated. manual extension update remains required; previous one-comment approval is spent. do not create another download or invent a platform rejection cause.
+
+2026-09-15 — confirm delayed tiktok comment retention and audit follow completion
+- change: corrected the live acceptance record after the previously missing exact own comment appeared on a fresh post about13 hours later. bounded follow-verification browser waits, Stop and late owned-tab cleanup to prevent a reproduced hang; preserves exact post/author binding and one click.
+- files: browser-extension/runner.js; tests/extension.test.cjs; LIVE_VERIFICATION.md; work_log.txt.
+- verified:91 runner/extension tests pass, including37 stalled-call/cancellation/deadline/late-cleanup cases across5 new groups; diff check clean; code, JavaScript and security reviews approve. fresh Jaclyn permalink at16:59:13.485UTC, exact comment and /@ollyexplains author links,3 visible rows. fresh Kylee and Julia profiles still show Follow. warmup stopped with targets0/0/0. no new public actions or app build.
+- follow-ups: installed final-source acceptance and retained follows remain open. all repairs stay in the existing source folder; no new download or release. prior installed private ZIP still lacks the latest repairs. no active live run remains to wait for or restart.
+
+2026-09-14 — test one authorized comment and repair false confirmation
+- change: plain no-action skips use a short paced recovery instead of spending the normal engagement cooldown. TikTok comments require the exact own row on a fresh matched post before counting; missing/ambiguous results consume the attempted allowance without reposting. bound fresh browser waits, Stop and late owned-tab cleanup; retain submission/duplicate guards.
+- files: browser-extension/session.js; browser-extension/runner.js; browser-extension/tiktok.js; tests/session.test.cjs; tests/extension.test.cjs; tests/tiktok.test.cjs; tests/fixtures/tiktok-comment-composer.cjs; LIVE_VERIFICATION.md; work_log.txt.
+- verified: 196 final runner/observer checks, 74 session checks and 6 real React/Draft.js checks pass; fresh video/photo ownership, same-photo slide change, wrong-photo refusal, skipped-action recovery, no-repeat guards and stalled-API cancellation covered. general, JavaScript and security reviews approve; final photo-fixture delta reviewed. diff check clean. no app build or packaging.
+- live: installed0.6.41.1 first comment-only run ended14advances0comments after a pre-submission skip. second run reported1posted comment on @jaclyntromo; deliberately stopped, then fresh thread showed only2 other users' comments despite bubble3. final fresh check03:44:38UTC still lacked the own row. retention failed, reason unknown. one authorized submission attempted; no second submission. read-only fresh photo inspection confirmed shared thread structure and carousel query changes.
+- follow-ups: local repairs remain uninstalled/unpackaged; the installed ZIP no longer matches current source. further public test posting needs a new specific authorization; follows still revert through TikTok's ordinary button. no public release or new download. session stopped with engagement targets0/0/0.
+
+2026-09-14 — complete the installed private tiktok live run
+- change: record observed 0.6.41.1 acceptance results; no source edits, extra package or public release.
+- files: LIVE_VERIFICATION.md; work_log.txt.
+- verified: fresh installed-version handshake; ten-minute run started02:57:08 UTC and completion observed03:07:12.492 UTC, 24 advances, one independently persisted photo like, photo-to-video navigation and keyword rotation. app follow stayed unconfirmed and fresh profile showed Follow. a separate normal TikTok Follow click on @kyleetalbert showed Following then reverted after reload, reproducing non-persistence outside the extension.
+- follow-ups: follow acceptance reason remains unknown; latest comment count needs one specifically authorized live message under the September 14 no-posting instruction; reverse video-to-photo transition remains unobserved. no follow retries, messages or installation workaround.
+
+2026-09-14 — simplify the private test handoff after public-version install
+- change: place creator-collective-warmup-test-0.6.41.1.zip directly in Downloads for manual replacement of the existing extension files. no new source folder, installed-file edits or public release.
+- files: local Downloads test ZIP; LIVE_VERIFICATION.md.
+- verified: exactly30 allowlisted extension files; root manifest reports0.6.41.1; all bytes match source; independent handoff check passes. tracked public archives unchanged. user screenshot and fresh dashboard both show installed0.6.41, so the live test has not started.
+- follow-up: user applies this private artifact and reloads the same extension; verify0.6.41.1 before live acceptance testing. browser extension-management restriction remains respected.
+
+2026-09-14 — prepare an identifiable private live-test source
+- change: mark the existing source manifest 0.6.41.1 / 0.6.41 verification, so the normal version bridge distinguishes unpublished fixes from the public 0.6.41 archive. no new folder, archive, permissions or release.
+- files: browser-extension/manifest.json; LIVE_VERIFICATION.md.
+- verified: manifest references were checked locally; browser shows signed-in TikTok and connected warmup, with comments set to zero. no session or engagement started. extension management was rejected by browser security policy; no workaround or installed-folder modification.
+- follow-ups: user must replace files in the same installed folder and reload; confirm private version before live testing. keep one enabled copy. public package/version metadata stay unchanged until acceptance.
+
+2026-09-14 — unpublished comment counting and late-duplicate repair
+- change: stop unrelated comment removals/redraws from hiding one independently confirmed own submission. preserve prior own comment counts and all old node references. latch a newly loaded identical own comment to block repeated readiness checks from posting another copy; retain the draft.
+- files: browser-extension/tiktok.js; tests/tiktok.test.cjs; tests/extension.test.cjs; new tests/tiktok-real-dom.test.cjs; LIVE_VERIFICATION.md.
+- verified: 182 focused TikTok/runner/real-editor checks pass, including actual React18/Draft.js with the production observer and draft action. no app build. local snapshots demonstrate unrelated row churn; exact cause of the earlier live zero counter remains unproven.
+- follow-ups: final installed comment counting, durable follow and mixed-session acceptance remain open. current no-Chrome/no-personal-account-posting instructions respected; no live test, version bump, new folder, packaging or release.
+
+2026-09-14 — unpublished niche phrase consistency and resumed live diagnosis
+- change: match the exact equivalent topic names personal brand/personal branding and their exact compact caption hashtags. captured live captions were skipped for the user's personal branding setting even though the comment generator already supports personal brand. retain other matching behavior and contextual-comment safeguards.
+- files: browser-extension/session.js; tests/session.test.cjs; LIVE_VERIFICATION.md.
+- verified: 71 session checks and 16 Instagram observer checks pass; general and JavaScript reviews approve. no app build, version bump, package regeneration or release.
+- live: restored Chrome connection and confirmed prior storytelling timer completed with nine advances. a new three-minute personal-branding run completed at19:03:13UTC with11 advances/no comment attempt. changed-keyword run reached a genuine photo-to-video transition, then its TikTok tab disappeared after two advances/no actions. source audit found no selected-tab close path for this comment-only run; initiator remains unknown.
+- follow-ups: selected TikTok tab needs reopening without interrupting the user's other windows; correct live comment count, durable follow and final mixed-session acceptance remain open. current fixes stay unpublished; raw diagnostic snapshots kept locally outside the repository.
+
+2026-09-14 — unpublished tiktok follow guard and live diagnosis
+- change: require a positive Follow action for the current author; reject conflicting labels/current relationship states and exclude hidden old text from confirmation. fixes reproduced control states without claiming to explain the observed live follow rollback.
+- files: browser-extension/tiktok.js; tests/tiktok.test.cjs; tests/fixtures/tiktok-comment-composer.cjs; LIVE_VERIFICATION.md.
+- verified: 170 focused observer/runner/real-editor checks pass; general and JavaScript final reviews found no remaining actionable source issues. no app build or package regeneration.
+- live evidence: installed 0.6.40 rechecked; storytelling comment-only run last observed with five seconds remaining, nine advances and no comment attempt before the Chrome tool became unavailable. no terminal result claimed. vidIQ error wrapper inspected but not established as the follow failure's cause.
+- follow-ups: durable live follow and correct comment count still open; current source stays unpublished, no new download or version. signed-in browser connection needed for the discriminating live check.
+
 2026-09-14 — 0.6.41: tolerate unchanged comment redraws and record installed live results
 - installed 0.6.40 live comment posted and persisted after fresh navigation, but counter stayed zero; exact live false-negative cause was not captured. photo-only run completed with four genuine post advances. follow again reverted after refresh and correctly remained unconfirmed; no retry.
 - changes: confirm baseline comments by author/text multiset instead of node identity, preserving duplicate counts and fresh own-row guards. log fixed failure reasons without account/comment payloads.

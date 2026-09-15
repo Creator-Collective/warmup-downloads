@@ -11,7 +11,7 @@ const origin = 'https://creator-collective-warmup.vercel.app';
 const sender = { id:'extension-id',url:origin+'/',frameId:0,tab:{id:2} };
 const event = () => ({listeners:[],addListener(fn){this.listeners.push(fn)}});
 const commentComposer = require('./fixtures/comment-composer.cjs');
-const { commentComposer: tiktokCommentComposer } = require('./fixtures/tiktok-comment-composer.cjs');
+const { commentComposer: tiktokCommentComposer, freshCommentThread } = require('./fixtures/tiktok-comment-composer.cjs');
 function background(initial) {
   let job = initial;
   const created = [];
@@ -582,17 +582,248 @@ async function runComment(configure = () => {}, composer = commentComposer(), pl
  return { composer, h, result, continued };
 }
 
-const runTikTokComment = (configure, options) => runComment(configure, tiktokCommentComposer(options), 'tiktok');
+async function runTikTokComment(configure, options) {
+ const composer = tiktokCommentComposer(options);
+ const fresh = freshCommentThread({ postId: composer.request.id, withPhoto: Boolean(options?.withPhoto) });
+ const ownRow = fresh.addComment(composer.request.comment, '@me');
+ const created = [];
+ const removed = [];
+ const confirmationTab = { id: 81, url: composer.request.id, status: 'complete' };
+ let now = Date.now();
+ const result = await runComment((composer, h) => {
+   h.ctx.Date = { now: () => now };
+   h.ctx.setTimeout = (fn, ms) => setTimeout(() => { if (ms < 3000) now += ms; fn(); }, ms >= 3000 ? 100 : 0);
+   h.chrome.tabs.get = async id => id === 81 ? confirmationTab : { id: 7, url: composer.request.id };
+   h.chrome.tabs.create = async options => { created.push(options); return confirmationTab; };
+   h.chrome.tabs.remove = async id => { removed.push(id); };
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (request.target.tabId !== 81) return execute(request);
+     h.calls.push({ injection: request });
+     if (request.files) { fresh.load(); return [{ result: null }]; }
+     return [{ result: await fresh.inject(request.func, request.args) }];
+   };
+   configure?.(composer, h, { fresh, ownRow, created, removed, confirmationTab, now: () => now });
+ }, composer, 'tiktok');
+ return { ...result, fresh, created, removed };
+}
 
 test('TikTok opens comments, types through its editor, submits once and confirms on both layouts', async () => {
  for (const modal of [false, true]) {
-   const { composer, result, continued } = await runTikTokComment(undefined, { modal, open: false });
+   const { composer, fresh, created, removed, result, continued } = await runTikTokComment(undefined, { modal, open: false });
    assert.equal(result, 'confirmed');
    assert.equal(composer.state.opens, 1);
    assert.equal(composer.submitted, 1);
    assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(fresh.state.opens, 1);
+   assert.deepEqual(JSON.parse(JSON.stringify(created)), [{ url: composer.request.id, active: false }]);
+   assert.deepEqual(removed, [81]);
    assert.equal(continued, true);
  }
+});
+
+test('fresh photo comments preserve canonical slide changes but reject navigation to another photo', async () => {
+ const photoId = 'https://www.tiktok.com/@creator/photo/234/';
+ for (const otherPost of [false, true]) {
+   const { composer, fresh, result, removed, continued } = await runTikTokComment((composer, h, { fresh, confirmationTab }) => {
+     confirmationTab.url = `${photoId}?image_index=5`;
+     fresh.context.location = new URL(confirmationTab.url);
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       const result = await execute(request);
+       if (request.target.tabId === 81 && request.args?.[0]?.action === 'click-comment-fresh-open') {
+         confirmationTab.url = `${otherPost ? photoId.replace('/234/', '/999/') : photoId}?image_index=1`;
+         fresh.context.location = new URL(confirmationTab.url);
+       }
+       return result;
+     };
+   }, { postId: photoId, withPhoto: true });
+   assert.equal(result, otherPost ? 'uncertain' : 'confirmed');
+   assert.equal(composer.submitted, 1);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.equal(fresh.state.opens, 1);
+   assert.equal(fresh.article.querySelectorAll('video').length, 0);
+   assert.equal(fresh.field.textContent, '');
+   assert.equal(fresh.submitted, 0);
+   assert.deepEqual(removed, otherPost ? [] : [81]);
+   assert.equal(continued, true);
+ }
+});
+
+test('TikTok comments need an exact own row on the fresh primary thread before counting success', async () => {
+ for (const outcome of ['missing', 'count-only', 'other-author', 'wrong-account', 'wrong-author']) {
+   const { composer, fresh, result, removed, continued } = await runTikTokComment((composer, h, { fresh, ownRow }) => {
+     if (outcome === 'wrong-account') fresh.profile.attrs.href = 'https://www.tiktok.com/@someone-else/';
+     else if (outcome === 'wrong-author') fresh.author.attrs.href = 'https://www.tiktok.com/@someone-else/';
+     else {
+       ownRow.row.remove();
+       if (outcome === 'other-author') fresh.addComment(composer.request.comment, '@someone');
+       if (outcome === 'count-only') fresh.openButton.ownText = '3';
+     }
+   });
+   assert.equal(result, 'uncertain', outcome);
+   assert.equal(composer.submitted, 1, outcome);
+   assert.deepEqual(composer.inputs, [composer.request.comment]);
+   assert.ok(fresh.state.opens <= 1, outcome);
+   assert.deepEqual(removed, [81], outcome);
+   assert.equal(continued, true, outcome);
+ }
+});
+
+test('TikTok fresh comment checks never draft or submit and a lost read-open response is not replayed', async () => {
+ const { composer, fresh, result, h, removed } = await runTikTokComment((composer, h) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     const result = await execute(request);
+     if (request.target.tabId === 81 && request.args?.[0]?.action === 'click-comment-fresh-open') throw new Error('Frame with ID 0 was removed.');
+     return result;
+   };
+ });
+ assert.equal(result, 'uncertain');
+ assert.equal(composer.submitted, 1);
+ assert.equal(fresh.state.opens, 1);
+ const actions = h.calls.filter(call => call.injection?.target.tabId === 81 && call.injection.args).map(call => call.injection.args[0].action);
+ assert.deepEqual(actions, ['verify-comment-fresh', 'click-comment-fresh-open']);
+ assert.deepEqual(removed, [81]);
+});
+
+test('Stop or deadline during fresh comment confirmation preserves uncertainty and cleans up only its tab', async () => {
+ for (const expired of [false, true]) {
+   const { composer, h, continued, removed } = await runTikTokComment((composer, h, { confirmationTab, now }) => {
+     h.chrome.tabs.create = async () => {
+       if (expired) h.job.deadline = now();
+       else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+       return confirmationTab;
+     };
+   });
+   assert.equal(composer.submitted, 1);
+   assert.equal(continued, false);
+   assert.deepEqual(removed, [81]);
+   assert.equal(h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'error' && /action may have gone through/.test(call.patch.message)));
+ }
+});
+
+test('Stop during a fresh comment tab lookup prevents script injection and retains the submitted uncertainty', async () => {
+ const { composer, h, continued, removed } = await runTikTokComment((composer, h) => {
+   const get = h.chrome.tabs.get;
+   h.chrome.tabs.get = async id => {
+     const tab = await get(id);
+     if (id === 81) vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+     return tab;
+   };
+ });
+ assert.equal(composer.submitted, 1);
+ assert.equal(continued, false);
+ assert.deepEqual(removed, [81]);
+ assert.equal(h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'error' && /action may have gone through/.test(call.patch.message)));
+});
+
+test('fresh comment confirmation rejects navigation before or during reads and preserves the changed tab', async () => {
+ for (const duringRead of [false, true]) {
+   const { composer, result, removed, h, continued } = await runTikTokComment((composer, h, { confirmationTab }) => {
+     if (!duringRead) confirmationTab.url = 'https://example.com/';
+     else {
+       const execute = h.chrome.scripting.executeScript;
+       h.chrome.scripting.executeScript = async request => {
+         const result = await execute(request);
+         if (request.target.tabId === 81 && request.args?.[0]?.action === 'verify-comment-fresh' && result[0]?.result?.confirmed) confirmationTab.pendingUrl = 'https://example.com/';
+         return result;
+       };
+     }
+   });
+   assert.equal(result, 'uncertain');
+   assert.equal(composer.submitted, 1);
+   assert.deepEqual(removed, []);
+   assert.equal(continued, true);
+   if (!duringRead) assert.equal(h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+ }
+});
+
+test('fresh comment reads wait for a delayed own row but never pass the remaining session deadline', async () => {
+ for (const appears of [false, true]) {
+   let checks = 0;
+   const { composer, h, result, removed } = await runTikTokComment((composer, h, { fresh, ownRow, now }) => {
+     ownRow.row.remove();
+     h.job.deadline = now() + 4500;
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       if (request.target.tabId === 81 && request.args?.[0]?.action === 'verify-comment-fresh') {
+         checks++;
+         assert.ok(now() < h.job.deadline);
+         assert.equal(request.args[1], h.job.deadline);
+         if (appears && checks === 3) fresh.addComment(composer.request.comment, '@me');
+       }
+       return execute(request);
+     };
+   });
+   assert.equal(result, appears ? 'confirmed' : 'uncertain');
+   assert.equal(composer.submitted, 1);
+   assert.ok(checks >= 3);
+   assert.deepEqual(removed, [81]);
+   assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+ }
+});
+
+test('pending fresh comment lookups and injections cannot hold Stop or verification timeout open', async () => {
+ for (const stage of ['lookup', 'load', 'read']) for (const stop of [false, true]) {
+   let held = false;
+   const { composer, h, result, continued, removed } = await runTikTokComment((composer, h) => {
+     const stall = () => {
+       held = true;
+       if (stop) setImmediate(() => vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx));
+       return new Promise(() => {});
+     };
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = async id => id === 81 && stage === 'lookup' && !held ? stall() : get(id);
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       if (request.target.tabId === 81 && !held && (stage === 'load' ? request.files : stage === 'read' && request.args)) return stall();
+       return execute(request);
+     };
+   });
+   assert.equal(held, true, stage);
+   assert.equal(composer.submitted, 1, stage);
+   assert.equal(result, stop ? undefined : 'uncertain', stage);
+   assert.equal(continued, !stop, stage);
+   assert.deepEqual(removed, [81], stage);
+   assert.ok(h.calls.some(call => call.patch?.phase === (stop ? 'error' : 'complete')), stage);
+ }
+});
+
+test('a comment verification tab created after Stop or timeout is cleaned up only if still on the owned post', async () => {
+ for (const stop of [false, true]) for (const moved of [false, true]) {
+   let resolveCreate;
+   let tab;
+   const { composer, result, continued, removed } = await runTikTokComment((composer, h, { confirmationTab }) => {
+     tab = confirmationTab;
+     h.chrome.tabs.create = () => {
+       if (stop) setImmediate(() => vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx));
+       return new Promise(resolve => { resolveCreate = resolve; });
+     };
+   });
+   assert.equal(composer.submitted, 1);
+   assert.equal(result, stop ? undefined : 'uncertain');
+   assert.equal(continued, !stop);
+   assert.deepEqual(removed, []);
+   if (moved) tab.url = 'https://example.com/';
+   resolveCreate(tab);
+   await settle();
+   assert.deepEqual(removed, moved ? [] : [81]);
+ }
+});
+
+test('a pending owned-tab cleanup cannot block an already verified comment result', async () => {
+ let cleanupStarted = false;
+ const { composer, result, continued, h } = await runTikTokComment((composer, h) => {
+   h.chrome.tabs.remove = () => { cleanupStarted = true; return new Promise(() => {}); };
+ });
+ assert.equal(cleanupStarted, true);
+ assert.equal(composer.submitted, 1);
+ assert.equal(result, 'confirmed');
+ assert.equal(continued, true);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
 });
 
 test('TikTok waits for an enabled Post and tolerates focus loss and editor replacement', async () => {
@@ -612,6 +843,24 @@ test('TikTok waits for an enabled Post and tolerates focus loss and editor repla
  assert.equal(result, 'confirmed');
  assert.equal(composer.submitted, 1);
  assert.deepEqual(composer.inputs, [composer.request.comment]);
+});
+
+test('TikTok runner retains its draft when a late own duplicate disappears during Post readiness polling', async () => {
+ const { composer, result, continued } = await runTikTokComment(composer => {
+   let duplicate;
+   composer.state.onInput = () => { duplicate = composer.addComment(composer.request.comment); };
+   const inject = composer.inject;
+   let attempts = 0;
+   composer.inject = (func, args) => {
+     if (String(func).includes("action: 'click-comment-submit'") && ++attempts === 2) duplicate.row.remove();
+     return inject(func, args);
+   };
+ });
+ assert.equal(result, 'draft-retained');
+ assert.equal(composer.submitted, 0);
+ assert.equal(composer.field.textContent, composer.request.comment);
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(continued, true);
 });
 
 test('TikTok keeps its draft after the editor delivers a delayed controlled input event', async () => {
@@ -1114,7 +1363,7 @@ async function runTikTokFreshFollow(configure = () => {}) {
    if (request.files) { assert.deepEqual(Array.from(request.files), ['tiktok.js']); page.load(); return [{ result: null }]; }
    return [{ result: await page.inject(request.func, request.args) }];
  };
- configure({ viewer, fresh, h, confirmationTab });
+ configure({ viewer, fresh, h, confirmationTab, now: () => now });
  await finishRunner(h);
  return { viewer, fresh, h, created, removed, result, continued };
 }
@@ -1164,6 +1413,177 @@ test('TikTok fresh follow checks obey Stop, deadline and account restrictions wi
    assert.equal(f.continued, false);
    assert.equal(f.fresh.clicks.length, 0);
    assert.deepEqual(f.removed, [81]);
+ }
+});
+
+test('pending fresh follow Chrome calls cannot hold Stop, the deadline or verification timeout open', async () => {
+ for (const stage of ['create', 'lookup', 'load', 'loaded-lookup', 'read', 'final-lookup']) for (const ending of ['stop', 'deadline', 'timeout']) {
+   let held = false;
+   let loaded = false;
+   let read = false;
+   const f = await runTikTokFreshFollow(({ h, now }) => {
+     if (ending === 'deadline') h.job.deadline = now() + 2500;
+     const stall = () => {
+       held = true;
+       if (ending === 'stop') setImmediate(() => vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx));
+       return new Promise(() => {});
+     };
+     const create = h.chrome.tabs.create;
+     h.chrome.tabs.create = options => stage === 'create' ? stall() : create(options);
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = id => {
+       if (id === 81 && !held && (stage === 'lookup' || (stage === 'loaded-lookup' && loaded) || (stage === 'final-lookup' && read))) return stall();
+       return get(id);
+     };
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       if (request.target.tabId === 81) {
+         if (!held && (stage === 'load' ? request.files : stage === 'read' && request.args)) return stall();
+         if (request.files) loaded = true;
+         else read = true;
+       }
+       return execute(request);
+     };
+   });
+   const label = `${stage}: ${ending}`;
+   assert.equal(held, true, label);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1, label);
+   assert.equal(f.fresh.clicks.length, 0, label);
+   assert.equal(f.result, ending === 'timeout' ? 'uncertain' : undefined, label);
+   assert.equal(f.continued, ending === 'timeout', label);
+   assert.deepEqual(f.removed, stage === 'create' ? [] : [81], label);
+   assert.ok(f.h.calls.some(call => call.patch?.phase === (ending === 'timeout' ? 'complete' : 'error')), label);
+   if (ending !== 'timeout') assert.ok(f.h.calls.some(call => /action may have gone through/.test(call.patch?.message)), label);
+ }
+});
+
+test('a follow verification tab arriving after Stop, deadline or timeout is closed only while still owned', async () => {
+ for (const ending of ['stop', 'deadline', 'timeout']) for (const destination of ['same', 'pending-same', 'moved', 'pending-other']) {
+   let resolveCreate;
+   let tab;
+   const f = await runTikTokFreshFollow(({ h, confirmationTab, now }) => {
+     tab = confirmationTab;
+     if (ending === 'deadline') h.job.deadline = now() + 2500;
+     h.chrome.tabs.create = () => {
+       if (ending === 'stop') setImmediate(() => vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx));
+       return new Promise(resolve => { resolveCreate = resolve; });
+     };
+   });
+   const label = `${ending}: ${destination}`;
+   assert.equal(f.result, ending === 'timeout' ? 'uncertain' : undefined, label);
+   assert.equal(f.continued, ending === 'timeout', label);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1, label);
+   assert.equal(f.fresh.clicks.length, 0, label);
+   assert.deepEqual(f.removed, [], label);
+   if (destination === 'pending-same') { tab.pendingUrl = tab.url; tab.url = 'about:blank'; }
+   if (destination === 'moved') tab.url = 'https://example.com/';
+   if (destination === 'pending-other') tab.pendingUrl = 'https://www.tiktok.com/@other/video/999/';
+   resolveCreate(tab);
+   await settle();
+   assert.deepEqual(f.removed, ['same', 'pending-same'].includes(destination) ? [81] : [], label);
+   assert.equal(f.h.calls.filter(call => call.injection?.target.tabId === 81).length, 0, label);
+ }
+});
+
+test('pending follow cleanup lookup or removal cannot block an already verified result', async () => {
+ for (const stage of ['lookup', 'remove']) {
+   let cleanupStarted = false;
+   let read = false;
+   let lookupsAfterRead = 0;
+   const f = await runTikTokFreshFollow(({ h }) => {
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       const result = await execute(request);
+       if (request.target.tabId === 81 && request.args) read = true;
+       return result;
+     };
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = id => {
+       if (id === 81 && read && ++lookupsAfterRead === 2 && stage === 'lookup') {
+         cleanupStarted = true;
+         return new Promise(() => {});
+       }
+       return get(id);
+     };
+     const remove = h.chrome.tabs.remove;
+     h.chrome.tabs.remove = id => {
+       if (stage === 'remove') { cleanupStarted = true; return new Promise(() => {}); }
+       return remove(id);
+     };
+   });
+   assert.equal(cleanupStarted, true, stage);
+   assert.equal(f.result, 'confirmed', stage);
+   assert.equal(f.continued, true, stage);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1, stage);
+   assert.equal(f.fresh.clicks.length, 0, stage);
+   assert.ok(f.h.calls.some(call => call.patch?.phase === 'complete'), stage);
+ }
+});
+
+test('Stop after a fresh follow lookup or script load prevents later inspection and retains uncertainty', async () => {
+ for (const stage of ['lookup', 'load']) {
+   let stopped = false;
+   const f = await runTikTokFreshFollow(({ h }) => {
+     const stop = () => { stopped = true; vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx); };
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = async id => {
+       const tab = await get(id);
+       if (id === 81 && !stopped && stage === 'lookup') stop();
+       return tab;
+     };
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       const result = await execute(request);
+       if (request.target.tabId === 81 && request.files && stage === 'load') stop();
+       return result;
+     };
+   });
+   assert.equal(stopped, true, stage);
+   assert.equal(f.result, undefined, stage);
+   assert.equal(f.continued, false, stage);
+   assert.equal(f.h.calls.filter(call => call.injection?.target.tabId === 81 && call.injection.func).length, 0, stage);
+   assert.deepEqual(f.removed, [81], stage);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1, stage);
+   assert.equal(f.fresh.clicks.length, 0, stage);
+   assert.ok(f.h.calls.some(call => call.patch?.phase === 'error' && /action may have gone through/.test(call.patch.message)), stage);
+ }
+});
+
+test('fresh follow readiness is deadline-clamped and never inspects after its verification window', async () => {
+ for (const ending of ['ready', 'deadline', 'timeout']) {
+   let checks = 0;
+   let until;
+   let finalNow;
+   const f = await runTikTokFreshFollow(({ h, fresh, now }) => {
+     fresh.follow.textContent = 'Follow';
+     if (ending !== 'timeout') h.job.deadline = now() + 2500;
+     const create = h.chrome.tabs.create;
+     h.chrome.tabs.create = options => {
+       until = Math.min(now() + 8000, h.job.deadline);
+       return create(options);
+     };
+     const execute = h.chrome.scripting.executeScript;
+     h.chrome.scripting.executeScript = async request => {
+       if (request.target.tabId === 81 && request.args) {
+         checks++;
+         assert.ok(now() < until, `${ending}: read must precede the verification deadline`);
+         assert.equal(request.args[2], until, `${ending}: injected deadline must be bounded`);
+         if (ending === 'ready' && checks === 3) fresh.follow.textContent = 'Following';
+       }
+       return execute(request);
+     };
+     const send = h.chrome.runtime.sendMessage;
+     h.chrome.runtime.sendMessage = message => {
+       if (message.patch) finalNow = now();
+       return send(message);
+     };
+   });
+   assert.equal(f.result, ending === 'ready' ? 'confirmed' : 'uncertain', ending);
+   assert.ok(checks >= 3, ending);
+   assert.ok(finalNow <= until, `${ending}: readiness sleeps and cleanup must not overrun`);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1, ending);
+   assert.equal(f.fresh.clicks.length, 0, ending);
+   assert.deepEqual(f.removed, [81], ending);
  }
 });
 

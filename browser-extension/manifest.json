@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Creator Collective Warm-up",
-  "version": "0.6.41",
+  "version": "0.6.41.1",
+  "version_name": "0.6.41 verification",
   "description": "Run a timed niche browsing session on Instagram or TikTok, with targets and activity you control.",
   "minimum_chrome_version": "120",
   "permissions": [

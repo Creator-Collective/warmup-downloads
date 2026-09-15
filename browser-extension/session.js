@@ -19,8 +19,12 @@ function matchesNiche(text, terms) {
   const haystack = ` ${normalize(text)} `;
   const compactTags = new Set((text.match(/#[\p{L}\p{N}_]+/gu) || []).map(normalize).map(tag => tag.replace(/ /g, '')));
   return terms.some(term => {
-    const words = normalize(term).split(' ').filter(Boolean);
-    return words.length && (words.every(word => haystack.includes(` ${word} `)) || compactTags.has(words.join('')));
+    const phrase = normalize(term);
+    const words = phrase.split(' ').filter(Boolean);
+    // These two supported topic names also appear interchangeably in captions.
+    const equivalent = phrase === 'personal branding' ? 'personal brand' : phrase === 'personal brand' ? 'personal branding' : null;
+    return words.length && (words.every(word => haystack.includes(` ${word} `)) || compactTags.has(words.join('')) ||
+      (equivalent && (haystack.includes(` ${equivalent} `) || compactTags.has(equivalent.replace(/ /g, '')))));
   });
 }
 
@@ -196,7 +200,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let termIndex = 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
   // Background tabs can round sub-second timers up during confirmation.
-  const confirmationBudgetMs = { like: 8000, follow: 22000, comment: 20000 };
+  const confirmationBudgetMs = { like: 8000, follow: 22000, comment: platform === 'tiktok' ? 28000 : 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
   const seen = new Set();
   const hasSeen = id => seen.has(postIdentity(id));
@@ -408,6 +412,12 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
         update(engagementMessage(action, post, comment, 'pending'));
         const result = await adapter.engage(action, post, comment, signal);
+        if (result === 'skipped') {
+          // A verified no-action skip needs a measured retry pause, not the
+          // full engagement cooldown. Keep this post/author marked done.
+          nextEngagement = nextAllowed[action] = now() + Math.max(6000, 6000 * settings.pauseScale);
+          pauseAfter = 'retry';
+        }
         if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
           comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }

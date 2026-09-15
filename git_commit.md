@@ -1,11 +1,15 @@
-fix tiktok comment confirmation after unchanged redraws
+fix tiktok session recovery and engagement verification
 
 misc:
-- preserve baseline author and text counts across comment remounts
-- keep new own-row, duplicate and interrupted-draft safeguards
-- log fixed confirmation failure reasons without account or comment data
-- publish 0.6.41 and document saved live comment, photo transitions and failed follow persistence
+- recover promptly from no-action skips without retrying submitted actions
+- preserve comment ownership through unrelated row changes and reject late duplicates
+- require fresh matched-post evidence before counting tiktok comments
+- bound follow and comment verification waits, cancellation and owned-tab cleanup
+- require explicit follow controls and normalize equivalent niche phrases
+- retain private test identifier and document observed live limits; leave public archives unchanged
 
 validation:
-- 436 checks pass and both 30-file archives match source
-- code and javascript reviews report no findings
+- 91 runner, 110 tiktok observer, 74 session and 6 real editor checks pass
+- code, javascript, react and security reviews cover the source and fixture changes
+- live browsing and like persisted; one comment appeared later; follows remain unretained
+- draft only; final installed-source acceptance and release packaging remain open

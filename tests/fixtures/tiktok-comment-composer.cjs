@@ -17,6 +17,8 @@ function fixture({ postId = id, href = postId, modal = false, tag = 'div', withV
     append(...nodes) { for (const node of nodes) { node.parentElement = this; this.children.push(node); } return this; }
     remove() { this.parentElement.children = this.parentElement.children.filter(node => node !== this); this.parentElement = null; }
     get textContent() { return this.ownText + this.children.map(child => child.textContent).join(' '); }
+    get nodeType() { return 1; }
+    get childNodes() { return [...(this.ownText ? [{ nodeType: 3, textContent: this.ownText }] : []), ...this.children]; }
     set textContent(value) { this.ownText = value; this.children = []; }
     get isConnected() { return body.contains(this); }
     get isContentEditable() { return this.attrs.contenteditable === 'true'; }
@@ -215,4 +217,77 @@ function searchCommentViewer({ withPhoto = false, open = true } = {}) {
   return Object.assign(page, { preload, nextVideo, panelContent, enhancedCommentBar, composerContent, composerAvatar });
 }
 
-module.exports = { fixture, commentComposer, searchCommentViewer };
+// Sanitized permalink structure observed during the persistence check. The
+// recommendation cards share a sibling comment panel with no post-id attribute.
+function freshCommentThread({ withPhoto = false, postId = withPhoto ? 'https://www.tiktok.com/@creator/photo/234/' : id, open = false } = {}) {
+  const page = commentComposer({ modal: false, postId, open, withPhoto });
+  const postAuthor = new URL(postId).pathname.split('/')[1];
+  page.request.author = postAuthor;
+  page.author.attrs.href = `https://www.tiktok.com/${postAuthor}/`;
+  page.author.ownText = postAuthor;
+  let photoVideoContainer = null;
+  const photoSlides = withPhoto ? [page.slide] : [];
+  if (withPhoto) {
+    page.media.attrs = { class: 'css-live-DivPhotoPlayerContainer' };
+    photoVideoContainer = page.element('div', { class: 'css-live-DivPhotoVideoContainer' }, '', page.media.bounds);
+    page.carousel.remove(); photoVideoContainer.append(page.carousel); page.media.append(photoVideoContainer);
+    for (let index = 2; index <= 5; index++) {
+      const slide = page.element('div', { class: 'swiper-slide' }, '', page.slide.bounds);
+      const image = page.element('img', { class: 'css-live-ImgPhotoSlide', src: `https://media.example.test/photo-slide-${index}.jpeg` }, '', page.photo.bounds);
+      Object.assign(image, { complete: true, naturalWidth: 928, naturalHeight: 1400 });
+      slide.append(image); page.carousel.append(slide); photoSlides.push(slide);
+    }
+  }
+  Object.assign(page.article.attrs, { id: 'one-column-item-0', 'data-e2e': 'recommend-list-item-container', 'data-scroll-index': '0' });
+  page.request.commenter = '@me';
+  page.openButton.tagName = 'DIV';
+  page.openButton.attrs = { role: 'button', tabindex: '0', 'aria-label': 'Read or add comments\n3 comments', 'data-e2e': 'comment-icon', 'data-key-interaction': 'action_comment' };
+  for (const child of [...page.openButton.children]) child.remove();
+  const icon = page.element('span', {}, '', page.rect(445, 155, 40, 26));
+  const iconContainer = page.element('div', { 'data-testid': 'tux-web-icon-button-container' }, '', icon.bounds);
+  const iconButton = page.element('button', { type: 'button', 'data-testid': 'tux-web-icon-button' }, '', icon.bounds);
+  iconContainer.append(iconButton); icon.append(iconContainer);
+  const count = page.element('strong', { 'data-e2e': 'comment-count' }, '3', page.rect(485, 155, 15, 26));
+  page.openButton.append(icon, count);
+  const rightPanel = page.element('div', { class: 'css-live-RightPanelContainer' }, '', page.rect(350, 220, 400, 500));
+  const rightPanelShell = page.element('div', { class: 'css-live-DivRightPanelContainer' }, '', rightPanel.bounds);
+  const panel = page.element('div', { class: 'css-live-DivTabContainer' }, '', rightPanel.bounds);
+  const commentMain = page.element('div', { class: withPhoto ? 'css-live-DivCommentMainWithoutScroll' : 'css-live-DivCommentMain' }, '', page.list.bounds);
+  page.list.remove(); page.list.attrs = { class: 'css-live-DivCommentListContainer' };
+  for (const row of [...page.list.children]) row.remove();
+  page.rows.length = 0;
+  page.footer.remove(); page.footer.tagName = 'DIV'; page.footer.attrs.class = 'css-live-DivCommentFooter';
+  const commentBar = page.element('div', { class: 'css-live-DivCommentBarContainer' }, '', page.footer.bounds);
+  page.input.remove(); page.submit.remove(); commentBar.append(page.input, page.submit); page.footer.append(commentBar);
+  if (withPhoto) {
+    const inputWrapper = page.element('div', { class: 'css-live-DivCommentInputWrapper' }, '', page.footer.bounds);
+    const generic = page.element('div', {}, '', page.footer.bounds);
+    const inputWithPost = page.element('div', { class: 'css-live-DivTextInputWithPostContainer' }, '', page.footer.bounds);
+    page.input.remove(); page.submit.remove(); inputWithPost.append(page.input, page.submit);
+    generic.append(inputWithPost); inputWrapper.append(generic); commentBar.append(inputWrapper);
+  }
+  commentMain.append(page.list); panel.append(commentMain, page.footer); rightPanel.append(panel); rightPanelShell.append(rightPanel); page.main.append(rightPanelShell);
+  rightPanel.hidden = !open;
+  page.openButton.onClick = () => { page.state.opens++; rightPanel.hidden = false; page.footer.hidden = false; page.list.hidden = false; };
+  function addComment(text, author = '@me') {
+    const top = 250 + page.rows.length * 55;
+    const object = page.element('div', { class: 'css-live-DivCommentObjectWrapper' }, '', page.rect(350, top, 340, 50));
+    const row = page.element('div', { class: 'css-live-DivCommentItemWrapper' }, '', object.bounds);
+    const content = page.element('div', { class: 'css-live-DivCommentContentWrapper' }, '', object.bounds);
+    const authorLink = page.element('a', { href: `https://www.tiktok.com/${author}/` }, author, page.rect(350, top, 80, 20));
+    const textNode = page.element('span', { 'data-e2e': 'comment-level-1' }, text, page.rect(350, top + 20, 330, 25));
+    content.append(authorLink, textNode); row.append(content); object.append(row); page.list.append(object);
+    const result = { object, row, content, author: authorLink, text: textNode }; page.rows.push(result); return result;
+  }
+  const secondary = page.element('article', { id: 'one-column-item-1', 'data-e2e': 'recommend-list-item-container', 'data-scroll-index': '1' }, '', page.rect(0, 900, 750, 650));
+  const secondaryVideo = page.element('video', {}, '', page.rect(0, 960, 340, 500));
+  Object.assign(secondaryVideo, { paused: true, ended: false, readyState: 4 });
+  secondary.append(secondaryVideo, page.element('a', { href: 'https://www.tiktok.com/@another/video/456/' }, 'next post', page.rect(350, 910, 200, 30)),
+    page.element('a', { href: 'https://www.tiktok.com/@another/' }, '@another', page.rect(350, 900, 100, 30)),
+    page.element('div', { role: 'button', 'data-e2e': 'comment-icon', 'aria-label': 'Read or add comments' }, '', page.rect(440, 1050, 60, 36)));
+  if (withPhoto) secondaryVideo.remove();
+  page.main.append(secondary);
+  return Object.assign(page, { rightPanel, rightPanelShell, panel, commentMain, commentBar, iconButton, count, secondary, secondaryVideo, photoVideoContainer, photoSlides, addComment });
+}
+
+module.exports = { fixture, commentComposer, searchCommentViewer, freshCommentThread };

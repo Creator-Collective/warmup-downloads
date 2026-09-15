@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { fixture, commentComposer, searchCommentViewer } = require('./fixtures/tiktok-comment-composer.cjs');
+const { fixture, commentComposer, searchCommentViewer, freshCommentThread } = require('./fixtures/tiktok-comment-composer.cjs');
 const id = 'https://www.tiktok.com/@creator/video/123/';
 
 test('a feed video includes its sibling action and author panels', () => {
@@ -282,6 +282,148 @@ test('the verified browse-follow wrapper resolves its contained button once', ()
   assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, true);
   assert.equal(page.inspect({ id, action: 'click-follow' }).clicked, false);
   assert.deepEqual(page.clicks, [button]);
+});
+
+test('follow markers require an explicit Follow action, not an unknown or different action', () => {
+  for (const marker of ['follow-button', 'browse-follow', 'feed-follow', 'follow-icon']) {
+    for (const text of ['Message', 'Remove', 'Follow back', 'Follow @someoneelse', 'Loading', '']) {
+      if (marker === 'follow-icon' && text === '') continue;
+      const page = fixture(); page.follow.attrs = { 'data-e2e': marker }; page.follow.ownText = text;
+      assert.equal(page.inspect().post.follow, false, `${marker}: ${text}`);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false, `${marker}: ${text}`);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false, `${marker}: ${text}`);
+      assert.equal(page.clicks.length, 0);
+    }
+  }
+  for (const text of ['Follow', 'Follow @creator']) {
+    const page = fixture(); page.follow.ownText = text;
+    assert.equal(page.inspect().post.follow, true, text);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, true, text);
+  }
+});
+
+test('known unlabeled follow icons remain eligible without trusting generic unlabeled markers', () => {
+  for (const wrapped of [false, true]) {
+    const page = fixture(); page.follow.attrs = { 'data-e2e': 'follow-icon' }; page.follow.ownText = '';
+    let control = page.follow;
+    if (wrapped) {
+      page.follow.remove(); page.follow.onClick = null;
+      control = page.element('button', {}, '', page.rect(500, 0, 80, 30));
+      control.onClick = () => { control.attrs['aria-label'] = 'Unfollow'; };
+      control.append(page.follow); page.header.append(control);
+    }
+    assert.equal(page.inspect().post.follow, true);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, true);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, true);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+    assert.deepEqual(page.clicks, [control]);
+  }
+});
+
+test('follow action labels must agree across the visible control and its wrapper', () => {
+  for (const text of ['Message', 'Remove', 'Loading', 'Follow @someoneelse']) {
+    for (const placement of ['text', 'title', 'wrapper']) {
+      const page = fixture();
+      page.follow.attrs['aria-label'] = 'Follow';
+      if (placement === 'text') page.follow.ownText = text;
+      else if (placement === 'title') page.follow.attrs.title = text;
+      else {
+        page.follow.attrs = { 'data-e2e': 'browse-follow', 'aria-label': text }; page.follow.ownText = '';
+        page.follow.append(page.element('button', { 'aria-label': 'Follow' }, 'Follow', page.rect(500, 0, 80, 30)));
+      }
+      assert.equal(page.inspect().post.follow, false, `${placement}: ${text}`);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false);
+      assert.equal(page.clicks.length, 0);
+    }
+  }
+});
+
+test('hidden relationship text cannot confirm a follow or hide a visible action', () => {
+  const page = fixture(); page.follow.ownText = ''; page.follow.attrs['aria-label'] = 'Follow';
+  const oldLabel = page.element('span', {}, 'Unfollow', page.rect(510, 0, 50, 30)); oldLabel.hidden = true;
+  page.follow.append(oldLabel);
+  assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false);
+  assert.equal(page.inspect().post.follow, true);
+  assert.equal(page.clicks.length, 0);
+});
+
+test('visible action text still matters when hidden from accessibility', () => {
+  for (const text of ['Unfollow', 'Message']) {
+    const page = fixture(); page.follow.ownText = ''; page.follow.attrs['aria-label'] = 'Follow';
+    page.follow.append(page.element('span', { 'aria-hidden': 'true' }, text, page.rect(510, 0, 50, 30)));
+    assert.equal(page.inspect().post.follow, false, text);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false);
+    assert.equal(page.clicks.length, 0);
+  }
+});
+
+test('complete follow labels remain valid when split across nested spans', () => {
+  for (const state of ['Follow', 'Following']) {
+    for (const wrapped of [false, true]) {
+      const page = fixture(); page.follow.ownText = ''; page.follow.attrs = { 'data-e2e': 'browse-follow', 'aria-label': `${state} @creator` };
+      const control = wrapped ? page.element('button', { 'aria-label': `${state} @creator` }, '', page.rect(500, 0, 80, 30)) : page.follow;
+      control.append(page.element('span', {}, `${state} `, page.rect(500, 0, 40, 30)), page.element('span', {}, '@creator', page.rect(540, 0, 40, 30)));
+      if (wrapped) page.follow.append(control);
+      assert.equal(page.inspect().post.follow, state === 'Follow', `${state}, wrapped=${wrapped}`);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, state === 'Following');
+      assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, state === 'Follow');
+      assert.equal(page.clicks.length, state === 'Follow' ? 1 : 0);
+    }
+  }
+});
+
+test('conflicting visible relationship labels cannot confirm following', () => {
+  for (const text of ['Follow', 'Message', 'Following @someoneelse']) {
+    const page = fixture(); page.follow.attrs['aria-label'] = 'Following'; page.follow.ownText = text;
+    assert.equal(page.inspect().post.follow, false);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+    assert.equal(page.clicks.length, 0);
+  }
+});
+
+test('current relationship labels always prevent following, including stale positive labels and nested state', () => {
+  for (const text of ['Following', 'Friends', 'Requested', 'Unfollow', 'Unfollow @creator']) {
+    for (const placement of ['text', 'aria-label', 'title', 'wrapper', 'nested']) {
+      const page = fixture();
+      if (placement === 'text') { page.follow.attrs['aria-label'] = 'Follow'; page.follow.ownText = text; }
+      else if (placement === 'wrapper') {
+        page.follow.attrs = { 'data-e2e': 'browse-follow', 'aria-label': text }; page.follow.ownText = '';
+        page.follow.append(page.element('button', {}, 'Follow', page.rect(500, 0, 80, 30)));
+      } else if (placement === 'nested') {
+        page.follow.append(page.element('span', { 'aria-label': text }, '', page.rect(510, 0, 50, 30)));
+      } else page.follow.attrs[placement] = text;
+      assert.equal(page.inspect().post.follow, false, `${placement}: ${text}`);
+      assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false, `${placement}: ${text}`);
+      assert.equal(page.clicks.length, 0);
+    }
+  }
+});
+
+test('follow eligibility is rechecked after a previously eligible control changes state', () => {
+  for (const attrs of [{ 'aria-label': 'Unfollow' }, { 'title': 'Following' }, { 'aria-pressed': 'true' }, { 'data-state': 'requested' }, { 'data-state': 'friends' }, { 'data-state': 'unfollow' }, { 'aria-label': 'Message' }]) {
+    const page = fixture({ modal: true });
+    page.follow.attrs = { 'data-e2e': 'browse-follow' }; page.follow.ownText = '';
+    const button = page.element('button', {}, 'Follow', page.rect(500, 0, 80, 30)); page.follow.append(button);
+    assert.equal(page.inspect().post.follow, true);
+    Object.assign(button.attrs, attrs);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'follow' }).point, null);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+    assert.equal(page.clicks.length, 0);
+  }
+});
+
+test('a stale Follow label cannot override a nested unfollow icon or another named account', () => {
+  const page = fixture();
+  page.follow.append(page.element('span', { 'data-e2e': 'unfollow-icon' }, '', page.rect(510, 0, 50, 30)));
+  assert.equal(page.inspect().post.follow, false);
+  assert.equal(page.inspect({ id, author: '@creator', action: 'click-follow' }).clicked, false);
+  assert.equal(page.clicks.length, 0);
+  const other = fixture(); other.follow.ownText = 'Unfollow @someoneelse';
+  assert.equal(other.inspect().post.follow, false);
+  assert.equal(other.inspect({ id, author: '@creator', action: 'verify-follow' }).confirmed, false);
 });
 
 test('the verified browse-like span uses its pressed-state button', () => {
@@ -569,7 +711,9 @@ test('a pending post-submit clear cannot confirm missing, wrong, hidden or ambig
     h => h.addComment(h.request.comment),
     h => { h.rows[0].text.ownText = 'changed baseline'; }
   ]) {
-    const h = commentComposer(); h.prepare();
+    const h = commentComposer();
+    h.rows[0].author.attrs.href = 'https://www.tiktok.com/@me/';
+    h.prepare();
     h.state.onSubmit = () => { change(h); h.interact('input'); };
     assert.equal(h.inspect('click-comment-submit').clicked, true);
     assert.equal(h.inspect('verify-comment').confirmed, false);
@@ -645,22 +789,94 @@ test('TikTok comment confirmation requires a new own row, cleared editor and the
     h => { h.state.onSubmit = () => { h.addComment(h.request.comment); }; },
     h => { h.state.onSubmit = () => { h.rows.at(-1).row.hidden = true; }; }
   ]) {
-    const h = commentComposer(); h.prepare(); change(h);
+    const h = commentComposer();
+    h.rows[0].author.attrs.href = 'https://www.tiktok.com/@me/';
+    h.prepare(); change(h);
     assert.equal(h.inspect('click-comment-submit').clicked, true);
     assert.equal(h.inspect('verify-comment').confirmed, false);
     assert.equal(h.inspect('click-comment-submit').clicked, false);
   }
 });
 
-test('unchanged TikTok baseline comments can remount with equivalent normalized text', () => {
+test('unrelated TikTok comment changes do not hide one new own submission', () => {
+  for (const change of ['removed', 'text', 'author', 'remounted']) {
+    const h = commentComposer();
+    const old = h.rows[0];
+    h.addComment('an older own comment');
+    h.prepare();
+    h.state.onSubmit = () => {
+      if (change === 'text') old.text.ownText = 'edited by someone else';
+      if (change === 'author') old.author.attrs.href = 'https://www.tiktok.com/@different/';
+      if (change === 'removed' || change === 'remounted') old.row.remove();
+      if (change === 'remounted') h.addComment(old.text.textContent, '@someone');
+    };
+    assert.equal(h.inspect('click-comment-submit').clicked, true);
+    assert.equal(h.field.textContent, '');
+    assert.equal(h.inspect('verify-comment').confirmed, true);
+    assert.equal(h.inspect('click-comment-submit').clicked, false);
+    assert.equal(h.submitted, 1);
+  }
+});
+
+test('an identical own TikTok comment arriving after drafting prevents duplicate submission', () => {
+  const h = commentComposer(); h.prepare();
+  assert.ok(h.inspect('comment-submit').point);
+  h.addComment(h.request.comment);
+  assert.equal(h.inspect('comment-submit').point, null);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.inspect('click-comment-submit').reason, 'own-comment-already-exists');
+  assert.equal(h.submitted, 0);
+  assert.equal(h.field.textContent, h.request.comment);
+  assert.equal(h.inspect('verify-comment').confirmed, false);
+});
+
+test('a late own TikTok duplicate keeps submission blocked after its row disappears', () => {
+  const h = commentComposer(); h.prepare();
+  h.submit.disabled = true;
+  const duplicate = h.addComment(h.request.comment);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  duplicate.row.remove();
+  h.submit.disabled = false;
+  assert.equal(h.inspect('comment-submit').point, null);
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.inspect('click-comment-submit').reason, 'own-comment-already-exists');
+  assert.equal(h.submitted, 0);
+  assert.equal(h.field.textContent, h.request.comment);
+});
+
+test('an identical TikTok comment from someone else does not block one own submission', () => {
+  const h = commentComposer(); h.prepare();
+  h.addComment(h.request.comment, '@someone');
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(h.inspect('verify-comment').confirmed, true);
+  assert.equal(h.submitted, 1);
+});
+
+test('an unrelated old TikTok row cannot be reused as the new own comment', () => {
+  const h = commentComposer(); h.prepare();
+  h.state.confirm = false;
+  h.state.onSubmit = () => {
+    h.field.textContent = '';
+    h.rows[0].author.attrs.href = 'https://www.tiktok.com/@me/';
+    h.rows[0].text.ownText = h.request.comment;
+  };
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(h.inspect('verify-comment').confirmed, false);
+  assert.equal(h.inspect('verify-comment').reason, 'own-row-not-new');
+  assert.equal(h.inspect('click-comment-submit').clicked, false);
+  assert.equal(h.submitted, 1);
+});
+
+test('unchanged own TikTok baseline comments can remount with equivalent normalized text', () => {
   for (const modal of [false, true]) {
     const h = commentComposer({ modal });
     const old = h.rows[0];
+    old.author.attrs.href = 'https://www.tiktok.com/@me/';
     old.text.ownText = 'an\u00a0existing\r\ncomment';
     h.prepare();
     h.state.onSubmit = () => {
       old.row.remove();
-      h.addComment('an existing\ncomment', '@someone');
+      h.addComment('an existing\ncomment', '@me');
     };
     assert.equal(h.inspect('click-comment-submit').clicked, true);
     assert.equal(old.row.isConnected, false);
@@ -670,14 +886,15 @@ test('unchanged TikTok baseline comments can remount with equivalent normalized 
   }
 });
 
-test('remounting cannot conceal a missing or changed TikTok baseline comment', () => {
+test('remounting cannot conceal a missing or changed own TikTok baseline comment', () => {
   for (const change of ['missing', 'text', 'author']) {
     const h = commentComposer();
     const old = h.rows[0];
+    old.author.attrs.href = 'https://www.tiktok.com/@me/';
     h.prepare();
     h.state.onSubmit = () => {
       old.row.remove();
-      if (change !== 'missing') h.addComment(change === 'text' ? 'changed text' : old.text.textContent, change === 'author' ? '@different' : '@someone');
+      if (change !== 'missing') h.addComment(change === 'text' ? 'changed text' : old.text.textContent, change === 'author' ? '@different' : '@me');
     };
     assert.equal(h.inspect('click-comment-submit').clicked, true);
     const result = h.inspect('verify-comment');
@@ -686,16 +903,17 @@ test('remounting cannot conceal a missing or changed TikTok baseline comment', (
   }
 });
 
-test('TikTok baseline preservation retains duplicate comment cardinality after remounting', () => {
+test('TikTok own baseline preservation retains duplicate comment cardinality after remounting', () => {
   for (const copies of [1, 2]) {
     const h = commentComposer();
+    h.rows[0].author.attrs.href = 'https://www.tiktok.com/@me/';
     const text = h.rows[0].text.textContent;
-    h.addComment(text, '@someone');
+    h.addComment(text, '@me');
     const baseline = [...h.rows];
     h.prepare();
     h.state.onSubmit = () => {
       for (const old of baseline) old.row.remove();
-      for (let index = 0; index < copies; index++) h.addComment(text, '@someone');
+      for (let index = 0; index < copies; index++) h.addComment(text, '@me');
     };
     assert.equal(h.inspect('click-comment-submit').clicked, true);
     const result = h.inspect('verify-comment');
@@ -986,5 +1204,173 @@ test('unrecognized posters and source-less photo media cannot acquire a photo id
     assert.equal(page.inspect().post, null);
     assert.equal(page.inspect({ id: photoId, action: 'click-like' }).clicked, false);
     assert.equal(page.clicks.length, 0);
+  }
+});
+
+test('same-page confirmation returns the bound signed-in commenter for a fresh read', () => {
+  const h = commentComposer(); h.prepare();
+  assert.equal(h.inspect('click-comment-submit').clicked, true);
+  assert.equal(h.inspect('verify-comment').commenter, '@me');
+});
+
+for (const open of [false, true]) {
+  test(`fresh comments ${open ? 'already open' : 'closed'} require one bound primary bubble before accepting exact own text`, () => {
+    const h = freshCommentThread({ open });
+    h.addComment(h.request.comment);
+    h.field.textContent = 'an unrelated manual draft';
+    const initial = h.inspect('verify-comment-fresh');
+    assert.equal(initial.confirmed, false);
+    assert.equal(initial.needsOpen, true);
+    assert.equal(h.clicks.length, 0);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+    const checked = h.inspect('verify-comment-fresh');
+    assert.equal(checked.confirmed, true);
+    assert.equal(checked.commenter, '@me');
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+    h.load();
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, true);
+    assert.equal(h.state.opens, 1);
+    assert.deepEqual(h.clicks, [h.openButton]);
+    assert.equal(h.submitted, 0);
+    assert.deepEqual(h.inputs, []);
+    assert.equal(h.field.textContent, 'an unrelated manual draft');
+    assert.equal(h.document.activeElement, null);
+  });
+}
+
+test('fresh read ignores counts, other authors, other text, hidden rows and duplicate exact rows', () => {
+  for (const populate of [
+    h => { h.count.textContent = '4'; },
+    h => { h.addComment(h.request.comment, '@someone'); },
+    h => { h.addComment(`${h.request.comment}!`); },
+    h => { h.addComment(h.request.comment).object.hidden = true; },
+    h => { h.addComment(h.request.comment); h.addComment(h.request.comment); },
+  ]) {
+    const h = freshCommentThread(); populate(h);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, false);
+    assert.equal(h.submitted, 0);
+  }
+});
+
+test('fresh read will not open the primary thread for a wrong or ambiguous account, post or author', () => {
+  for (const mutate of [
+    h => { h.request.id = id.replace('/123/', '/999/'); },
+    h => { h.request.author = '@another'; },
+    h => { delete h.request.author; },
+    h => { h.request.commenter = '@another'; },
+    h => { delete h.request.commenter; },
+    h => { h.profile.remove(); },
+    h => { h.body.append(h.element('a', { 'data-e2e': 'nav-profile', href: 'https://www.tiktok.com/@another/' }, 'Profile', h.rect(850, 40, 100, 36))); },
+    h => { h.body.append(h.element('a', { 'data-e2e': 'nav-profile', href: 'https://www.tiktok.com/@me/' }, 'Profile', h.rect(850, 40, 100, 36))); },
+    h => { h.author.attrs.href = 'https://www.tiktok.com/@another/'; },
+    h => { h.article.attrs['data-scroll-index'] = '1'; },
+    h => { h.article.attrs.id = 'one-column-item-1'; },
+  ]) {
+    const h = freshCommentThread(); h.addComment(h.request.comment); mutate(h);
+    assert.notEqual(h.inspect('verify-comment-fresh').needsOpen, true);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, false);
+    assert.equal(h.clicks.length, 0);
+  }
+});
+
+test('a generic Comments tab and another card bubble cannot open a fresh primary thread', () => {
+  const h = freshCommentThread(); h.openButton.remove();
+  h.panel.append(h.element('button', { role: 'tab' }, 'Comments', h.rect(350, 220, 100, 25)));
+  h.secondary.bounds = h.rect(0, 0, 750, 650);
+  const otherBubble = h.secondary.querySelector('[data-e2e="comment-icon"]');
+  otherBubble.bounds = h.rect(600, 150, 60, 36);
+  assert.equal(h.inspect('verify-comment-fresh').needsOpen, false);
+  assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+  assert.equal(h.clicks.length, 0);
+});
+
+test('fresh read only accepts the exact primary panel row hierarchy and its one composer footer', () => {
+  for (const mutate of [
+    h => { const row = h.rows[0].object; row.remove(); h.secondary.append(row); },
+    h => { const row = h.rows[0].object; row.remove(); h.article.append(row); },
+    h => { h.rows[0].content.attrs.class = 'unrelated-comment-text'; },
+    h => { h.footer.remove(); },
+    h => { h.panel.attrs.class = 'unrelated-tab'; },
+    h => { h.panel.remove(); h.article.append(h.panel); },
+    h => { const other = h.element('div', { class: 'DivTabContainer' }, '', h.panel.bounds); h.rightPanel.append(other); },
+    h => { const other = h.element('div', { class: 'RightPanelContainer' }, '', h.rightPanel.bounds); other.append(h.element('div', { class: 'DivTabContainer' }, '', h.panel.bounds)); h.main.append(other); },
+  ]) {
+    const h = freshCommentThread(); h.addComment(h.request.comment);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+    mutate(h);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, false);
+  }
+});
+
+test('fresh thread ownership is revoked by manual interaction, account changes and a replaced primary bubble', () => {
+  for (const mutate of [
+    h => { h.interact('click', true, h.secondary); },
+    h => { h.interact('pointerdown', true, h.field); },
+    h => { h.interact('keydown', true, h.field); },
+    h => { h.profile.attrs.href = 'https://www.tiktok.com/@someone/'; },
+    h => { h.request.comment = 'different exact text'; },
+    h => { h.openButton.remove(); const replacement = h.element('div', { role: 'button', 'data-e2e': 'comment-icon' }, '', h.openButton.bounds); h.actions.append(replacement); },
+  ]) {
+    const h = freshCommentThread(); h.addComment(h.request.comment);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+    mutate(h);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, false);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+    assert.equal(h.state.opens, 1);
+  }
+});
+
+test('fresh inspection cannot upgrade the same document that submitted the comment', () => {
+  const h = freshCommentThread({ open: true }); h.addComment(h.request.comment);
+  h.context.collectiveCommentBefore = { submitted: true };
+  assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+  assert.equal(h.inspect('verify-comment-fresh').reason, 'not-fresh-page');
+  assert.equal(h.clicks.length, 0);
+});
+
+test('fresh photo comments remain bound while autoplay changes image_index from 5 to 1', () => {
+  const h = freshCommentThread({ withPhoto: true });
+  h.addComment(h.request.comment);
+  h.field.textContent = 'keep this manual photo draft';
+  h.photoSlides[0].attrs.class = 'swiper-slide';
+  h.photoSlides[4].attrs.class = 'swiper-slide swiper-slide-active';
+  h.context.location = new URL(`${h.request.id}?image_index=5`);
+  assert.equal(h.document.querySelectorAll('video').length, 0);
+  assert.equal(h.context.inspectTikTok().post.id, h.request.id);
+  assert.equal(h.inspect('verify-comment-fresh').needsOpen, true);
+  assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+  assert.equal(h.inspect('verify-comment-fresh').confirmed, true);
+  h.photoSlides[4].attrs.class = 'swiper-slide';
+  h.photoSlides[0].attrs.class = 'swiper-slide swiper-slide-active';
+  h.context.location = new URL(`${h.request.id}?image_index=1`);
+  h.load();
+  const confirmed = h.inspect('verify-comment-fresh');
+  assert.equal(confirmed.confirmed, true);
+  assert.equal(confirmed.commenter, '@me');
+  assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+  assert.equal(h.state.opens, 1);
+  assert.deepEqual(h.clicks, [h.openButton]);
+  assert.equal(h.submitted, 0);
+  assert.deepEqual(h.inputs, []);
+  assert.equal(h.field.textContent, 'keep this manual photo draft');
+  assert.equal(h.document.activeElement, null);
+});
+
+test('fresh photo comment reads reject another post even when identical own text remains visible', () => {
+  for (const change of ['request', 'location']) {
+    const h = freshCommentThread({ withPhoto: true });
+    h.addComment(h.request.comment);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, true);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, true);
+    const anotherId = h.request.id.replace('/234/', '/999/');
+    if (change === 'request') h.request.id = anotherId;
+    else h.context.location = new URL(`${anotherId}?image_index=1`);
+    assert.equal(h.inspect('verify-comment-fresh').confirmed, false);
+    assert.equal(h.inspect('click-comment-fresh-open').clicked, false);
+    assert.equal(h.state.opens, 1);
+    assert.equal(h.submitted, 0);
+    assert.deepEqual(h.inputs, []);
   }
 });
