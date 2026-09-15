@@ -73,7 +73,7 @@ function inspectTikTok(request = {}) {
   const sequence = unique(links.filter(rendered).map(link => postURL(link.href)).filter(Boolean));
   const posts = unique(links.filter(visible).map(link => postURL(link.href)).filter(Boolean));
   const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null };
+    ...(['verify-comment', 'verify-comment-fresh', 'click-comment-fresh-open'].includes(request.action) ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null };
   const pageId = postURL(location.href);
   const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
   const area = element => {
@@ -189,9 +189,42 @@ function inspectTikTok(request = {}) {
     }
     return false;
   };
-  const followMarkers = exact(scope, '[data-e2e="follow-button"], [data-e2e="browse-follow"], [data-e2e="feed-follow"], [data-e2e="follow-icon"]');
-  const follow = only(unique([...followMarkers, ...semantic(scope, /^(?:follow|following|friends|requested)(?:\s+@[\w.-]+)?$/)]).filter(belongsToAuthor));
-  const following = Boolean(follow && (/^(?:following|friends|requested)(?:\s+@[\w.-]+)?$/.test(label(follow)) || follow.getAttribute('aria-pressed') === 'true' || /^(?:following|requested)$/.test(follow.getAttribute('data-state') || '')));
+  const followMarkerNodes = all(scope, '[data-e2e="follow-button"], [data-e2e="browse-follow"], [data-e2e="feed-follow"], [data-e2e="follow-icon"]')
+    .filter(node => visible(node) && !excluded(node));
+  const followMarkers = unique(followMarkerNodes.map(node => target(node, scope)).filter(Boolean));
+  const follow = only(unique([...followMarkers, ...semantic(scope, /^(?:follow|following|friends|requested|unfollow)(?:\s+@[\w.-]+)?$/)]).filter(belongsToAuthor));
+  // Markers identify a control, not its current action. Its wrapper, label or
+  // nested icon can change to Unfollow before the marker itself changes.
+  const followRoots = follow ? unique([follow, ...followMarkerNodes.filter(node => target(node, scope) === follow)]) : [];
+  // aria-hidden changes accessibility, not the visible action. A decorative
+  // span can still visibly say Unfollow and must prevent a second click.
+  const followRendered = element => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+    }
+    return true;
+  };
+  const followStateNodes = unique(followRoots.flatMap(node => [node, ...all(node, '*')])).filter(followRendered);
+  const renderedFollowText = node => !followRendered(node) ? '' : [...node.childNodes].map(child =>
+    child.nodeType === 3 ? child.textContent : child.nodeType === 1 ? renderedFollowText(child) : '').join('');
+  // Read full control/wrapper text, not fragments such as a nested @username.
+  const followLabels = unique([...followRoots.map(renderedFollowText), ...followStateNodes
+    .flatMap(node => [node.getAttribute('aria-label'), node.getAttribute('title')])]
+    .filter(Boolean).map(text => text.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean));
+  const relationshipLabel = text => {
+    const match = text.match(/^(?:following|friends|requested|unfollow)(?:\s+(@[\w.-]+))?$/);
+    return Boolean(match && (!match[1] || match[1] === author.toLowerCase()));
+  };
+  const relationshipState = followStateNodes.some(node => node.getAttribute('aria-pressed') === 'true' || /^(?:following|friends|requested|unfollow)$/.test(node.getAttribute('data-state') || ''));
+  const following = followLabels.length ? followLabels.every(relationshipLabel) : relationshipState;
+  const nonFollowState = relationshipState || followLabels.some(text => /^(?:following|friends|requested|unfollow)\b/.test(text)) ||
+    followStateNodes.some(node => /^(?:following|unfollow)-icon$/.test(node.getAttribute('data-e2e') || ''));
+  const canFollow = !nonFollowState && ((followLabels.length > 0 && followLabels.every(text => text === 'follow' || text === `follow ${author.toLowerCase()}`)) ||
+    // The feed's unlabeled plus icon explicitly names the Follow action.
+    (!followLabels.length && followStateNodes.some(node => node.getAttribute('data-e2e') === 'follow-icon')));
   // A photo's horizontal arrow changes slides, not posts. Never use it to
   // predict a URL transition; vertical browse controls retain post ownership.
   const nextMarkers = photo ? '[data-e2e="arrow-down"], [data-e2e="browse-next"]' : '[data-e2e="arrow-right"], [data-e2e="arrow-down"], [data-e2e="browse-next"]';
@@ -244,10 +277,66 @@ function inspectTikTok(request = {}) {
     Number.isFinite(video.playbackRate) && video.playbackRate > 0
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
-    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
+    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && canFollow, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
   if (!request.action) return { posts, sequence, post };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : {}) };
+    ...(['verify-comment', 'verify-comment-fresh', 'click-comment-fresh-open'].includes(request.action) ? { reason: 'post-changed' } : {}) };
+  if (request.action === 'verify-comment-fresh' || request.action === 'click-comment-fresh-open') {
+    const unconfirmed = reason => ({ confirmed: false, opened: false, clicked: false, reason });
+    if (!pageId || request.id !== pageId || request.author !== author) return unconfirmed('post-changed');
+    if (!ownProfile || request.commenter !== ownProfile || all(document, 'a[data-e2e="nav-profile"][href]').filter(visible).length !== 1) return unconfirmed('identity-changed');
+    if (typeof request.comment !== 'string' || !request.comment.trim()) return unconfirmed('comment-missing');
+    if (globalThis.collectiveCommentBefore?.submitted) return unconfirmed('not-fresh-page');
+    // The permalink can render multiple recommendations while its comments
+    // panel lives outside every article. Only the primary post's own bubble
+    // can establish which thread that external panel belongs to.
+    const primary = only(all(document, 'article[data-e2e="recommend-list-item-container"][id="one-column-item-0"][data-scroll-index="0"]').filter(visible));
+    const primaryAuthors = primary ? unique(all(primary, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean)) : [];
+    if (!primary || scope !== primary || !primary.contains(media) || primaryAuthors.length !== 1 || primaryAuthors[0] !== author) return unconfirmed('primary-post-unavailable');
+    const binding = globalThis.collectiveTikTokFreshComment;
+    const bound = binding && binding.id === id && binding.author === author && binding.commenter === ownProfile &&
+      binding.comment === request.comment && binding.primary === primary && binding.control === commentOpen;
+    if (binding && (!bound || binding.interrupted)) return unconfirmed('thread-binding-changed');
+    if (request.action === 'click-comment-fresh-open') {
+      if (bound) return { opened: true, clicked: false };
+      if (!commentOpen || !primary.contains(commentOpen) || !point(commentOpen) || typeof commentOpen.click !== 'function') return unconfirmed('comment-control-unavailable');
+      const fresh = { id, author, commenter: ownProfile, comment: request.comment, primary, control: commentOpen, interrupted: false, panel: null };
+      // Manual navigation or a different comment bubble invalidates ownership;
+      // observer polling can never re-click or silently bind another thread.
+      const interrupt = event => { if (event.isTrusted) fresh.interrupted = true; };
+      for (const type of ['pointerdown', 'keydown', 'click']) document.addEventListener(type, interrupt, true);
+      globalThis.collectiveTikTokFreshComment = fresh;
+      commentOpen.click();
+      return { opened: true, clicked: true };
+    }
+    if (!bound) return { ...unconfirmed('thread-not-opened'), needsOpen: Boolean(commentOpen && primary.contains(commentOpen) && point(commentOpen) && typeof commentOpen.click === 'function') };
+    // TikTok nests several RightPanelContainer wrappers. Uniqueness belongs
+    // to the actual tab panel, not its repeated layout ancestors.
+    const panel = only(all(document, '[class*="DivTabContainer"]').filter(node => visible(node) && node.parentElement?.matches('[class*="RightPanelContainer"]')));
+    if (!panel || panel.closest('article') || (binding.panel && binding.panel !== panel)) return unconfirmed('comment-thread-unavailable');
+    const list = only(all(panel, '[class*="DivCommentListContainer"]').filter(node => visible(node) && node.parentElement?.matches('[class*="DivCommentMain"]') && node.parentElement.parentElement === panel));
+    const inputs = all(panel, '[data-e2e="comment-input"]').filter(node => {
+      const bar = node.closest('[class*="DivCommentBarContainer"]');
+      const footer = bar?.closest('[class*="DivCommentFooter"]');
+      return visible(node) && footer?.parentElement === panel;
+    });
+    if (!list || inputs.length !== 1) return unconfirmed('comment-thread-unavailable');
+    binding.panel = panel;
+    const rows = all(list, '[data-e2e="comment-level-1"]').flatMap(textNode => {
+      const content = textNode.closest('[class*="DivCommentContentWrapper"]');
+      const item = content?.parentElement;
+      const object = item?.parentElement;
+      if (!visible(textNode) || !item?.matches('[class*="DivCommentItemWrapper"]') ||
+          !object?.matches('[class*="DivCommentObjectWrapper"]') || object.parentElement !== list ||
+          all(item, '[data-e2e="comment-level-1"]').length !== 1) return [];
+      const authors = unique(all(item, 'a[href]').filter(visible).map(profileAuthor).filter(Boolean));
+      return authors.length === 1 ? [{ author: authors[0], text: composerValue(textNode) }] : [];
+    });
+    const matches = rows.filter(row => row.author === ownProfile && row.text === request.comment);
+    if (!matches.length) return unconfirmed('own-row-missing');
+    if (matches.length !== 1) return unconfirmed('own-row-ambiguous');
+    return { confirmed: true, commenter: ownProfile };
+  }
   if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {
     return { changed: true, point: null, ready: false, clicked: false, opened: false, reason: 'caption-changed' };
   }
@@ -310,6 +399,13 @@ function inspectTikTok(request = {}) {
   if (request.action === 'comment-ready') return { ready: Boolean(owned && !before.drafted && !before.submitted && document.activeElement === composer && composerValue(composer) === '') };
   if (request.action === 'comment-submit' || request.action === 'click-comment-submit') {
     const ready = owned && before.caption === caption && before.drafted && !before.submitted && composerValue(composer) === request.comment && submit && point(submit);
+    // Comments can load while drafting. Recheck before the one permitted
+    // submit so an identical own comment arriving late is not posted twice.
+    if (identity && !before.submitted && (before.duplicateFound || (owned && before.drafted &&
+        commentRows().some(row => row.author === ownProfile && row.text === request.comment)))) {
+      before.duplicateFound = true;
+      return { point: null, clicked: false, reason: 'own-comment-already-exists' };
+    }
     if (request.action === 'comment-submit') return { point: ready || null };
     if (!ready || typeof submit.click !== 'function') return { clicked: false };
     before.submitted = true;
@@ -329,8 +425,8 @@ function inspectTikTok(request = {}) {
     if (replying) return unconfirmed('reply-mode');
     if (composerValue(composer) !== '') return unconfirmed('composer-not-empty');
     const rows = commentRows();
-    // React can remount unchanged comments after submission. Preserve every
-    // author/text occurrence, including duplicates, instead of requiring old DOM.
+    // React can remove or remount unrelated comments after submission. Preserve
+    // our own prior text counts, including duplicates, independently of those rows.
     const rowKey = row => JSON.stringify([row.author, row.text]);
     const remaining = new Map();
     for (const row of rows) {
@@ -338,6 +434,7 @@ function inspectTikTok(request = {}) {
       remaining.set(key, (remaining.get(key) || 0) + 1);
     }
     for (const previous of before.rows) {
+      if (previous.author !== before.author) continue;
       const key = rowKey(previous);
       const count = remaining.get(key) || 0;
       if (!count) return unconfirmed('baseline-changed');
@@ -347,7 +444,7 @@ function inspectTikTok(request = {}) {
     if (!added.length) return unconfirmed('own-row-missing');
     if (added.length !== 1) return unconfirmed('own-row-ambiguous');
     if (before.rows.some(previous => previous.node === added[0].node || previous.textNode === added[0].textNode)) return unconfirmed('own-row-not-new');
-    return { confirmed: true };
+    return { confirmed: true, commenter: ownProfile };
   }
   if (request.action === 'verify-like') return { confirmed: Boolean(liked && visible(like)) };
   if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };

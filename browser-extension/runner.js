@@ -320,33 +320,63 @@ async function verifyFollowOnFreshPost(request) {
   const matches = url => config.platform === 'tiktok' ? platformURL(url, 'tiktok') && sameDestination(url, request.id) : url === request.id;
   let tabId;
   const until = Math.min(Date.now() + 8000, job.deadline);
+  // Waiting for Chrome must not prevent Stop or outlive fresh verification.
+  const bounded = (operation, deadline = until, signal = controller.signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    if (Date.now() >= deadline) return reject(new Error('fresh confirmation timed out'));
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (error) reject(error); else resolve(result);
+    };
+    const abort = () => finish(signal.reason || new Error('session stopped'));
+    const timer = setTimeout(() => finish(new Error('fresh confirmation timed out')), deadline - Date.now());
+    signal?.addEventListener('abort', abort, { once: true });
+    try { Promise.resolve(operation()).then(result => finish(null, result), error => finish(error)); }
+    catch (error) { finish(error); }
+  });
+  const closeOwned = async id => {
+    try {
+      const current = await chrome.tabs.get(id);
+      if ((!current.pendingUrl || matches(current.pendingUrl)) && (matches(current.url) || ['about:blank', ''].includes(current.url || ''))) await chrome.tabs.remove(id);
+    } catch { /* Preserve a tab the user navigated elsewhere or already closed. */ }
+  };
+  let creating;
   try {
     // The viewer can hide Follow after success without showing Following. A fresh
     // post exposes that explicit state; this temporary tab never performs actions.
-    const tab = await chrome.tabs.create({ url: request.id, active: false });
+    const tab = await bounded(() => (creating = chrome.tabs.create({ url: request.id, active: false })));
     tabId = tab.id;
     while (Date.now() < until) {
       assertRunning();
-      const current = await chrome.tabs.get(tabId);
+      const current = await bounded(() => chrome.tabs.get(tabId));
+      assertRunning();
+      if (Date.now() >= until) break;
       if (current.pendingUrl && !matches(current.pendingUrl)) return false;
       if (!matches(current.url) && current.url !== 'about:blank' && current.url) return false;
       if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
-        await chrome.scripting.executeScript({ target: { tabId }, files: [config.script] });
+        await bounded(() => chrome.scripting.executeScript({ target: { tabId }, files: [config.script] }));
         assertRunning();
-        const results = await chrome.scripting.executeScript({
+        const loaded = await bounded(() => chrome.tabs.get(tabId));
+        assertRunning();
+        if (!matches(loaded.url) || loaded.pendingUrl || Date.now() >= until) return false;
+        const results = await bounded(() => chrome.scripting.executeScript({
           target: { tabId },
           func: (inspector, request, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: 'verify-follow' }) : {},
-          args: [config.inspector, request, job.deadline]
-        });
+          args: [config.inspector, request, until]
+        }));
         assertRunning();
         const result = results[0]?.result;
-        const committed = await chrome.tabs.get(tabId);
+        const committed = await bounded(() => chrome.tabs.get(tabId));
         assertRunning();
-        if (!matches(committed.url) || committed.pendingUrl) return false;
+        if (!matches(committed.url) || committed.pendingUrl || Date.now() >= until) return false;
         if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
         if (result?.confirmed) return true;
       }
-      await sleep(500);
+      if (Date.now() < until) await sleep(Math.min(500, until - Date.now()));
     }
     return false;
   } catch {
@@ -355,10 +385,108 @@ async function verifyFollowOnFreshPost(request) {
     return false;
   } finally {
     if (tabId !== undefined) {
-      try {
-        const current = await chrome.tabs.get(tabId);
-        if ((!current.pendingUrl || matches(current.pendingUrl)) && (matches(current.url) || ['about:blank', ''].includes(current.url || ''))) await chrome.tabs.remove(tabId);
-      } catch { /* The user may already have closed the temporary tab. */ }
+      const cleaning = closeOwned(tabId);
+      await bounded(() => cleaning, Math.min(until, Date.now() + 1000), null).catch(() => {});
+    } else if (creating) {
+      // Late creation is owned, but may have been navigated by the user.
+      // Its cleanup must not delay the stopped or timed-out session.
+      void creating.then(tab => closeOwned(tab.id), () => {});
+    }
+  }
+}
+async function verifyCommentOnFreshPost(request) {
+  assertRunning();
+  const config = platformConfig();
+  if (config.platform !== 'tiktok' || !request.author || typeof request.commenter !== 'string' ||
+      !/^@[\w.-]{1,30}$/.test(request.commenter) || typeof request.comment !== 'string' || !request.comment.trim() ||
+      !config.validPost(request.id)) return { confirmed: false, reason: 'fresh-request-unbound' };
+  const matches = url => platformURL(url, 'tiktok') && sameDestination(url, request.id);
+  let tabId;
+  let opened = false;
+  let reason = 'fresh-post-unavailable';
+  const until = Math.min(Date.now() + 8000, job.deadline);
+  // A suspended Chrome call must not hold Stop or the session deadline open.
+  // Late script execution still receives `until`, so it cannot open a thread.
+  const bounded = (operation, deadline = until, signal = controller.signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    if (Date.now() >= deadline) return reject(new Error('fresh confirmation timed out'));
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (error) reject(error); else resolve(result);
+    };
+    const abort = () => finish(signal.reason || new Error('session stopped'));
+    const timer = setTimeout(() => finish(new Error('fresh confirmation timed out')), deadline - Date.now());
+    signal?.addEventListener('abort', abort, { once: true });
+    try { Promise.resolve(operation()).then(result => finish(null, result), error => finish(error)); }
+    catch (error) { finish(error); }
+  });
+  const closeOwned = async id => {
+    try {
+      const current = await chrome.tabs.get(id);
+      if ((!current.pendingUrl || matches(current.pendingUrl)) && (matches(current.url) || ['about:blank', ''].includes(current.url || ''))) await chrome.tabs.remove(id);
+    } catch { /* Preserve a tab the user navigated elsewhere or already closed. */ }
+  };
+  let creating;
+  try {
+    const tab = await bounded(() => (creating = chrome.tabs.create({ url: request.id, active: false })));
+    tabId = tab.id;
+    while (Date.now() < until) {
+      assertRunning();
+      const current = await bounded(() => chrome.tabs.get(tabId));
+      assertRunning();
+      if (Date.now() >= until) break;
+      if (current.pendingUrl && !matches(current.pendingUrl)) return { confirmed: false, reason: 'fresh-post-changed' };
+      if (!matches(current.url) && current.url !== 'about:blank' && current.url) return { confirmed: false, reason: 'fresh-post-changed' };
+      if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
+        await bounded(() => chrome.scripting.executeScript({ target: { tabId }, files: [config.script] }));
+        assertRunning();
+        // These inspection actions can only read a bound thread or open its
+        // primary comment bubble. They never draft, submit or clear text.
+        const read = async action => {
+          const before = await bounded(() => chrome.tabs.get(tabId));
+          assertRunning();
+          if (Date.now() >= until || !matches(before.url) || before.pendingUrl) return { confirmed: false, reason: 'fresh-post-changed' };
+          const results = await bounded(() => chrome.scripting.executeScript({
+            target: { tabId },
+            func: (request, deadline) => Date.now() < deadline ? globalThis.inspectTikTok(request) : {},
+            args: [{ ...request, action }, until]
+          }));
+          assertRunning();
+          const committed = await bounded(() => chrome.tabs.get(tabId));
+          assertRunning();
+          if (Date.now() >= until || !matches(committed.url) || committed.pendingUrl) return { confirmed: false, reason: 'fresh-post-changed' };
+          const result = results[0]?.result || {};
+          if (result.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
+          return result;
+        };
+        const result = await read('verify-comment-fresh');
+        reason = result.reason || 'fresh-own-row-missing';
+        if (result.confirmed && result.commenter === request.commenter) return { confirmed: true };
+        if (result.needsOpen && !opened) {
+          // Even a lost click response must never cause a second open click.
+          opened = true;
+          const outcome = await read('click-comment-fresh-open');
+          reason = outcome.reason || reason;
+        }
+      }
+      if (Date.now() < until) await sleep(Math.min(500, until - Date.now()));
+    }
+    return { confirmed: false, reason };
+  } catch {
+    assertRunning();
+    return { confirmed: false, reason: 'fresh-read-unavailable' };
+  } finally {
+    if (tabId !== undefined) {
+      const cleaning = closeOwned(tabId);
+      await bounded(() => cleaning, Math.min(until, Date.now() + 1000), null).catch(() => {});
+    } else if (creating) {
+      // Creation may resolve after Stop/timeout. Clean up that owned tab when
+      // its id arrives without delaying the session or touching another tab.
+      void creating.then(tab => closeOwned(tab.id), () => {});
     }
   }
 }
@@ -481,6 +609,7 @@ async function performEngagement(action, post, comment) {
   }
   const confirmationAttempts = { like: 6, follow: 10, comment: 8 }[action] || 6;
   let confirmationReason;
+  let commentConfirmation;
   for (let i = 0; i < confirmationAttempts; i++) {
     await sleep(750);
     const result = await inspect({ ...request, action: `verify-${action}` });
@@ -490,13 +619,18 @@ async function performEngagement(action, post, comment) {
       // TikTok can show Following optimistically even when the follow is lost.
       // Require a separate loaded page before counting it as accepted.
       if (action === 'follow' && currentPlatform() === 'tiktok') break;
+      if (action === 'comment' && currentPlatform() === 'tiktok') {
+        commentConfirmation = await verifyCommentOnFreshPost({ ...request, commenter: result.commenter });
+        confirmationReason = commentConfirmation.reason;
+        break;
+      }
       pendingEngagement = false; pendingDraft = false; return 'confirmed';
     }
   }
-  if (action === 'comment' && currentPlatform() === 'tiktok') {
+  if (action === 'comment' && currentPlatform() === 'tiktok' && !commentConfirmation?.confirmed) {
     console.warn('Warm-up comment confirmation:', confirmationReason || 'not-confirmed');
   }
-  const confirmed = action === 'follow' && await verifyFollowOnFreshPost(request);
+  const confirmed = commentConfirmation?.confirmed || (action === 'follow' && await verifyFollowOnFreshPost(request));
   pendingEngagement = false;
   pendingDraft = false;
   if (confirmed) return 'confirmed';
