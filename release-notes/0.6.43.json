@@ -1,13 +1,9 @@
 {
-  "version": "0.6.43",
   "releasedAt": "2026-09-18",
   "summary": "warm-up now matches your creator collective dashboard",
   "changes": [
     "the extension, warm-up dashboard, session screen and setup pages use the current white, grey and pink style.",
     "the current creator collective logo appears throughout, including the extension icon.",
     "clearer installation and update sections help you keep the same extension folder and saved settings."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.43.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
