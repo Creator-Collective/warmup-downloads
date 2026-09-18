@@ -1,3 +1,9 @@
+# 0.6.43 current dashboard styling
+
+Warm-up now shares the student dashboard's Inter font, neutral light surfaces, pink accents, 14px cards and current CC logo. The web dashboard, side panel, session pages, setup and privacy use one stylesheet. The extension icons use the existing student app icon. Installation and update instructions are grouped separately.
+
+This is a visual update; session actions, targets, counters and permissions are unchanged. Live TikTok follow acceptance and installed comment counter verification remain open; see LIVE_VERIFICATION.md.
+
 # 0.6.42 tiktok session controls and results
 
 Instagram and TikTok keep separate local keyword, duration, pacing, mix and target settings. Existing settings migrate only to their last selected platform, including intentional zero targets. Both platforms retain likes, follows and comments.

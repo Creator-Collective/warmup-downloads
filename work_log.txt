@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.43 dashboard styling
+changed: matched warm-up web, extension panel/session/recovery, setup and privacy to the current student dashboard: neutral white/grey surfaces, Inter, pink accents, current CC logo/icons. grouped setup install/update guidance; preserved privacy text and session behavior.
+files: dashboard.css, index/setup/privacy.html, browser-extension UI/assets/manifest, packaging scripts, deploy allowlist, release notes/metadata, package versions, README/store submission and both archives.
+verified: 445 existing tests pass; 32-file beta/store archives and shared asset mirrors match; code/JS reviews clean. hidden in-app browser checked desktop dashboard/runner and 320px panel/setup/privacy; 801px maximum counters corrected and rechecked. visual session fixture only, removed before commit. no local app build or Chrome control.
+follow-ups: production release verification after merge; installed extension reload by user. live TikTok follow acceptance/comment counter verification remains open from earlier releases.
+
 2026-09-17 | 0.6.42 complete tiktok session flow
 - keep follows included; save separate instagram/tiktok keywords, targets and pacing, preserving existing zero targets. show confirmed/target results and durable unconfirmed/paused-comment outcomes; retain final confirmed results during Stop.
 - files: dashboard/session-results shared UI, runner/session/background/guards, package scripts, focused tests, 0.6.42 release/setup/docs/archives.
