@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.48 preserve focus when starting warm-up
+changed: website and side-panel Start create the timer inactive in the selected platform tab's existing window, matching the documented background behavior. removed unused origin-dependent activation parameter.
+files: extension background, focused extension tests, version/setup/release/store metadata, README/LIVE_VERIFICATION and archives.
+verified: all476 automated checks pass; four website/panel and instagram/tiktok combinations assert correct window and no focus update. both33-file archives match source; code and JavaScript reviews approved. no local app build.
+follow-ups: installed handshake remains0.6.46; no platform tab is open. user must replace/reload updated files and reopen TikTok before live testing0.6.48. comments require new explicit authorization. actual TikTok like/follow persistence remains unresolved, not claimed fixed.
+
 2026-09-18 | 0.6.47 verify persisted tiktok likes
 changed: require a separately loaded exact post and matching visible author before counting TikTok likes; reject contradictory unpressed hearts, reserve confirmation time, retain one-attempt caps and Stop/tab ownership guards.
 files: extension runner/session/tiktok, focused tests, live verification/readme, version metadata/setup/store docs and both archives.

@@ -72,8 +72,25 @@ test('start validates settings, creates a dedicated runner and blocks duplicate 
  assert.equal(h.created.length,0);
  const response=await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'personal branding',customLimits:{like:25}}});
  assert.equal(response.ok,true);assert.equal(h.job().settings.limits.like,25);assert.equal(h.job().settings.limits.comment,0);
- assert.equal(h.created.length,1);assert.equal(h.created[0].active,true);
+ assert.equal(h.created.length,1);assert.equal(h.created[0].active,false);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,false);
+});
+test('website and side-panel sessions create an inactive runner in the selected platform tab’s window', async () => {
+ const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
+ for (const source of [sender, panel]) {
+   for (const [platform, tabId, windowId] of [['instagram', 7, 31], ['tiktok', 8, 42]]) {
+     const h = background();
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = async id => ({ ...await get(id), windowId });
+     h.chrome.tabs.update = h.chrome.windows.update = async () => { throw new Error('starting must not change focus'); };
+     const result = await h.message({ type: 'start', tabId, settings: { platform, minutes: 1, niche: 'branding', customLimits: { like: 0, follow: 0, comment: 0 } } }, source);
+     assert.equal(result.ok, true);
+     assert.equal(h.job().tabId, tabId);
+     assert.deepEqual(h.created.map(options => ({ ...options })), [{
+       url: `chrome-extension://extension-id/runner.html#${h.job().token}`, active: false, windowId
+     }]);
+   }
+ }
 });
 test('tiktok tabs can start warm-up with likes, follows and comments',async()=>{
  const h=background();

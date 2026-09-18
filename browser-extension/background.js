@@ -31,7 +31,7 @@ async function recoverStoppingJob(force = false) {
     return stopping;
   }
 }
-async function dashboardCommand(message, fromPanel = false) {
+async function dashboardCommand(message) {
   if (message.type === 'setup-info') return { version: chrome.runtime.getManifest().version, canOpenExtensions: true };
   if (message.type === 'open-extensions') {
     const tab = await chrome.tabs.create({ url: 'chrome://extensions/' });
@@ -69,7 +69,7 @@ async function dashboardCommand(message, fromPanel = false) {
   const job = { token, tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [], message: 'starting your session…', nextActionAt: null };
   await putJob(job);
   try {
-    const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: !fromPanel, windowId: tab.windowId });
+    const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: false, windowId: tab.windowId });
     job.runnerTabId = runner.id;
     await putJob(job);
   } catch (error) {
@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (dashboardSender(sender) || panelSender(sender, extensionOrigin)) {
-    serial(() => dashboardCommand(message, panelSender(sender, extensionOrigin))).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
+    serial(() => dashboardCommand(message)).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
     return true;
   }
   if (sender.id !== chrome.runtime.id) return false;
