@@ -1,13 +1,9 @@
 {
-  "version": "0.6.48",
   "releasedAt": "2026-09-18",
   "summary": "keep warm-up sessions in the background",
   "changes": [
     "starting from the website keeps your current tab selected.",
     "website and side-panel sessions keep their timer tab in the selected platform window without bringing it forward.",
     "includes the fresh-page tiktok like confirmation from version 0.6.47."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.48.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

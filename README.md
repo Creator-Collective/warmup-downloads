@@ -1,3 +1,9 @@
+# 0.6.48 background session start
+
+Both website and side-panel Start create the timer tab inactive in the selected platform tab's window. Starting warm-up no longer switches the selected tab. Explicit open-platform and show-platform actions keep their existing behavior. This release includes 0.6.47 like confirmation, without claiming to resolve TikTok's observed rollback of ordinary likes and follows.
+
+Installed browser remains 0.6.46 as of the September 18 follow-up. New installed-version and permitted comment tests remain pending.
+
 # 0.6.47 tiktok like confirmation
 
 TikTok likes now require confirmation on a separately loaded copy of the same post before they count. An optimistic heart on the original page is not enough. Uncertain likes use the attempt allowance and are never clicked again; Stop, time limits, platform restrictions and temporary-tab ownership remain respected. Instagram behavior and extension permissions are unchanged.

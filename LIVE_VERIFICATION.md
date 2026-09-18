@@ -72,3 +72,9 @@ Setup confirmed installed 0.6.46. The signed-in TikTok profile was @ollymode. Al
 TikTok likes now use independent fresh-post confirmation before incrementing the count, reusing the guarded follow-verification path. A temporary optimistic heart is insufficient. Uncertain attempts consume the allowance without repeating the click. The action reserves time for confirmation; Instagram likes keep their previous behavior.
 
 This corrects a demonstrated reporting failure. It does not establish why TikTok discarded the action or make TikTok accept it. Installed 0.6.47 like confirmation, durable likes/follows, and the installed comment counter still require live verification.
+
+## 0.6.48 follow-up, September 18
+
+The setup handshake still reported installed 0.6.46 while the available download was 0.6.47. No TikTok or Instagram tab was open at this follow-up, and no session or social action was started. The current extension audit found one additional reproducible product inconsistency: website Start activated the runner tab even though setup describes it as a background tab.
+
+Both website and panel now create the runner inactive in the selected platform tab's window. Existing zero-target exclusion, per-platform settings, Stop recovery and comment guards remain unchanged. The prior live like/follow rollback cause remains unknown. Browser security policy blocks extension-management automation, so the installed update still needs the user. A new explicit comment-test request is pending; no comment was posted.
