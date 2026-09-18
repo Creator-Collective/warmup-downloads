@@ -1,0 +1,7 @@
+{
+  "releasedAt": "2026-09-18",
+  "summary": "more room around the tab controls",
+  "changes": [
+    "refresh, the tab dropdown and the open-platform button have clearer spacing in the dashboard and extension."
+  ]
+}

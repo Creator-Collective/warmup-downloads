@@ -116,9 +116,10 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 .hint { font-size: 12px; line-height: 1.6; margin: 8px 0 0; }
 .tab-heading, .mix-heading { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 18px; }
 .tab-heading label, .mix-heading h3 { margin: 0; }
+.tab-heading { margin-bottom: 10px; }
 .text-button { min-height: 32px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 11px; color: var(--ink); font-size: 12px; font-weight: 500; line-height: 18px; box-shadow: 0 1px 2px #0000000d; }
 .text-button:hover:not(:disabled) { background: var(--subtle); }
-#open-instagram { margin-top: 8px; }
+#open-instagram { margin-top: 12px; }
 .plan-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .plan-heading > span { font-size: 12px; color: var(--muted); }
 .plan-row { display: flex; align-items: center; justify-content: space-between; min-height: 54px; border-bottom: 1px solid var(--subtle); }

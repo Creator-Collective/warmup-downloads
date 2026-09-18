@@ -1,3 +1,7 @@
+# 0.6.45 tab control spacing
+
+Add space below the refresh row and above the open-platform button on the dashboard and side panel. Session behavior is unchanged.
+
 # 0.6.44 simpler ideation-style controls
 
 Warm-up uses Ideation's compact buttons, custom dropdowns, card treatments and spacing. Pink controls use white labels. Setup keeps the download and essential installation/update steps visible, with full session guidance under help.

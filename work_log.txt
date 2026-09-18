@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.45 tab control spacing
+changed: added10px below the tab label/refresh row and increased space above the open-platform button to12px; shared by dashboard and side panel.
+files: dashboard.css and extension mirror, setup/package/manifest versions, release notes/metadata, README/store submission and archives.
+verified: hidden in-app browser measured10px/12px gaps; code review confirmed side-panel overrides preserve them and nearby controls already have spacing; both33-file archives match source. no local build or new tests for CSS-only change.
+follow-ups: repository checks, production verification and user extension reload.
+
 2026-09-18 | 0.6.44 simpler ideation-style warm-up
 changed: removed redundant setup/helper copy; kept install/update steps visible and full guidance under help. matched Ideation button/dropdown/card dimensions, type and shadows; all solid pink controls use white text. added accessible custom selects with native values/events, full tab-name wrapping, disabled/stale option protection; restored platform label immediately at startup.
 files: dashboard.css/js, index/setup/privacy.html, select-ui.js/tests, dashboard copy assertion, packaged extension mirrors/manifest, packaging/deploy lists, release files, README/store submission and archives.
