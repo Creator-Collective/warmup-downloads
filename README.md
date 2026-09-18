@@ -1,3 +1,7 @@
+# 0.6.46 browser tab logo and setup shortcut
+
+Use the existing square CC PNG icon for favicons on all web and extension pages. Setup can open the fixed chrome://extensions/ destination through the updated extension; older or missing installations get a copy-address fallback. The capability probe returns only version/support and does not recover or read an active session. The current pink side-panel styling and CC icon remain included; manual installations require replacing existing files, reloading and reopening the panel. No new permissions.
+
 # 0.6.45 tab control spacing
 
 Add space below the refresh row and above the open-platform button on the dashboard and side panel. Session behavior is unchanged.

@@ -32,6 +32,11 @@ async function recoverStoppingJob(force = false) {
   }
 }
 async function dashboardCommand(message, fromPanel = false) {
+  if (message.type === 'setup-info') return { version: chrome.runtime.getManifest().version, canOpenExtensions: true };
+  if (message.type === 'open-extensions') {
+    const tab = await chrome.tabs.create({ url: 'chrome://extensions/' });
+    return { tabId: tab.id };
+  }
   if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, state: publicState(await recoverStoppingJob()) };
   if (message.type === 'state') return publicState(await recoverStoppingJob());
   if (message.type === 'tabs') {

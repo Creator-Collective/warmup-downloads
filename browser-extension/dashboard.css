@@ -187,9 +187,12 @@ footer a { color: var(--muted); }
 .guide-intro { max-width: 65ch; }
 .guide-actions { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-top: 20px; font-size: 13px; }
 .guide-section, .download-card { border: 1px solid var(--card-line); border-radius: 12px; padding: 20px; margin: 20px 0; background: var(--surface); box-shadow: var(--card-shadow); scroll-margin-top: 20px; }
-.download-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.download-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .download-card h2 { margin: 0; font-weight: 500; }
-.download-card .button { margin: 0; }
+.setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.guide .setup-actions .button { margin: 0; }
+.guide .shortcut-status { flex-basis: 100%; margin: 0; }
+#extensions-address { flex-basis: 100%; }
 .help-section > summary { padding: 0; font-size: 14px; }
 .help-section[open] > summary { padding-bottom: 18px; }
 .help-topic + .help-topic { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }

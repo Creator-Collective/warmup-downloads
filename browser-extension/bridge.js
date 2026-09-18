@@ -1,6 +1,6 @@
 (() => {
   if (window !== window.top || location.origin !== 'https://creator-collective-warmup.vercel.app') return;
-  const allowed = new Set(['hello', 'tabs', 'state', 'start', 'stop', 'open-instagram', 'open-platform']);
+  const allowed = new Set(['hello', 'tabs', 'state', 'start', 'stop', 'open-instagram', 'open-platform', 'setup-info', 'open-extensions']);
   window.addEventListener('message', async event => {
     const request = event.data;
     if (event.source !== window || event.origin !== location.origin || request?.channel !== 'cc-warmup-request' || typeof request.id !== 'string' || request.id.length > 80 || !allowed.has(request.type)) return;

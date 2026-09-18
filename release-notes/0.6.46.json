@@ -1,13 +1,9 @@
 {
-  "version": "0.6.46",
   "releasedAt": "2026-09-18",
   "summary": "cc tab icon and easier extension setup",
   "changes": [
     "browser tabs use the square cc icon instead of the wide page logo.",
     "setup can open the chrome extensions page through the updated extension, with a copy-address fallback for first installations.",
     "the download includes the current pink styling and cc logo for the extension side panel."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.46.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

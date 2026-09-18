@@ -1,5 +1,11 @@
-space out warm-up tab controls
+fix warm-up branding and add extensions shortcut
 
 misc:
-- separate refresh row, tab dropdown and open-platform button
-- package spacing fix as 0.6.45 for web and extension
+- use square cc favicons on web and extension pages
+- add setup shortcut with copy and manual address fallbacks
+- clarify installed panel updates and package version 0.6.46
+
+security:
+- keep fixed extensions destination and existing origin checks
+- expose setup capability without reading session state
+- cover response spoofing, failed actions and capability races
