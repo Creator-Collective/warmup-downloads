@@ -154,19 +154,21 @@ test('short-session warmups scale down without changing longer sessions', () => 
 });
 
 test('sessions do not start an engagement without time left for its confirmation', async () => {
+ for (const platform of ['instagram', 'tiktok']) {
   for (const [action, budget] of Object.entries({ like: 8000, follow: 22000, comment: 20000 })) {
     const h = harness();
     let time = 0;
     h.options.now = () => time;
     h.options.sleep = async ms => { time += ms; };
-    h.adapter.search = async () => { time = 60000 - budget + 1; };
+    h.adapter.search = async () => { time = 60000 - (platform === 'tiktok' && action === 'like' ? 22000 : budget) + 1; };
     const limits = { like: 0, follow: 0, comment: 0, [action]: 1 };
-    const stats = await runSession(validateSettings({ ...input, minutes: 1, customLimits: limits }), h.adapter, h.controller.signal, h.options);
+    const stats = await runSession(validateSettings({ ...input, platform, minutes: 1, customLimits: limits }), h.adapter, h.controller.signal, h.options);
     assert.equal(stats[action], 0, action);
     assert.equal(h.calls.filter(call => call[0] === action).length, 0, action);
     assert.equal(time, 60000);
     assert.match(h.updates.at(-1).message, /session is complete/);
   }
+ }
 });
 
 test('a failed TikTok viewer returns to search instead of reopening covered result tiles', async () => {
@@ -359,17 +361,19 @@ test('uncertain engagement is skipped once and the session keeps running', async
 });
 
 test('uncertain results consume the action allowance without inflating confirmed counts', async () => {
+ for (const platform of ['instagram', 'tiktok']) {
   let index = 0;
   const attempts = { like: 0, follow: 0, comment: 0 };
   const h = harness({
     inspect: async () => ({ post: { id: `p-${index++}`, author: `author-${index}`, text: 'study tips', caption: `Study tips help when you practice every day number ${index}.`, like: true, follow: true, comment: true } }),
     engage: async action => { attempts[action]++; return 'uncertain'; }
   });
-  const stats = await runSession(validateSettings({ ...input, customLimits: { like: 1, follow: 1, comment: 1 } }), h.adapter, h.controller.signal, h.options);
+  const stats = await runSession(validateSettings({ ...input, platform, customLimits: { like: 1, follow: 1, comment: 1 } }), h.adapter, h.controller.signal, h.options);
   assert.deepEqual(attempts, { like: 1, follow: 1, comment: 1 });
   assert.equal(stats.like + stats.follow + stats.comment, 0);
   assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, attempts);
   assert.equal(h.time(), 600000);
+ }
 });
 
 test('an uncertain TikTok follow is reported once while likes and comments continue across the same author’s posts', async () => {
@@ -391,15 +395,17 @@ test('an uncertain TikTok follow is reported once while likes and comments conti
   assert.equal(h.time(), 600000);
 });
 
-test('TikTok reports an in-flight follow outcome after Stop without starting another action', async () => {
+test('TikTok reports an in-flight like or follow outcome after Stop without starting another action', async () => {
+ for (const action of ['like', 'follow']) {
   for (const result of ['confirmed', 'uncertain']) {
     const h = harness({ engage: async action => { h.calls.push([action]); h.controller.abort(); return result; } });
-    const stats = await runSession(validateSettings({ ...input, platform: 'tiktok', customLimits: { like: 0, follow: 1, comment: 0 } }), h.adapter, h.controller.signal, h.options);
-    assert.deepEqual(h.calls.filter(call => ['like', 'follow', 'comment'].includes(call[0])), [['follow']]);
-    assert.equal(stats.follow, result === 'confirmed' ? 1 : 0);
-    assert.equal(h.updates.at(-1).unconfirmed.follow, result === 'uncertain' ? 1 : 0);
+    const stats = await runSession(validateSettings({ ...input, platform: 'tiktok', customLimits: { like: 0, follow: 0, comment: 0, [action]: 1 } }), h.adapter, h.controller.signal, h.options);
+    assert.deepEqual(h.calls.filter(call => ['like', 'follow', 'comment'].includes(call[0])), [[action]]);
+    assert.equal(stats[action], result === 'confirmed' ? 1 : 0);
+    assert.equal(h.updates.at(-1).unconfirmed[action], result === 'uncertain' ? 1 : 0);
     assert.match(h.updates.at(-1).message, /session stopped/);
   }
+ }
 });
 
 test('a full session survives empty searches, unavailable posts and temporarily unreadable pages', async () => {

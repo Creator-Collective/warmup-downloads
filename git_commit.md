@@ -1,7 +1,8 @@
-check installed extension before opening settings
+verify tiktok likes before counting them
 
 misc:
-- show the actual installed extension version on setup
-- check compatibility on each click before opening settings
-- guide older installations to update instead of showing false progress
-- cover version ordering, missing bridges, stale replies and request races
+- require fresh exact-post confirmation for tiktok likes
+- preserve stop handling, single attempts and temporary tab ownership
+- reject unpressed hearts and mismatched visible creators
+- cover persistence, rollback, cancellation and instagram behavior
+- record live results and package extension 0.6.47

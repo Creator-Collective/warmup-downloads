@@ -1,3 +1,9 @@
+# 0.6.47 tiktok like confirmation
+
+TikTok likes now require confirmation on a separately loaded copy of the same post before they count. An optimistic heart on the original page is not enough. Uncertain likes use the attempt allowance and are never clicked again; Stop, time limits, platform restrictions and temporary-tab ownership remain respected. Instagram behavior and extension permissions are unchanged.
+
+Installed 0.6.46 browsing, timer and Stop passed live testing, but its recorded like disappeared after fresh navigation; the follow also did not persist and correctly remained unconfirmed. This release fixes reporting, not TikTok acceptance. Installed 0.6.47 verification and the comment counter remain pending. See LIVE_VERIFICATION.md.
+
 # installed shortcut compatibility
 
 Setup now reads the installed version through the legacy hello command before offering the manager action. The page displays the actual installed version separately from the download version; each click checks again. Versions before 0.6.46 get explicit update/reload guidance and never enter a false opening state. Current compatible versions still open from one click. Startup detection cannot overwrite a newer click result, and all replies keep the existing source/origin/request checks.

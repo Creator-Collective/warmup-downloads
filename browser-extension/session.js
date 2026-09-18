@@ -196,7 +196,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let termIndex = 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
   // Background tabs can round sub-second timers up during confirmation.
-  const confirmationBudgetMs = { like: 8000, follow: 22000, comment: 20000 };
+  const confirmationBudgetMs = { like: platform === 'tiktok' ? 22000 : 8000, follow: 22000, comment: 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
   const seen = new Set();
   const hasSeen = id => seen.has(postIdentity(id));

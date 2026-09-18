@@ -313,21 +313,23 @@ async function recoverCommentDraft(request) {
   pendingDraft = false;
   return result.cleared ? 'skipped' : 'draft-retained';
 }
-async function verifyFollowOnFreshPost(request) {
+async function verifyEngagementOnFreshPost(action, request) {
   assertRunning();
   const config = platformConfig();
+  if (action !== 'follow' && !(action === 'like' && config.platform === 'tiktok')) return false;
   if (!request.author || !config.validPost(request.id)) return false;
   const matches = url => config.platform === 'tiktok' ? platformURL(url, 'tiktok') && sameDestination(url, request.id) : url === request.id;
   let tabId;
   const until = Math.min(Date.now() + 8000, job.deadline);
   try {
-    // The viewer can hide Follow after success without showing Following. A fresh
-    // post exposes that explicit state; this temporary tab never performs actions.
+    // TikTok can show an optimistic like/follow that is lost on a fresh load.
+    // This separate post checks persisted state and never performs actions.
     const tab = await chrome.tabs.create({ url: request.id, active: false });
     tabId = tab.id;
     while (Date.now() < until) {
       assertRunning();
       const current = await chrome.tabs.get(tabId);
+      assertRunning();
       if (current.pendingUrl && !matches(current.pendingUrl)) return false;
       if (!matches(current.url) && current.url !== 'about:blank' && current.url) return false;
       if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
@@ -335,8 +337,8 @@ async function verifyFollowOnFreshPost(request) {
         assertRunning();
         const results = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (inspector, request, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: 'verify-follow' }) : {},
-          args: [config.inspector, request, job.deadline]
+          func: (inspector, request, action, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: `verify-${action}` }) : {},
+          args: [config.inspector, request, action, job.deadline]
         });
         assertRunning();
         const result = results[0]?.result;
@@ -351,7 +353,7 @@ async function verifyFollowOnFreshPost(request) {
     return false;
   } catch {
     assertRunning();
-    // An unavailable read-only confirmation is not another failed follow attempt.
+    // An unavailable read-only confirmation never authorizes another click.
     return false;
   } finally {
     if (tabId !== undefined) {
@@ -487,16 +489,17 @@ async function performEngagement(action, post, comment) {
     confirmationReason = result.reason;
     if (result.blocked) throw new Error(result.blocked);
     if (result.confirmed) {
-      // TikTok can show Following optimistically even when the follow is lost.
+      // TikTok can show a like or follow optimistically before rolling it back.
       // Require a separate loaded page before counting it as accepted.
-      if (action === 'follow' && currentPlatform() === 'tiktok') break;
+      if (['like', 'follow'].includes(action) && currentPlatform() === 'tiktok') break;
       pendingEngagement = false; pendingDraft = false; return 'confirmed';
     }
   }
   if (action === 'comment' && currentPlatform() === 'tiktok') {
     console.warn('Warm-up comment confirmation:', confirmationReason || 'not-confirmed');
   }
-  const confirmed = action === 'follow' && await verifyFollowOnFreshPost(request);
+  const needsFreshConfirmation = action === 'follow' || (action === 'like' && currentPlatform() === 'tiktok');
+  const confirmed = needsFreshConfirmation && await verifyEngagementOnFreshPost(action, request);
   pendingEngagement = false;
   pendingDraft = false;
   if (confirmed) return 'confirmed';
