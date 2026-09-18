@@ -49,3 +49,9 @@ The student dashboard confirmed installed 0.6.40. Signed-in @ollyexplains. All r
 A reproduced false-negative confirmation used DOM node identity for every prior comment. Remounting unchanged older rows invalidated an otherwise new own comment. The baseline now compares a multiset of author and normalized text, preserving duplicate counts; changed/missing rows, old own duplicates, reused nodes and interrupted ownership remain unconfirmed. The precise cause of the observed live false negative was not captured before navigation, so this is a demonstrated robustness fix, not a claim that the installed counter test has passed. Fixed failure reasons are logged once without comment/account payloads.
 
 A successful installed comment-counter retest and a follow that remains accepted after fresh navigation are still required before calling TikTok fully ready.
+
+## 0.6.42 complete-flow release, September 17
+
+The user authorized proceeding with TikTok follows included, without treating the earlier rollback as a release blocker. This does not establish the cause of the rollback or prove acceptance on another computer. Follow attempts and positive fresh-page confirmation remain enabled; uncertain attempts never become confirmed counts.
+
+This release adds per-platform saved settings, confirmed counts against session targets, durable unconfirmed/paused-action reporting, and preservation of in-flight results during Stop. Successful follow and mixed-outcome session paths are covered with local fixtures. No Chrome control or real likes, follows, comments, messages or account logins were performed. Installed 0.6.42 and the earlier live comment-counter fix still need user-side verification.

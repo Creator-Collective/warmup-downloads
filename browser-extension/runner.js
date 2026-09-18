@@ -508,7 +508,7 @@ function render(state) {
   el('status').textContent = state.phase;
   el('stop').disabled = !['starting','running'].includes(state.phase);
   document.body.classList.toggle('running', state.phase === 'running');
-  for (const action of ['scroll','like','follow','comment']) el(action).textContent = state.stats?.[action] || 0;
+  sessionResults.render(document, state, '');
   el('activity').replaceChildren(...(state.activity || []).map(item => {
     const row = document.createElement('li');
     const time = document.createElement('time');

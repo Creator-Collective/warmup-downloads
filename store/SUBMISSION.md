@@ -26,7 +26,7 @@ Permissions justification:
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.41.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.42.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
 Version 0.6.36 fixes the primary TikTok post controls being excluded inside its search comments panel. Actual comment rows remain excluded from post engagement. A live 0.6.35 run reproduced 18 advances and zero actions; the revised installed release still needs live verification.
 

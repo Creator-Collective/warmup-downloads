@@ -1,13 +1,9 @@
 {
-  "version": "0.6.42",
   "releasedAt": "2026-09-17",
   "summary": "tiktok sessions with saved settings and clearer results",
   "changes": [
     "instagram and tiktok each remember their own keywords, targets and pacing.",
     "likes, follows and comments show confirmed results against the targets for that session; unconfirmed attempts remain separate.",
     "stopping a session keeps the final confirmed action in your results. follows remain included in the tiktok flow."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.42.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

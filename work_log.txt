@@ -1,3 +1,9 @@
+2026-09-17 | 0.6.42 complete tiktok session flow
+- keep follows included; save separate instagram/tiktok keywords, targets and pacing, preserving existing zero targets. show confirmed/target results and durable unconfirmed/paused-comment outcomes; retain final confirmed results during Stop.
+- files: dashboard/session-results shared UI, runner/session/background/guards, package scripts, focused tests, 0.6.42 release/setup/docs/archives.
+- verified: all 445 checks pass, both 31-file archives match source; code/javascript/security reviews pass; hidden in-app control and narrow sample-results layout checked. no build, Chrome control or live social actions.
+- follow-ups: install 0.6.42 in the existing extension folder; live TikTok follow acceptance and installed comment counter remain unverified, not release blockers per user.
+
 2026-09-14 — 0.6.41: tolerate unchanged comment redraws and record installed live results
 - installed 0.6.40 live comment posted and persisted after fresh navigation, but counter stayed zero; exact live false-negative cause was not captured. photo-only run completed with four genuine post advances. follow again reverted after refresh and correctly remained unconfirmed; no retry.
 - changes: confirm baseline comments by author/text multiset instead of node identity, preserving duplicate counts and fresh own-row guards. log fixed failure reasons without account/comment payloads.

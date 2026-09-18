@@ -1,5 +1,5 @@
 {
-  "version": "0.6.41",
+  "version": "0.6.42",
   "files": [
     "manifest.json",
     "features.js",
@@ -25,6 +25,7 @@
     "dashboard.js",
     "dashboard.css",
     "comment-history.js",
+    "session-results.js",
     "inter.woff2",
     "INTER-LICENSE.txt",
     "icon-16.png",

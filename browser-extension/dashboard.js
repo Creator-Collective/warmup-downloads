@@ -17,6 +17,10 @@ let limitOverrides = {};
 let editingLimit = null;
 let savedDraft = null;
 const fields = ['platform','niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
+const draftFields = fields.filter(field => field !== 'platform' && !field.startsWith('limit-'));
+const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
+const platformDrafts = {};
+let draftPlatform = 'instagram';
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
   const callback = pending.get(event.data.id);
@@ -36,12 +40,32 @@ function request(type, extra = {}) {
 }
 try {
   const saved = JSON.parse(localStorage.getItem('cc-web-session') || '{}');
-  for (const field of fields.filter(field => !field.startsWith('limit-'))) if (typeof saved[field] === 'string') $(field).value = saved[field];
-  for (const action of actions) {
-    const value = saved.version === 2 ? saved.customLimits?.[action] : saved[`limit-${action}`];
-    if (typeof value === 'string' && value !== '') limitOverrides[action] = value;
+  draftPlatform = saved.platform === 'tiktok' ? 'tiktok' : 'instagram';
+  if (saved.version === 3) {
+    for (const platform of ['instagram', 'tiktok']) {
+      if (saved.profiles?.[platform] && typeof saved.profiles[platform] === 'object') platformDrafts[platform] = saved.profiles[platform];
+    }
+  } else {
+    const customLimits = {};
+    for (const action of actions) {
+      const value = saved.version === 2 ? saved.customLimits?.[action] : saved[`limit-${action}`];
+      if (typeof value === 'string' && value !== '') customLimits[action] = value;
+    }
+    platformDrafts[draftPlatform] = { ...saved, customLimits };
   }
 } catch { /* defaults remain usable */ }
+function restoreDraft(platform) {
+  const draft = platformDrafts[platform] || {};
+  $('platform').value = platform;
+  for (const field of draftFields) $(field).value = typeof draft[field] === 'string' ? draft[field] : draftDefaults[field];
+  limitOverrides = Object.fromEntries(actions.filter(action => typeof draft.customLimits?.[action] === 'string' && draft.customLimits[action] !== '').map(action => [action, draft.customLimits[action]]));
+  editingLimit = null;
+}
+function saveDraft() {
+  platformDrafts[draftPlatform] = { ...Object.fromEntries(draftFields.map(field => [field, $(field).value])), customLimits: { ...limitOverrides } };
+  try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform: draftPlatform, profiles: platformDrafts })); } catch { /* in-memory settings still work */ }
+}
+restoreDraft(draftPlatform);
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
   return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
@@ -69,7 +93,7 @@ function plan() {
   } catch (e) { showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message); }
   validPlan = valid;
   $('start').disabled = !connected || running || busy || !valid || !$('instagram-tab').value;
-  try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 2, ...Object.fromEntries(fields.filter(field => !field.startsWith('limit-')).map(field => [field, $(field).value])), customLimits: limitOverrides })); } catch { /* in-memory settings still work */ }
+  saveDraft();
 }
 function connection(value) {
   if (connected !== value) tabDiscoveryVersion += 1;
@@ -154,9 +178,9 @@ function render(state) {
   $('minutes').disabled = running || busy;
   $('message').textContent = state.message;
   document.body.classList.toggle('running', running);
-  $('completed').hidden = !state.activity?.length;
+  $('completed').hidden = !state.settings && !state.activity?.length;
   $('empty-state').hidden = Boolean(state.activity?.length || running);
-  for (const name of ['scroll','like','follow','comment']) $(`stat-${name}`).textContent = state.stats?.[name] || 0;
+  sessionResults.render(document, state);
   const key = JSON.stringify(state.activity || []);
   if ($('activity').dataset.key !== key) {
     $('activity').dataset.key = key;
@@ -175,8 +199,13 @@ $('session-form').addEventListener('submit', async event => {
 });
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
-for (const field of fields.filter(field => !field.startsWith('limit-'))) $(field).addEventListener('input', edited);
+for (const field of draftFields) $(field).addEventListener('input', edited);
 $('platform').addEventListener('change', () => {
+  const platform = $('platform').value;
+  if (running || busy || !['instagram', 'tiktok'].includes(platform)) return;
+  saveDraft();
+  draftPlatform = platform;
+  restoreDraft(platform);
   tabDiscoveryVersion += 1; canAutoSelectTab = true;
   $('instagram-tab').replaceChildren(new Option(`open ${$('platform').value} in this chrome profile`, ''));
   $('instagram-tab').value = '';

@@ -10,7 +10,7 @@ const read = file => readFileSync(path.join(root, file));
 const manifest = JSON.parse(read('browser-extension/manifest.json'));
 const version = manifest.version;
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('invalid extension release version');
-const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','comment-history.js','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
+const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','dashboard.css','comment-history.js','session-results.js','inter.woff2','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
 const errors = [];
 const equal = (actual, expected, message) => { if (!actual.equals(expected)) errors.push(message); };
 const setup = read('setup.html').toString();
@@ -22,7 +22,7 @@ if (downloads.length !== 1 || downloads[0] !== `creator-collective-extension-${v
 if (!setup.includes(`updating to version ${version}`) || !setup.includes(`card should show version ${version}`)) errors.push('setup version instructions are stale');
 const build = JSON.parse(read('store/build-manifest.json'));
 if (build.version !== version || JSON.stringify([...build.files].sort()) !== JSON.stringify([...files].sort())) errors.push('store file list or version differs from the release');
-for (const file of ['comment-history.js','dashboard.js','signup-ui.js','phone-ui.js','plan.js','dashboard.css','INTER-LICENSE.txt']) {
+for (const file of ['comment-history.js','session-results.js','dashboard.js','signup-ui.js','phone-ui.js','plan.js','dashboard.css','INTER-LICENSE.txt']) {
   equal(read(file), read(`browser-extension/${file}`), `shared source is stale in the extension: ${file}`);
 }
 const origin = 'https://creator-collective-warmup.vercel.app';

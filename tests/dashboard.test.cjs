@@ -17,6 +17,7 @@ function dashboard(panel = false, saved = null, respond = null) {
   };
   const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);const data=message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:message.platform==='tiktok'?8:7,title:message.platform==='tiktok'?'tiktok':'instagram'}]:message.type==='state'?{running:false,message:'ready',activity:[]}:message.type==='start'?{running:true,message:'started',activity:[]}:null;return {ok:true,data:respond?await respond(message,data):data}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(callback,delay){intervals.set(delay,callback)},Option:function(text,value){this.text=text;this.value=value},console });
   context.commentHistory = require('../comment-history.js');
+  context.sessionResults = require('../session-results.js');
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../plan.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../dashboard.js'),'utf8'),context);
   return {context,element,requests,poll:()=>intervals.get(1500)(),saved:()=>JSON.parse(stored),edit(id,value){element(id).value=value;element(id).listeners.input()},settings:()=>JSON.parse(vm.runInContext('JSON.stringify(sessionPlan.validateSettings(input()))',context))};
@@ -58,7 +59,7 @@ test('automatic amounts are editable values, including comments, not placeholder
   assert.equal(h.element(`limit-${action}`).disabled,false);
  }
  assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
- assert.deepEqual(h.saved().customLimits,{});
+ assert.deepEqual(h.saved().profiles.instagram.customLimits,{});
 });
 
 test('clearing and typing an amount is stable across activity polls',()=>{
@@ -79,7 +80,7 @@ test('an empty amount returns to automatic on blur without treating invalid inpu
  const h=dashboard();
  h.edit('limit-follow','');h.element('limit-follow').listeners.blur();
  assert.equal(h.element('limit-follow').value,'9');
- assert.deepEqual(h.saved().customLimits,{});
+ assert.deepEqual(h.saved().profiles.instagram.customLimits,{});
  h.element('limit-follow').validity={badInput:true};
  h.edit('limit-follow','');h.element('limit-follow').listeners.blur();
  assert.equal(h.element('start').disabled,true);
@@ -103,7 +104,7 @@ test('saved settings retain explicit overrides while automatic amounts keep foll
  h.edit('limit-comment','0');h.element('limit-comment').listeners.blur();
  const restored=dashboard(false,h.saved());restored.edit('minutes','20');
  assert.deepEqual(restored.settings().limits,{like:60,follow:18,comment:0});
- assert.deepEqual(restored.saved().customLimits,{comment:'0'});
+ assert.deepEqual(restored.saved().profiles.instagram.customLimits,{comment:'0'});
  const legacy=dashboard(false,{minutes:'10','limit-like':'5','limit-follow':'','limit-comment':'',enableComments:false});
  assert.deepEqual(legacy.settings().limits,{like:5,follow:9,comment:3});
 });
@@ -156,16 +157,57 @@ test('tiktok switches tabs and keeps every engagement target available',async()=
  assert.equal(request.settings.platform,'tiktok');
 });
 
-test('switching platforms preserves custom comment targets and mix',()=>{
+test('each platform remembers its own targets, keywords and pacing',()=>{
  const h=dashboard();
+ h.edit('niche','instagram niche');h.edit('pace','slow');
+ h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
  h.edit('limit-comment','7');h.element('limit-comment').listeners.blur();
- for(const platform of ['tiktok','instagram']) {
-  h.element('platform').value=platform;vm.runInContext('platformChanged(); plan()',h.context);
-  assert.equal(h.element('limit-comment').value,'7');
-  assert.equal(h.settings().limits.comment,7);
-  assert.equal(h.element('mix-comment').disabled,false);
-  assert.equal(h.element('limit-comment').disabled,false);
- }
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
+ h.edit('niche','tiktok niche');h.edit('minutes','20');h.edit('mix-like','1');
+ h.edit('limit-follow','4');h.element('limit-follow').listeners.blur();
+ h.element('platform').value='instagram';h.element('platform').listeners.change();
+ assert.equal(h.element('niche').value,'instagram niche');
+ assert.equal(h.element('pace').value,'slow');
+ assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,7);
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.equal(h.element('niche').value,'tiktok niche');
+ assert.equal(h.element('minutes').value,'20');
+ assert.equal(h.settings().limits.follow,4);assert.equal(h.settings().weights.like,1);
+ const reopened=dashboard(false,h.saved());
+ assert.equal(reopened.settings().platform,'tiktok');
+ assert.deepEqual(reopened.settings(),h.settings());
+ reopened.element('platform').value='instagram';reopened.element('platform').listeners.change();
+ assert.equal(reopened.settings().limits.follow,0);assert.equal(reopened.settings().limits.comment,7);
+});
+
+test('legacy tiktok settings migrate only to tiktok and preserve explicit zero',()=>{
+ const h=dashboard(false,{version:2,platform:'tiktok',niche:'photography',minutes:'15',customLimits:{follow:'0',comment:'2'}});
+ assert.equal(h.saved().version,3);
+ assert.equal(h.settings().platform,'tiktok');assert.equal(h.settings().limits.follow,0);
+ h.element('platform').value='instagram';h.element('platform').listeners.change();
+ assert.equal(h.settings().limits.follow,9);
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.equal(h.settings().terms[0],'photography');assert.equal(h.settings().minutes,15);
+ assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,2);
+});
+
+test('tiktok results keep their actual targets after controls return to another platform',()=>{
+ const h=dashboard();
+ h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
+ h.context.live=publicState({phase:'running',tabId:8,settings:validateSettings({platform:'tiktok',niche:'branding',minutes:10,enableComments:true,customLimits:{like:3,follow:2,comment:1}}),stats:{scroll:7,like:3,follow:1,comment:1},unconfirmed:{follow:1},activity:[],message:'watching'});
+ vm.runInContext('render(live)',h.context);
+ assert.equal(h.element('stat-follow').textContent,'1 / 2');
+ assert.equal(h.element('activity-heading').textContent,'tiktok session');
+ vm.runInContext('render({...live,running:false,phase:"complete"})',h.context);
+ assert.equal(h.element('platform').value,'instagram');
+ assert.equal(h.element('limit-follow').value,'0');
+ assert.equal(h.element('stat-follow').textContent,'1 / 2');
+ assert.equal(h.element('stat-comment').textContent,'1 / 1');
+ assert.equal(h.element('activity-heading').textContent,'tiktok results');
+ assert.equal(h.element('session-results-note').textContent,'1 follow not confirmed.');
+ h.edit('minutes','20');
+ assert.equal(h.element('stat-follow').textContent,'1 / 2');
 });
 
 test('engagement mix still controls actions and reset restores its default values',()=>{
