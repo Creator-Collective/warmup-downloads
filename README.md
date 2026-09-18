@@ -1,3 +1,7 @@
+# direct extensions shortcut
+
+The setup button now sends one open request per click without requiring a successful connection probe first. It never copies an address. An unavailable extension shows Chrome menu instructions and allows an explicit retry; no automatic retry opens duplicate tabs. This website-only fix uses the existing 0.6.46 extension command and does not change the downloadable archives.
+
 # 0.6.46 browser tab logo and setup shortcut
 
 Use the existing square CC PNG icon for favicons on all web and extension pages. Setup can open the fixed chrome://extensions/ destination through the updated extension; older or missing installations get a copy-address fallback. The capability probe returns only version/support and does not recover or read an active session. The current pink side-panel styling and CC icon remain included; manual installations require replacing existing files, reloading and reopening the panel. No new permissions.

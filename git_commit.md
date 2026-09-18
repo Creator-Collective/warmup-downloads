@@ -1,11 +1,7 @@
-fix warm-up branding and add extensions shortcut
+open chrome extensions directly from setup
 
 misc:
-- use square cc favicons on web and extension pages
-- add setup shortcut with copy and manual address fallbacks
-- clarify installed panel updates and package version 0.6.46
-
-security:
-- keep fixed extensions destination and existing origin checks
-- expose setup capability without reading session state
-- cover response spoofing, failed actions and capability races
+- send one direct open request per button click
+- remove stale capability gate and clipboard flow
+- show menu guidance when the extension is unavailable
+- cover explicit retries, duplicate clicks and late responses

@@ -1,3 +1,9 @@
+2026-09-18 | direct extensions setup button
+changed: always open chrome extensions on an explicit button click through the installed0.6.46 extension. removed one-time detection gating and clipboard behavior; missing connections show menu guidance and allow user retry without automatic duplicate tabs.
+files: setup.html/js, tests/setup.test.cjs, README.
+verified:463 checks pass including six direct-open cases; existing33-file archives unchanged and consistent. code/security/javascript reviews pass. hidden browser verified opening/timeout/retry UI and320px layout without overflow; no Chrome control or local build.
+follow-ups: production verification; direct opening needs installed/reloaded0.6.46 and a refreshed setup page. first installations still use Chrome's extensions menu.
+
 2026-09-18 | 0.6.46 tab logo and extensions shortcut
 changed: use square cc favicons across web and extension pages; add setup button that opens chrome extensions through an updated installation, with copy/manual address fallback. clarify replacing files, reloading and reopening the panel to get current pink styling and cc branding.
 files: setup.html/js, dashboard.css and mirror, root icon/deploy allowlist, web/extension favicon links, extension bridge/background, setup/extension tests, release metadata/docs/archives.
