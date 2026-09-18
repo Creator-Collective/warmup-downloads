@@ -146,7 +146,7 @@ test('tiktok switches tabs and keeps every engagement target available',async()=
  h.element('platform').value='tiktok';h.element('platform').listeners.change();
  for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(h.element('tab-label').textContent,'tiktok tab');
- assert.equal(h.element('open-instagram').textContent,'open tiktok to sign in ↗');
+ assert.equal(h.element('open-instagram').textContent,'open tiktok ↗');
  assert.equal(h.element('limit-comment').value,'3');
  assert.equal(h.element('limit-comment').disabled,false);
  assert.equal(h.element('mix-comment').disabled,false);

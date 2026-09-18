@@ -1,13 +1,9 @@
 {
-  "version": "0.6.44",
   "releasedAt": "2026-09-18",
   "summary": "simpler warm-up screens with ideation-style controls",
   "changes": [
     "buttons, dropdowns, cards and spacing match the ideation workspace.",
     "pink buttons and selected menu options use white text.",
     "setup focuses on the download and essential steps, with longer guidance under help."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.44.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

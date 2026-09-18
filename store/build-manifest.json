@@ -1,5 +1,5 @@
 {
-  "version": "0.6.43",
+  "version": "0.6.44",
   "files": [
     "manifest.json",
     "features.js",
@@ -23,6 +23,7 @@
     "runner.html",
     "sidepanel.html",
     "dashboard.js",
+    "select-ui.js",
     "dashboard.css",
     "comment-history.js",
     "session-results.js",
