@@ -1,3 +1,9 @@
+2026-09-18 | identify installed extension before opening settings
+changed: expose the actual installed version through the legacy hello command; each click checks compatibility before requesting the manager page. older installs get a specific update/reload message without a false opening state; startup responses cannot overwrite click results.
+files: setup.js, tests/setup.test.cjs, README.
+verified:465 checks pass, including8 setup regressions and strict Chrome version format; existing0.6.46 archives match source. code/security/javascript reviews completed. live Chrome reproduced a shortcut timeout while the dashboard connected successfully. hello preserves existing cleanup behavior for already-stopping jobs.
+follow-ups: publish and inspect live installed-version result. browser tool policy blocks chrome://extensions, so installed update/reload and actual manager-opening verification require user action; no bypass attempted.
+
 2026-09-18 | direct extensions setup button
 changed: always open chrome extensions on an explicit button click through the installed0.6.46 extension. removed one-time detection gating and clipboard behavior; missing connections show menu guidance and allow user retry without automatic duplicate tabs.
 files: setup.html/js, tests/setup.test.cjs, README.

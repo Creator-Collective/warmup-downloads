@@ -1,7 +1,7 @@
-open chrome extensions directly from setup
+check installed extension before opening settings
 
 misc:
-- send one direct open request per button click
-- remove stale capability gate and clipboard flow
-- show menu guidance when the extension is unavailable
-- cover explicit retries, duplicate clicks and late responses
+- show the actual installed extension version on setup
+- check compatibility on each click before opening settings
+- guide older installations to update instead of showing false progress
+- cover version ordering, missing bridges, stale replies and request races
