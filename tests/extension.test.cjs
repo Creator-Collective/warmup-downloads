@@ -116,6 +116,32 @@ test('the public bridge rejects malformed platforms without querying or opening 
   assert.equal(h.created.length, 0);
   assert.equal(h.job(), undefined);
 });
+test('setup reads only a capability and opens only the fixed extensions manager', async () => {
+  const h = background();
+  const bridge = webBridge(h);
+  await bridge.request({ type: 'setup-info' });
+  assert.deepEqual(Object.keys(bridge.responses.at(-1).data.data).sort(), ['canOpenExtensions', 'version']);
+  assert.equal(bridge.responses.at(-1).data.data.canOpenExtensions, true);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.job(), undefined);
+  await bridge.request({ type: 'open-extensions', url: 'https://evil.example/' });
+  assert.equal(bridge.responses.at(-1).data.ok, true);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.created[0].url, 'chrome://extensions/');
+  assert.equal(h.job(), undefined);
+});
+test('extension setup shortcuts keep the trusted origin and top-frame boundary', async () => {
+  const h = background();
+  for (const options of [{ pageOrigin: 'https://evil.example' }, { pageOrigin: origin + '.evil.example' }, { subframe: true }]) {
+    const bridge = webBridge(h, options);
+    for (const type of ['setup-info', 'open-extensions']) await bridge.request({ type });
+    assert.equal(bridge.forwarded.length, 0);
+  }
+  for (const source of [{ ...sender, url: 'https://evil.example/' }, { ...sender, frameId: 1 }]) {
+    await h.message({ type: 'open-extensions' }, source);
+  }
+  assert.equal(h.created.length, 0);
+});
 test('public bridge routing keeps its exact origin, frame, command and field boundaries', async () => {
   const h = background();
   for (const options of [{ pageOrigin: 'https://evil.example' }, { pageOrigin: origin + '.evil.example' }, { subframe: true }]) {

@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.46 tab logo and extensions shortcut
+changed: use square cc favicons across web and extension pages; add setup button that opens chrome extensions through an updated installation, with copy/manual address fallback. clarify replacing files, reloading and reopening the panel to get current pink styling and cc branding.
+files: setup.html/js, dashboard.css and mirror, root icon/deploy allowlist, web/extension favicon links, extension bridge/background, setup/extension tests, release metadata/docs/archives.
+verified: all464 checks pass; both33-file archives match source; code/security/javascript reviews passed after fixing a clipboard/detection race. hidden in-app browser checked desktop setup,320px setup and packaged panel: logos loaded,10px action gap, no overflow, pink button text white. no local build or Chrome control.
+follow-ups: production verification after merge; user replaces existing extension files, reloads and reopens panel. prior TikTok follow acceptance and installed comment-counter checks remain open.
+
 2026-09-18 | 0.6.45 tab control spacing
 changed: added10px below the tab label/refresh row and increased space above the open-platform button to12px; shared by dashboard and side panel.
 files: dashboard.css and extension mirror, setup/package/manifest versions, release notes/metadata, README/store submission and archives.

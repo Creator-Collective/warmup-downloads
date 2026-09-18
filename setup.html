@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>browser setup · creator collective</title>
-  <link rel="icon" href="cc-logo.webp" type="image/webp">
+  <link rel="icon" href="icon-32.png" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="dashboard.css">
+  <script src="setup.js" defer></script>
 </head>
 <body>
 <header><a class="brand" href="/"><img src="cc-logo.webp" width="32" height="32" alt="">creator collective</a><a class="button secondary" href="/">back to warm-up</a></header>
 <main class="guide">
   <div class="guide-heading"><h1>browser setup</h1></div>
   <section class="download-card" aria-labelledby="download-heading">
-    <h2 id="download-heading">extension 0.6.45</h2>
-    <a class="button primary" href="creator-collective-extension-0.6.45.zip" download>download extension zip</a>
+    <h2 id="download-heading">extension 0.6.46</h2>
+    <div class="setup-actions">
+      <a class="button primary" href="creator-collective-extension-0.6.46.zip" download>download extension zip</a>
+      <button class="secondary" id="extensions-shortcut" type="button" disabled>copy extensions address</button>
+    </div>
+    <p id="extensions-shortcut-status" class="shortcut-status" role="status" hidden></p>
+    <input id="extensions-address" aria-label="chrome extensions address" value="chrome://extensions/" readonly hidden>
   </section>
 
   <section class="guide-section" id="install" aria-labelledby="install-heading">
@@ -28,11 +34,12 @@
   </section>
 
   <section class="guide-section" id="update" aria-labelledby="update-heading">
-    <h2 id="update-heading">updating to version 0.6.45</h2>
+    <h2 id="update-heading">updating to version 0.6.46</h2>
     <ol class="install-steps">
       <li>stop any active session, then download and unzip the latest version.</li>
       <li>replace the files inside your existing extension folder to keep your settings and saved emails.</li>
-      <li>open <code>chrome://extensions</code> and reload its existing card. the card should show version 0.6.45.</li>
+      <li>open <code>chrome://extensions</code> and reload its existing card. the card should show version 0.6.46.</li>
+      <li>close and reopen the side panel to load the updated style and logo.</li>
     </ol>
   </section>
 
