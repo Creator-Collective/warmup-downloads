@@ -1,7 +1,8 @@
-match warm-up to the current dashboard style
+simplify warm-up and match ideation controls
 
 misc:
-- use current cc branding, neutral cards and pink accents across warm-up screens
-- organize setup and update steps while preserving privacy disclosures
-- include matching logo, icons and shared assets in release 0.6.43
-- verify responsive layouts, existing tests and both extension packages
+- trim setup copy and move detailed guidance into help
+- match ideation buttons, dropdowns, cards and spacing with white text on pink
+- keep native select state behind keyboard-accessible custom menus
+- prevent stale tab selection and preserve disabled session controls
+- package 0.6.44 with dropdown regression coverage

@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.44 simpler ideation-style warm-up
+changed: removed redundant setup/helper copy; kept install/update steps visible and full guidance under help. matched Ideation button/dropdown/card dimensions, type and shadows; all solid pink controls use white text. added accessible custom selects with native values/events, full tab-name wrapping, disabled/stale option protection; restored platform label immediately at startup.
+files: dashboard.css/js, index/setup/privacy.html, select-ui.js/tests, dashboard copy assertion, packaged extension mirrors/manifest, packaging/deploy lists, release files, README/store submission and archives.
+verified: 455 tests pass including10 new select cases; both33-file archives and shared assets match source; code/JS/security reviews addressed. hidden in-app browser checked platform keyboard selection, desktop setup, mobile320px setup/help and panel menus with long tab names; no horizontal overflow, pink labels white. no local app build/Chrome control; local visual fixture removed.
+follow-ups: production verification after merge; user reloads existing installed folder. prior live TikTok follow acceptance/comment-counter checks remain open.
+
 2026-09-18 | 0.6.43 dashboard styling
 changed: matched warm-up web, extension panel/session/recovery, setup and privacy to the current student dashboard: neutral white/grey surfaces, Inter, pink accents, current CC logo/icons. grouped setup install/update guidance; preserved privacy text and session behavior.
 files: dashboard.css, index/setup/privacy.html, browser-extension UI/assets/manifest, packaging scripts, deploy allowlist, release notes/metadata, package versions, README/store submission and both archives.

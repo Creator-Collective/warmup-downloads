@@ -1,3 +1,9 @@
+# 0.6.44 simpler ideation-style controls
+
+Warm-up uses Ideation's compact buttons, custom dropdowns, card treatments and spacing. Pink controls use white labels. Setup keeps the download and essential installation/update steps visible, with full session guidance under help.
+
+Custom dropdowns retain native form values and existing session behavior, support keyboard navigation, and keep full tab labels readable. Permissions and platform actions are unchanged. Live TikTok follow acceptance and installed comment-counter verification remain open; see LIVE_VERIFICATION.md.
+
 # 0.6.43 current dashboard styling
 
 Warm-up now shares the student dashboard's Inter font, neutral light surfaces, pink accents, 14px cards and current CC logo. The web dashboard, side panel, session pages, setup and privacy use one stylesheet. The extension icons use the existing student app icon. Installation and update instructions are grouped separately.

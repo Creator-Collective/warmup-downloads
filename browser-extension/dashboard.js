@@ -66,6 +66,7 @@ function saveDraft() {
   try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform: draftPlatform, profiles: platformDrafts })); } catch { /* in-memory settings still work */ }
 }
 restoreDraft(draftPlatform);
+platformChanged();
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
   return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
@@ -75,6 +76,7 @@ function input() {
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
 function error(message) { requestError = message; showError(message); }
 function plan() {
+  globalThis.warmupSelects?.sync();
   if (running && currentState?.settings) {
     showError(requestError);
     $('start').disabled = true;
@@ -142,7 +144,7 @@ function selectActiveTab(tabId) {
 function platformChanged() {
   const platform = $('platform').value;
   $('tab-label').textContent = `${platform} tab`;
-  $('open-instagram').textContent = `open ${platform} to sign in ↗`;
+  $('open-instagram').textContent = `open ${platform} ↗`;
 }
 function displayPlan(state) {
   if (state.running && state.settings) {
@@ -195,7 +197,7 @@ $('session-form').addEventListener('submit', async event => {
     error(''); sessionPlan.validateSettings(input()); busy = true; $('settings').disabled = true; $('minutes').disabled = true; plan();
     render(await request('start', { settings: input(), tabId: Number($('instagram-tab').value) }));
   } catch (e) { error(e.message); }
-  finally { busy = false; $('settings').disabled = running; $('minutes').disabled = running; $('start').disabled = !connected || running || !validPlan || !$('instagram-tab').value; }
+  finally { busy = false; $('settings').disabled = running; $('minutes').disabled = running; $('start').disabled = !connected || running || !validPlan || !$('instagram-tab').value; globalThis.warmupSelects?.sync(); }
 });
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
