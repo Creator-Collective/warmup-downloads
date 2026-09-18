@@ -147,6 +147,57 @@ test('stop blocks replacement until runner acknowledges and preserves uncertain 
  assert.equal(h.job().phase,'error');assert.match(h.job().message,/may have gone through/);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,true);
 });
+test('TikTok outcomes survive Stop, completion and worker restart without replacing the stopping message', async () => {
+ const h = background();
+ await h.message({ type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'study tips', enableComments: true } });
+ const job = h.job();
+ const runner = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: 90 } };
+ const comment = { text: 'small daily reps, got it', url: 'https://www.tiktok.com/@creator/video/123/', author: 'creator', time: Date.now(), status: 'uncertain' };
+ await h.message({ type: 'stop' });
+ const stoppedMessage = h.job().message;
+ await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', stats: { like: 2, follow: 1, comment: 0 }, unconfirmed: { like: 0, follow: 1, comment: 1 }, pausedActions: ['comment'], comments: [comment], nextActionAt: Date.now() + 10000, message: 'must not overwrite stop' } }, runner);
+ assert.equal(h.job().phase, 'stopping');
+ assert.equal(h.job().message, stoppedMessage);
+ assert.equal(h.job().nextActionAt, null);
+ assert.deepEqual(h.job().stats, { like: 2, follow: 1, comment: 0 });
+ assert.deepEqual(h.job().unconfirmed, { like: 0, follow: 1, comment: 1 });
+ assert.deepEqual(h.job().pausedActions, ['comment']);
+ assert.equal(h.job().comments[0].status, 'uncertain');
+ await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'stopped', message: stoppedMessage } }, runner);
+ const restarted = background(h.job());
+ const state = (await restarted.message({ type: 'state' })).data;
+ assert.equal(state.running, false);
+ assert.equal(state.stats.follow, 1);
+ assert.equal(state.settings.limits.follow, 9);
+ assert.deepEqual({ ...state.unconfirmed }, { like: 0, follow: 1, comment: 1 });
+ assert.deepEqual(Array.from(state.pausedActions), ['comment']);
+ assert.equal(state.comments.length, 1);
+ await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', stats: { follow: 99 }, unconfirmed: {}, pausedActions: [] } }, runner);
+ assert.equal(restarted.job().stats.follow, 1, 'late updates cannot replace terminal results');
+ assert.deepEqual(restarted.job().pausedActions, ['comment']);
+});
+test('session outcome normalization bounds counts, rejects invalid values and exposes safe defaults for older jobs', async () => {
+ assert.deepEqual(publicState().unconfirmed, { like: 0, follow: 0, comment: 0 });
+ assert.deepEqual(publicState({ stats: {}, settings: { platform: 'tiktok' } }).pausedActions, []);
+ const h = background();
+ await h.message({ type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'study tips', enableComments: true, customLimits: { like: 4, follow: 2, comment: 1 } } });
+ const job = h.job();
+ const runner = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: 90 } };
+ for (const [unconfirmed, expected] of [
+   [{ like: 500, follow: 500, comment: 500, injected: 1 }, { like: 4, follow: 2, comment: 1 }],
+   [{ like: -1, follow: 1.5, comment: '1' }, { like: 0, follow: 0, comment: 0 }],
+   [{ like: Infinity, follow: NaN, comment: Number.MAX_SAFE_INTEGER + 1 }, { like: 0, follow: 0, comment: 0 }]
+ ]) {
+   await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', unconfirmed, pausedActions: ['like', 'comment', 'comment', 'follow', { comment: true }] } }, runner);
+   assert.deepEqual(h.job().unconfirmed, expected);
+   assert.deepEqual(h.job().pausedActions, ['comment']);
+   const state = (await h.message({ type: 'state' })).data;
+   assert.deepEqual({ ...state.unconfirmed }, expected);
+ }
+ await h.message({ type: 'runner-update', token: job.token, patch: { pausedActions: 'comment' } }, runner);
+ assert.deepEqual(h.job().pausedActions, []);
+ assert.deepEqual(publicState({ unconfirmed: { like: 1000, follow: 1000, comment: 1000 } }).unconfirmed, { like: 180, follow: 60, comment: 20 });
+});
 test('untrusted senders and wrong runner tokens cannot change session state',async()=>{
  const h=background();
  assert.equal(await h.message({type:'start'},{url:'https://evil.example',frameId:0,tab:{id:1}}),undefined);
@@ -180,6 +231,7 @@ function runnerContext(phase = 'starting', operation) {
  const node=()=>({textContent:'',disabled:false,dataset:{},scrollTop:0,addEventListener(){},replaceChildren(){},append(){},click(){},classList:{toggle(){}}});
  const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,Date,location:{hash:'#test-token'},platforms,validPlatform:require('../browser-extension/guards.js').validPlatform,platformURL,instagramURL,document:{getElementById:id=>{if(!elements.has(id))elements.set(id,node());return elements.get(id)},createElement:node,body:{classList:{toggle(){}}},addEventListener(){}},sessionEngine:{runSession:operation || (async()=>{})}});
  ctx.commentHistory = require('../comment-history.js');
+ ctx.sessionResults = require('../session-results.js');
  return {ctx,calls,chrome,job,elements,start(){vm.runInContext(fs.readFileSync(path.join(extension,'runner.js'),'utf8'),ctx)}};
 }
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve))};

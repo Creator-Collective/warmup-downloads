@@ -139,6 +139,9 @@ for (const platform of ['instagram', 'tiktok']) test(`${platform} one-minute vie
   assert.equal(stats.follow, 1);
   assert.equal(stats.like, 1);
   assert.ok(stats.scroll > 0);
+  assert.deepEqual({ ...h.updates.at(-1).stats }, { ...stats });
+  assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, { like: 0, follow: 0, comment: 0 });
+  assert.deepEqual(Array.from(h.updates.at(-1).pausedActions), []);
   assert.equal(h.time(), 60000);
 });
 
@@ -264,6 +267,8 @@ test('an uncertain TikTok submission with a possible draft is recorded and pause
  assert.ok(stats.like > 1);
  assert.ok(h.calls.some(call => call[0] === 'scroll'));
  assert.equal(h.updates.at(-1).comments[0].status, 'uncertain');
+ assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, { like: 0, follow: 0, comment: 1 });
+ assert.deepEqual(Array.from(h.updates.at(-1).pausedActions), ['comment']);
  assert.ok(h.updates.some(update => /comments are off for this session/.test(update.message)));
 });
 
@@ -363,7 +368,38 @@ test('uncertain results consume the action allowance without inflating confirmed
   const stats = await runSession(validateSettings({ ...input, customLimits: { like: 1, follow: 1, comment: 1 } }), h.adapter, h.controller.signal, h.options);
   assert.deepEqual(attempts, { like: 1, follow: 1, comment: 1 });
   assert.equal(stats.like + stats.follow + stats.comment, 0);
+  assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, attempts);
   assert.equal(h.time(), 600000);
+});
+
+test('an uncertain TikTok follow is reported once while likes and comments continue across the same author’s posts', async () => {
+  let index = 0;
+  const h = harness({
+    inspect: async () => ({ post: { id: `https://www.tiktok.com/@same.creator/video/${1000 + index++}/`, author: 'same.creator', text: 'study tips', caption: `Study tips work best when you practice a little every day number ${index}.`, viewer: true, like: true, follow: true, comment: true } }),
+    engage: async (action, post) => { h.calls.push([action, post.author]); return action === 'follow' ? 'uncertain' : 'confirmed'; }
+  });
+  h.options.random = () => .5;
+  const stats = await runSession(validateSettings({ ...input, platform: 'tiktok' }), h.adapter, h.controller.signal, h.options);
+  const attemptedFollow = h.calls.findIndex(call => call[0] === 'follow');
+  assert.ok(attemptedFollow >= 0);
+  assert.equal(h.calls.filter(call => call[0] === 'follow').length, 1);
+  assert.equal(stats.follow, 0);
+  for (const action of ['like', 'comment', 'scroll']) assert.ok(h.calls.slice(attemptedFollow + 1).some(call => call[0] === action), `${action} must continue`);
+  assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, { like: 0, follow: 1, comment: 0 });
+  assert.deepEqual(Array.from(h.updates.at(-1).pausedActions), []);
+  assert.deepEqual({ ...h.updates[0].unconfirmed }, { like: 0, follow: 0, comment: 0 }, 'earlier snapshots cannot change later');
+  assert.equal(h.time(), 600000);
+});
+
+test('TikTok reports an in-flight follow outcome after Stop without starting another action', async () => {
+  for (const result of ['confirmed', 'uncertain']) {
+    const h = harness({ engage: async action => { h.calls.push([action]); h.controller.abort(); return result; } });
+    const stats = await runSession(validateSettings({ ...input, platform: 'tiktok', customLimits: { like: 0, follow: 1, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+    assert.deepEqual(h.calls.filter(call => ['like', 'follow', 'comment'].includes(call[0])), [['follow']]);
+    assert.equal(stats.follow, result === 'confirmed' ? 1 : 0);
+    assert.equal(h.updates.at(-1).unconfirmed.follow, result === 'uncertain' ? 1 : 0);
+    assert.match(h.updates.at(-1).message, /session stopped/);
+  }
 });
 
 test('a full session survives empty searches, unavailable posts and temporarily unreadable pages', async () => {
@@ -397,6 +433,8 @@ test('an unresolved comment draft disables further comments while browsing and l
   assert.ok(failedComment >= 0);
   assert.equal(h.calls.filter(call => call[0] === 'comment').length, 1);
   assert.equal(stats.comment, 0);
+  assert.deepEqual({ ...h.updates.at(-1).unconfirmed }, { like: 0, follow: 0, comment: 0 });
+  assert.deepEqual(Array.from(h.updates.at(-1).pausedActions), ['comment']);
   for (const action of ['scroll', 'like', 'follow']) assert.ok(h.calls.slice(failedComment + 1).some(call => call[0] === action), `${action} must continue`);
   assert.ok(h.updates.some(update => /comments are off for this session/.test(update.message)));
   assert.equal(h.time(), 600000);

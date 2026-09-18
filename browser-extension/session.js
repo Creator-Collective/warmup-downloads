@@ -213,7 +213,11 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextFullWatchAfter = randomBetween(16, 24, random);
   const running = () => !signal.aborted && now() < deadline;
   const comments = [];
-  const update = message => adapter.update({ stats: { ...stats }, comments: comments.map(item => ({ ...item })), remainingMs: Math.max(0, deadline - now()), deadline, phase: 'action', nextActionAt: null, message });
+  const update = message => adapter.update({
+    stats: { ...stats }, unconfirmed: { ...unconfirmed }, pausedActions: [...pausedActions],
+    comments: comments.map(item => ({ ...item })), remainingMs: Math.max(0, deadline - now()),
+    deadline, phase: 'action', nextActionAt: null, message
+  });
   const likeSchedule = actionSchedule(settings, 'like');
   const nextLikeAt = () => stats.like + unconfirmed.like < settings.limits.like && settings.weights.like
     ? startedAt + likeSchedule.warmup + (stats.like + unconfirmed.like) * likeSchedule.cadence : Infinity;

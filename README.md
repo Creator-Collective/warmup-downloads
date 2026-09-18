@@ -1,3 +1,11 @@
+# 0.6.42 tiktok session controls and results
+
+Instagram and TikTok keep separate local keyword, duration, pacing, mix and target settings. Existing settings migrate only to their last selected platform, including intentional zero targets. Both platforms retain likes, follows and comments.
+
+Dashboard, side panel and runner show confirmed counts against the actual session targets, with unconfirmed attempts and paused comment drafts shown separately. Outcomes persist beyond the activity feed and confirmed in-flight results survive Stop without restarting the session. Fresh-page follow confirmation, duplicate prevention and platform restriction checks remain in place.
+
+Automated fixtures exercise successful TikTok follows and continuation after unconfirmed follows. No live social actions were performed for this release; account-specific TikTok follow acceptance and the installed comment counter remain unverified. See LIVE_VERIFICATION.md.
+
 # 0.6.41 tiktok comment confirmation after redraws
 
 Installed 0.6.40 posted a real comment that remained after fresh navigation, but the app counter stayed at zero. A separate photo browsing test completed normally with four advances. The precise live counter failure remains undetermined.

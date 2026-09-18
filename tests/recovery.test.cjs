@@ -51,6 +51,7 @@ function runner(operation = async () => {}, respond) {
     sessionEngine: { runSession: operation }
   });
   context.commentHistory = require('../comment-history.js');
+  context.sessionResults = require('../session-results.js');
   return { calls, nodes, context, start: () => vm.runInContext(fs.readFileSync(path.join(extension, 'runner.js'), 'utf8'), context) };
 }
 

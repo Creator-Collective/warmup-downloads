@@ -40,9 +40,19 @@ function runnerSender(sender, job, extensionOrigin) {
   if (!job || sender.tab?.id !== job.runnerTabId) return false;
   try { const u = new URL(sender.url); return u.protocol === 'chrome-extension:' && u.hostname === new URL(extensionOrigin).hostname && u.pathname === '/runner.html' && u.hash === `#${job.token}`; } catch { return false; }
 }
+function normalizeUnconfirmed(value, limits) {
+  return Object.fromEntries(Object.entries({ like: 180, follow: 60, comment: 20 }).map(([action, maximum]) => {
+    const limit = Number.isSafeInteger(limits?.[action]) && limits[action] >= 0 ? Math.min(limits[action], maximum) : maximum;
+    const count = Number.isSafeInteger(value?.[action]) && value[action] >= 0 ? Math.min(value[action], limit) : 0;
+    return [action, count];
+  }));
+}
+function normalizePausedActions(value) {
+  return Array.isArray(value) && value.includes('comment') ? ['comment'] : [];
+}
 function publicState(job) {
-  if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, activity: [], comments: [] };
-  return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, activity: job.activity, comments: sessionComments.normalize(job.comments), tabId: job.tabId,
+  if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [] };
+  return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, unconfirmed: normalizeUnconfirmed(job.unconfirmed, job.settings?.limits), pausedActions: normalizePausedActions(job.pausedActions), activity: job.activity, comments: sessionComments.normalize(job.comments), tabId: job.tabId,
     settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights } : undefined };
 }
-if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, publicState };
+if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, publicState };
