@@ -1,3 +1,7 @@
+# installed shortcut compatibility
+
+Setup now reads the installed version through the legacy hello command before offering the manager action. The page displays the actual installed version separately from the download version; each click checks again. Versions before 0.6.46 get explicit update/reload guidance and never enter a false opening state. Current compatible versions still open from one click. Startup detection cannot overwrite a newer click result, and all replies keep the existing source/origin/request checks.
+
 # direct extensions shortcut
 
 The setup button now sends one open request per click without requiring a successful connection probe first. It never copies an address. An unavailable extension shows Chrome menu instructions and allows an explicit retry; no automatic retry opens duplicate tabs. This website-only fix uses the existing 0.6.46 extension command and does not change the downloadable archives.
