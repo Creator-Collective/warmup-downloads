@@ -1,3 +1,9 @@
+2026-09-18 | 0.6.47 verify persisted tiktok likes
+changed: require a separately loaded exact post and matching visible author before counting TikTok likes; reject contradictory unpressed hearts, reserve confirmation time, retain one-attempt caps and Stop/tab ownership guards.
+files: extension runner/session/tiktok, focused tests, live verification/readme, version metadata/setup/store docs and both archives.
+verified: installed 0.6.46 browsing/timer/Stop passed; test like disappeared after reload, follow stayed unconfirmed, and ordinary TikTok like also reverted without the extension. all automated checks pass, including 244 focused cases; both 33-file 0.6.47 archives match source; code and JavaScript reviews approved. no local app build.
+follow-ups: publish; user must update/reload installed extension for 0.6.47 live check. TikTok action persistence cause remains unknown; comments not posted without new explicit authorization. original five-minute/zero-target settings and TikTok home restored.
+
 2026-09-18 | identify installed extension before opening settings
 changed: expose the actual installed version through the legacy hello command; each click checks compatibility before requesting the manager page. older installs get a specific update/reload message without a false opening state; startup responses cannot overwrite click results.
 files: setup.js, tests/setup.test.cjs, README.

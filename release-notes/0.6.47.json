@@ -1,13 +1,9 @@
 {
-  "version": "0.6.47",
   "releasedAt": "2026-09-18",
   "summary": "verify tiktok likes before counting them",
   "changes": [
     "tiktok likes count only after a separately loaded copy of the post confirms the liked state.",
     "likes that disappear or cannot be verified stay unconfirmed and are not retried.",
     "start, stop, session targets and follow checks keep their existing behavior."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.47.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

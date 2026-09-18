@@ -1,6 +1,6 @@
 # tiktok verification status
 
-Updated 2026-09-14. Overall status: not fully verified. Automated checks do not establish that TikTok accepted a live action.
+Updated 2026-09-18. Overall status: not fully verified. Automated checks do not establish that TikTok accepted a live action.
 
 ## installed 0.6.38
 
@@ -55,3 +55,20 @@ A successful installed comment-counter retest and a follow that remains accepted
 The user authorized proceeding with TikTok follows included, without treating the earlier rollback as a release blocker. This does not establish the cause of the rollback or prove acceptance on another computer. Follow attempts and positive fresh-page confirmation remain enabled; uncertain attempts never become confirmed counts.
 
 This release adds per-platform saved settings, confirmed counts against session targets, durable unconfirmed/paused-action reporting, and preservation of in-flight results during Stop. Successful follow and mixed-outcome session paths are covered with local fixtures. No Chrome control or real likes, follows, comments, messages or account logins were performed. Installed 0.6.42 and the earlier live comment-counter fix still need user-side verification.
+
+## installed 0.6.46 live tests, September 18
+
+Setup confirmed installed 0.6.46. The signed-in TikTok profile was @ollymode. All sessions used the saved keyword personal brand. No comments were drafted or posted.
+
+- One-minute browsing-only run, approximately 19:12:28–19:13:28 UTC, targets 0/0/0: completed normally with three reported advances. A first post opening failed, recovered on another result, and ended in the loaded @jamieegabrielle video 7559649022097526030.
+- A second one-minute browsing-only run was deliberately stopped with 26 seconds remaining after one advance. Direct observations showed @kelcapital/video/7631769952189500703 followed by @theanatomyofadream/video/7671041826958167310. The latter URL and counters stayed unchanged after Stop; settings became editable and Start returned.
+- Two-minute engagement run, approximately 19:16:28–19:18:28 UTC, targets 1 like / 1 follow / 0 comments: completed normally with seven advances, one recorded like and one unconfirmed follow. The app logged a like on @theanatomyofadream/video/7671041826958167310 at 19:17 UTC. Fresh permalink navigation after completion showed the exact primary-post button “Like video 18.1K likes” with aria-pressed=false. Like persistence failed and the recorded count was a false confirmation.
+- Follow attempt on @juliabroome/video/7625708232819920142 stayed unconfirmed with zero follows. Fresh profile navigation showed “Follow julez | social media”. No follow retry was made. The cause of TikTok not retaining either action was not established.
+- Separate ordinary-click comparison with the extension stopped, approximately 19:23:30 UTC: the same primary-post like button immediately showed pressed=true, reverted to false within about 20 seconds before reload, and remained false after reload. No additional click was attempted. This shows the persistence failure also occurred through the ordinary TikTok control; it does not identify its cause.
+- Original five-minute duration and zero targets were restored. All 465 existing automated checks passed and both 33-file 0.6.46 archives matched source. Instagram had no open signed-in tab and was not tested live.
+
+## 0.6.47 correction and remaining checks
+
+TikTok likes now use independent fresh-post confirmation before incrementing the count, reusing the guarded follow-verification path. A temporary optimistic heart is insufficient. Uncertain attempts consume the allowance without repeating the click. The action reserves time for confirmation; Instagram likes keep their previous behavior.
+
+This corrects a demonstrated reporting failure. It does not establish why TikTok discarded the action or make TikTok accept it. Installed 0.6.47 like confirmation, durable likes/follows, and the installed comment counter still require live verification.

@@ -349,7 +349,12 @@ function inspectTikTok(request = {}) {
     if (before.rows.some(previous => previous.node === added[0].node || previous.textNode === added[0].textNode)) return unconfirmed('own-row-not-new');
     return { confirmed: true };
   }
-  if (request.action === 'verify-like') return { confirmed: Boolean(liked && visible(like)) };
+  // A stale red heart or label must not override an explicitly unpressed control.
+  // Keep conflicting controls ineligible for another click as well.
+  if (request.action === 'verify-like') {
+    const authors = unique(all(scope, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
+    return { confirmed: Boolean(liked && visible(like) && authors.length === 1 && authors[0] === author && !likeStateNodes.some(node => node.getAttribute('aria-pressed') === 'false')) };
+  }
   if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };
   const controls = { like: post.like ? like : null, follow: post.follow ? follow : null, next, close };
   if (Object.hasOwn(controls, request.action)) return { point: point(controls[request.action]) };

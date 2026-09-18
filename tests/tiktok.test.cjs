@@ -47,8 +47,25 @@ test('a heart using currentColor confirms its resolved red fill', () => {
 test('like confirmation also accepts explicit unlike and data-state changes', () => {
   for (const attrs of [{ 'aria-label': 'Unlike video' }, { 'data-state': 'liked' }, { 'data-e2e': 'browse-liked-icon' }]) {
     const page = fixture(); Object.assign(page.like.attrs, attrs);
+    delete page.like.attrs['aria-pressed'];
     assert.equal(page.inspect().post.like, false);
     assert.equal(page.inspect({ id, action: 'verify-like' }).confirmed, true);
+  }
+});
+
+test('an explicitly unpressed heart overrides conflicting liked styling without allowing another click', () => {
+  for (const change of [page => { page.heart.attrs.fill = 'rgb(254, 44, 85)'; }, page => { page.like.attrs['aria-label'] = 'Unlike video'; }, page => { page.like.attrs['data-state'] = 'liked'; }]) {
+    const page = fixture(); change(page);
+    assert.equal(page.inspect({ id, action: 'verify-like' }).confirmed, false);
+    assert.equal(page.inspect({ id, action: 'click-like' }).clicked, false);
+    assert.deepEqual(page.clicks, []);
+  }
+});
+
+test('a liked post requires its matching visible author before confirmation', () => {
+  for (const change of [page => { page.author.attrs.href = 'https://www.tiktok.com/@other/'; }, page => page.author.remove()]) {
+    const page = fixture(); page.like.attrs['aria-pressed'] = 'true'; change(page);
+    assert.equal(page.inspect({ id, author: '@creator', action: 'verify-like' }).confirmed, false);
   }
 });
 

@@ -403,6 +403,25 @@ test('runner waits for delayed follow confirmation before treating it as uncerta
  assert.ok(h.calls.some(x=>x.patch?.phase==='complete'));
 });
 
+test('Instagram likes keep their existing viewer confirmation without opening a temporary tab', async () => {
+ let result; let clicks = 0; let created = 0;
+ const h = runnerContext('starting', async (_settings, adapter) => {
+   result = await adapter.engage('like', { id: 'https://www.instagram.com/p/example/', author: '/creator/' });
+ });
+ h.ctx.setTimeout = fn => setTimeout(fn, 0);
+ h.chrome.tabs.create = async () => { created++; throw new Error('unexpected temporary tab'); };
+ h.chrome.scripting.executeScript = async request => {
+   if (request.files) return [{ result: null }];
+   if (request.args?.[0] === 'like') { clicks++; return [{ result: true }]; }
+   if (request.args?.[1]?.action === 'verify-like') return [{ result: { confirmed: true } }];
+   return [{ result: {} }];
+ };
+ await finishRunner(h);
+ assert.equal(result, 'confirmed');
+ assert.equal(clicks, 1);
+ assert.equal(created, 0);
+});
+
 function tiktokRunner(operation, configure = () => {}) {
  const id = 'https://www.tiktok.com/@creator/video/123/';
  const search = 'https://www.tiktok.com/search?q=branding';
@@ -458,7 +477,7 @@ for (const action of ['like', 'follow']) {
    let result;
    const f = tiktokRunner(async (settings, adapter) => { result = await adapter.engage(action, f.post); });
    await finishRunner(f.h);
-   assert.equal(result, action === 'follow' ? 'uncertain' : 'confirmed');
+   assert.equal(result, 'uncertain', 'same-viewer state alone cannot confirm TikTok engagement');
    assert.deepEqual(f.clicks, [`click-${action}`]);
    const request = f.requests.find(request => request.action === `click-${action}`);
    assert.equal(request.id, f.id); assert.equal(request.author, '@creator');
@@ -1169,15 +1188,16 @@ test('actual TikTok next-post navigation preserves mixed photo order and same-ph
  }
 });
 
-async function runTikTokFreshFollow(configure = () => {}) {
+async function runTikTokFreshEngagement(action, configure = () => {}) {
  const viewer = tiktokCommentComposer();
  const fresh = tiktokCommentComposer();
  fresh.follow.textContent = 'Following';
+ fresh.like.attrs['aria-pressed'] = 'true';
  let now = Date.now(); let result; let continued = false;
  const created = []; const removed = [];
  const confirmationTab = { id: 81, url: viewer.request.id, status: 'complete' };
  const h = runnerContext('starting', async (_settings, adapter) => {
-   result = await adapter.engage('follow', viewer.request);
+   result = await adapter.engage(action, viewer.request);
    await adapter.inspect(); continued = true;
  });
  h.job.settings.platform = 'tiktok';
@@ -1197,41 +1217,47 @@ async function runTikTokFreshFollow(configure = () => {}) {
  return { viewer, fresh, h, created, removed, result, continued };
 }
 
-test('TikTok counts an optimistic follow only after a separate page confirms it, including canonical redirects', async () => {
+for (const action of ['like', 'follow']) {
+test(`TikTok counts an optimistic ${action} only after a separate page confirms it, including canonical redirects`, async () => {
  for (const canonical of [false, true]) {
-   const f = await runTikTokFreshFollow(({ confirmationTab }) => { if (canonical) confirmationTab.url = confirmationTab.url.replace(/\/$/, ''); });
+   const f = await runTikTokFreshEngagement(action, ({ confirmationTab }) => { if (canonical) confirmationTab.url = confirmationTab.url.replace(/\/$/, ''); });
    assert.equal(f.result, 'confirmed');
    assert.deepEqual(f.created.map(value => JSON.parse(JSON.stringify(value))), [{ url: f.viewer.request.id, active: false }]);
-   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer[action]).length, 1);
    assert.equal(f.fresh.clicks.length, 0);
    assert.deepEqual(f.removed, [81]);
+   assert.deepEqual([...new Set(f.h.calls.filter(call => call.injection?.target.tabId === 81 && call.injection.func).map(call => call.injection.args[2]))], [action]);
  }
 });
 
-test('TikTok follow rollback, missing state and mismatched author remain uncertain without retrying', async () => {
- for (const change of [f => { f.follow.textContent = 'Follow'; }, f => f.follow.remove(), f => { f.author.attrs.href = 'https://www.tiktok.com/@different/'; }]) {
-   const f = await runTikTokFreshFollow(({ fresh }) => change(fresh));
+test(`TikTok ${action} rollback, missing state and mismatched identity remain uncertain without retrying`, async () => {
+ const rollback = f => { if (action === 'like') f.like.attrs['aria-pressed'] = 'false'; else f.follow.textContent = 'Follow'; };
+ for (const change of [rollback, f => f[action].remove(), f => { f.author.attrs.href = 'https://www.tiktok.com/@different/'; }, f => {
+   f.context.location = new URL('https://www.tiktok.com/@creator/video/999/');
+   f.link.attrs.href = f.context.location.href;
+ }]) {
+   const f = await runTikTokFreshEngagement(action, ({ fresh }) => change(fresh));
    assert.equal(f.result, 'uncertain');
-   assert.equal(f.viewer.follow.textContent, 'Following');
-   assert.equal(f.viewer.clicks.filter(node => node === f.viewer.follow).length, 1);
+   assert.equal(f.viewer.inspect(`verify-${action}`).confirmed, true);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer[action]).length, 1);
    assert.equal(f.fresh.clicks.length, 0);
    assert.equal(f.continued, true);
    assert.deepEqual(f.removed, [81]);
  }
 });
 
-test('TikTok fresh follow confirmation preserves moved tabs and refuses pending navigation', async () => {
+test(`TikTok fresh ${action} confirmation preserves moved tabs and refuses pending navigation`, async () => {
  for (const field of ['url', 'pendingUrl']) {
-   const f = await runTikTokFreshFollow(({ confirmationTab }) => { confirmationTab[field] = 'https://www.tiktok.com/@other/video/999/'; });
+   const f = await runTikTokFreshEngagement(action, ({ confirmationTab }) => { confirmationTab[field] = 'https://www.tiktok.com/@other/video/999/'; });
    assert.equal(f.result, 'uncertain');
    assert.deepEqual(f.removed, []);
    assert.equal(f.h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
  }
 });
 
-test('TikTok fresh follow checks obey Stop, deadline and account restrictions without further actions', async () => {
+test(`TikTok fresh ${action} checks obey Stop, deadline and account restrictions without further actions`, async () => {
  for (const reason of ['stop', 'deadline', 'restriction']) {
-   const f = await runTikTokFreshFollow(({ h, fresh, confirmationTab }) => {
+   const f = await runTikTokFreshEngagement(action, ({ h, fresh, confirmationTab }) => {
      if (reason === 'restriction') fresh.state.blocked = true;
      else h.chrome.tabs.create = async () => {
        if (reason === 'deadline') h.job.deadline = Date.now() - 1;
@@ -1240,9 +1266,56 @@ test('TikTok fresh follow checks obey Stop, deadline and account restrictions wi
      };
    });
    assert.equal(f.continued, false);
+   assert.equal(f.viewer.clicks.filter(node => node === f.viewer[action]).length, 1);
    assert.equal(f.fresh.clicks.length, 0);
    assert.deepEqual(f.removed, [81]);
+   assert.ok(f.h.calls.some(call => /an action may have gone through/.test(call.patch?.message || '')));
  }
+});
+}
+
+test('a fresh TikTok like with contradictory pressed state is uncertain and never clicked again', async () => {
+ const f = await runTikTokFreshEngagement('like', ({ fresh }) => {
+   fresh.like.attrs['aria-pressed'] = 'false';
+   fresh.heart.attrs.fill = 'rgb(254, 44, 85)';
+ });
+ assert.equal(f.result, 'uncertain');
+ assert.equal(f.viewer.clicks.length, 1);
+ assert.equal(f.fresh.clicks.length, 0);
+ assert.deepEqual(f.removed, [81]);
+});
+
+test('fresh TikTok like confirmation rechecks Stop and deadline after looking up its temporary tab', async () => {
+ for (const reason of ['stop', 'deadline']) {
+   const f = await runTikTokFreshEngagement('like', ({ h }) => {
+     const get = h.chrome.tabs.get;
+     h.chrome.tabs.get = async id => {
+       const tab = await get(id);
+       if (id === 81) {
+         if (reason === 'deadline') h.job.deadline = Date.now() - 1;
+         else vm.runInContext("controller.abort(new Error('session stopped.'))", h.ctx);
+       }
+       return tab;
+     };
+   });
+   assert.equal(f.continued, false);
+   assert.equal(f.h.calls.filter(call => call.injection?.target.tabId === 81).length, 0);
+   assert.deepEqual(f.removed, [81]);
+ }
+});
+
+test('a fresh TikTok like cannot confirm or close a tab that moves during inspection', async () => {
+ const f = await runTikTokFreshEngagement('like', ({ h, confirmationTab }) => {
+   const inject = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     const result = await inject(request);
+     if (request.target.tabId === 81 && request.func) confirmationTab.pendingUrl = 'https://www.tiktok.com/@other/video/999/';
+     return result;
+   };
+ });
+ assert.equal(f.result, 'uncertain');
+ assert.equal(f.fresh.clicks.length, 0);
+ assert.deepEqual(f.removed, []);
 });
 
 test('TikTok ignored paste is not submitted or counted and does not use native DOM editing', async () => {
