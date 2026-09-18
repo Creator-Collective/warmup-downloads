@@ -6,9 +6,10 @@ const { JSDOM } = require('jsdom');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'setup.js'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
+const unavailableMessage = 'reload the cc extension, then refresh this page. for your first install, use chrome’s ⋮ menu → extensions → manage extensions.';
 
-function setup(clipboard) {
-  const dom = new JSDOM('<button id="extensions-shortcut" type="button" disabled>copy extensions address</button><p id="extensions-shortcut-status" hidden role="status"></p><input id="extensions-address" readonly hidden value="chrome://extensions/" aria-label="chrome extensions address">', {
+function setup() {
+  const dom = new JSDOM('<button id="extensions-shortcut" type="button" disabled>open chrome extensions</button><p id="extensions-shortcut-status" hidden role="status"></p>', {
     url: 'https://creator-collective-warmup.vercel.app/setup.html', runScripts: 'outside-only',
   });
   const { window } = dom;
@@ -23,7 +24,9 @@ function setup(clipboard) {
     return id;
   };
   window.clearTimeout = id => timers.delete(id);
-  if (clipboard !== undefined) Object.defineProperty(window.navigator, 'clipboard', { value: clipboard });
+  Object.defineProperty(window.navigator, 'clipboard', {
+    get() { assert.fail('the shortcut must not access the clipboard'); },
+  });
   const element = id => window.document.getElementById(id);
   const response = (request, data, overrides = {}) => window.dispatchEvent(new window.MessageEvent('message', {
     source: window,
@@ -34,7 +37,7 @@ function setup(clipboard) {
   window.eval(script);
   return {
     dom, window, requests, timers, response,
-    button: element('extensions-shortcut'), status: element('extensions-shortcut-status'), address: element('extensions-address'),
+    button: element('extensions-shortcut'), status: element('extensions-shortcut-status'),
     expire() {
       for (const [id, timer] of [...timers]) {
         timers.delete(id);
@@ -44,156 +47,136 @@ function setup(clipboard) {
   };
 }
 
-test('a capable extension enables opening only after a deliberate click, with one pending request', async () => {
+test('loading and focusing setup never probe the extension or open a tab', async () => {
   const h = setup();
-  assert.equal(h.button.disabled, false);
-  assert.equal(h.button.textContent, 'copy extensions address');
-  assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].type, 'setup-info');
-  assert.equal(h.requests[0].origin, h.window.location.origin);
-  assert.equal([...h.timers.values()][0].delay, 1800);
-  h.response(h.requests[0], { version: '0.6.47', canOpenExtensions: true });
+  h.window.dispatchEvent(new h.window.Event('focus'));
+  h.window.document.dispatchEvent(new h.window.Event('visibilitychange'));
   await tick();
+  assert.equal(h.button.disabled, false);
   assert.equal(h.button.textContent, 'open chrome extensions');
-  assert.equal(h.requests.length, 1);
-  h.button.click();
-  h.button.dispatchEvent(new h.window.MouseEvent('click'));
-  assert.equal(h.requests.length, 2);
-  assert.equal(h.requests[1].type, 'open-extensions');
-  assert.equal(h.button.disabled, true);
-  h.response(h.requests[1], { tabId: 42 });
-  await tick();
-  assert.equal(h.status.textContent, 'chrome extensions opened.');
-  assert.equal(h.status.hidden, false);
-  assert.equal(h.address.hidden, true);
-  assert.equal(h.button.disabled, false);
+  assert.equal(h.status.hidden, true);
+  assert.equal(h.requests.length, 0);
   assert.equal(h.timers.size, 0);
   h.dom.window.close();
 });
 
-test('an absent or older extension keeps copying available without waiting for detection', async () => {
-  const copied = [];
-  const h = setup({ writeText: async text => copied.push(text) });
-  h.button.click();
-  await tick();
-  assert.deepEqual(copied, ['chrome://extensions/']);
-  assert.equal(h.status.textContent, 'copied. paste it into chrome’s address bar.');
-  h.expire();
-  await tick();
-  assert.equal(h.button.textContent, 'copy extensions address');
-  assert.equal(h.button.disabled, false);
-  h.response(h.requests[0], { canOpenExtensions: true });
-  await tick();
-  assert.equal(h.button.textContent, 'copy extensions address');
-  assert.equal(h.requests.length, 1);
-  h.dom.window.close();
-
-  const older = setup();
-  older.response(older.requests[0], { version: '0.6.45' });
-  await tick();
-  assert.equal(older.button.textContent, 'copy extensions address');
-  older.dom.window.close();
-});
-
-test('responses from a different window, origin, channel or request cannot enable opening', async () => {
+test('one deliberate click opens extensions directly and deduplicates clicks while pending', async () => {
   const h = setup();
-  const info = { canOpenExtensions: true };
-  const request = h.requests[0];
-  h.response(request, info, { source: null });
-  h.response(request, info, { origin: 'https://unrelated.example' });
-  h.response(request, info, { data: { channel: 'unrelated', id: request.id, ok: true, data: info } });
-  h.response(request, info, { data: { channel: 'cc-warmup-response', id: 'other-id', ok: true, data: info } });
-  await tick();
-  assert.equal(h.button.textContent, 'copy extensions address');
-  assert.equal(h.timers.size, 1);
-  h.response(request, info);
-  await tick();
-  assert.equal(h.button.textContent, 'open chrome extensions');
-  h.dom.window.close();
-});
-
-test('unsupported clipboard or denied permission exposes and selects the fixed address', async () => {
-  for (const clipboard of [undefined, { writeText: async () => { throw new Error('denied'); } }]) {
-    const h = setup(clipboard);
-    h.address.value = 'https://unrelated.example';
-    h.button.click();
-    await tick();
-    assert.equal(h.address.hidden, false);
-    assert.equal(h.address.readOnly, true);
-    assert.equal(h.address.value, 'chrome://extensions/');
-    assert.equal(h.window.document.activeElement, h.address);
-    assert.equal(h.address.selectionStart, 0);
-    assert.equal(h.address.selectionEnd, h.address.value.length);
-    assert.equal(h.status.textContent, 'copy this address into chrome’s address bar.');
-    assert.equal(h.button.disabled, false);
-    h.dom.window.close();
-  }
-});
-
-test('copy clicks are deduplicated while clipboard access is pending', async () => {
-  let finishCopy;
-  let copies = 0;
-  const h = setup({ writeText: () => { copies++; return new Promise(resolve => { finishCopy = resolve; }); } });
   h.button.click();
   h.button.dispatchEvent(new h.window.MouseEvent('click'));
-  assert.equal(copies, 1);
+  assert.equal(h.requests.length, 1);
+  assert.deepEqual(h.requests[0], {
+    channel: 'cc-warmup-request', id: 'request-1', type: 'open-extensions', origin: h.window.location.origin,
+  });
+  assert.equal([...h.timers.values()][0].delay, 5000);
   assert.equal(h.button.disabled, true);
-  h.response(h.requests[0], { canOpenExtensions: true });
+  assert.equal(h.button.textContent, 'opening…');
+  h.response(h.requests[0], { tabId: 0 });
   await tick();
-  assert.equal(h.button.disabled, true);
-  finishCopy();
-  await tick();
+  assert.equal(h.status.textContent, 'chrome extensions opened.');
+  assert.equal(h.status.hidden, false);
   assert.equal(h.button.disabled, false);
   assert.equal(h.button.textContent, 'open chrome extensions');
+  assert.equal(h.timers.size, 0);
+  h.response(h.requests[0], null, { data: { channel: 'cc-warmup-response', id: h.requests[0].id, ok: false } });
+  await tick();
+  assert.equal(h.status.textContent, 'chrome extensions opened.');
   assert.equal(h.requests.length, 1);
   h.dom.window.close();
 });
 
-test('a delayed clipboard rejection preserves a capability confirmed while copying', async () => {
-  let rejectCopy;
-  const h = setup({ writeText: () => new Promise((resolve, reject) => { rejectCopy = reject; }) });
+test('responses from another window, origin, channel or request cannot complete opening', async () => {
+  const h = setup();
   h.button.click();
-  h.response(h.requests[0], { canOpenExtensions: true });
+  const request = h.requests[0];
+  const result = { tabId: 42 };
+  h.response(request, result, { source: null });
+  h.response(request, result, { origin: 'https://unrelated.example' });
+  h.response(request, result, { data: { channel: 'unrelated', id: request.id, ok: true, data: result } });
+  h.response(request, result, { data: { channel: 'cc-warmup-response', id: 'other-id', ok: true, data: result } });
   await tick();
+  assert.equal(h.status.hidden, true);
   assert.equal(h.button.disabled, true);
-  rejectCopy(new Error('clipboard denied'));
-  await tick();
-  assert.equal(h.address.hidden, false);
-  assert.equal(h.button.disabled, false);
-  assert.equal(h.button.textContent, 'open chrome extensions');
-  h.button.click();
-  assert.equal(h.requests.length, 2);
-  assert.equal(h.requests[1].type, 'open-extensions');
-  h.response(h.requests[1], { tabId: 42 });
+  assert.equal(h.timers.size, 1);
+  h.response(request, result);
   await tick();
   assert.equal(h.status.textContent, 'chrome extensions opened.');
-  assert.equal(h.address.hidden, true);
+  assert.equal(h.button.disabled, false);
   h.dom.window.close();
 });
 
-test('failed, invalid or timed-out opening falls back to copying without reporting success', async () => {
-  for (const failure of ['error', 'missing tab', 'timeout']) {
-    const copied = [];
-    const h = setup({ writeText: async text => copied.push(text) });
-    h.response(h.requests[0], { canOpenExtensions: true });
-    await tick();
+test('a missing bridge times out, ignores late replies and retries only on a fresh click', async () => {
+  const h = setup();
+  h.button.click();
+  const firstRequest = h.requests[0];
+  h.expire();
+  await tick();
+  assert.equal(h.status.textContent, unavailableMessage);
+  assert.equal(h.status.hidden, false);
+  assert.equal(h.button.disabled, false);
+  assert.equal(h.button.textContent, 'open chrome extensions');
+  h.response(firstRequest, { tabId: 42 });
+  h.window.dispatchEvent(new h.window.Event('focus'));
+  await tick();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.status.textContent, unavailableMessage);
+  h.button.click();
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.status.hidden, true);
+  assert.notEqual(h.requests[1].id, firstRequest.id);
+  h.response(firstRequest, { tabId: 42 });
+  await tick();
+  assert.equal(h.button.disabled, true);
+  assert.equal(h.status.hidden, true);
+  h.response(h.requests[1], { tabId: 43 });
+  await tick();
+  assert.equal(h.status.textContent, 'chrome extensions opened.');
+  assert.equal(h.button.disabled, false);
+  assert.equal(h.requests.length, 2);
+  h.dom.window.close();
+});
+
+test('an unsupported command or invalid tab result offers menu instructions and allows a direct retry', async () => {
+  for (const failure of ['error', undefined, {}, { tabId: -1 }, { tabId: 1.5 }, { tabId: '42' }, { tabId: Infinity }]) {
+    const h = setup();
     h.button.click();
-    const request = h.requests[1];
-    if (failure === 'error') h.response(request, null, { data: { channel: 'cc-warmup-response', id: request.id, ok: false, error: 'disconnected' } });
-    else if (failure === 'missing tab') h.response(request, {});
-    else h.expire();
+    const request = h.requests[0];
+    if (failure === 'error') {
+      h.response(request, null, { data: { channel: 'cc-warmup-response', id: request.id, ok: false, error: 'unknown command' } });
+    } else {
+      h.response(request, failure);
+    }
     await tick();
-    assert.equal(h.button.textContent, 'copy extensions address');
-    assert.equal(h.address.hidden, false);
-    assert.equal(h.status.textContent, 'copy this address into chrome’s address bar.');
+    assert.equal(h.status.textContent, unavailableMessage);
     assert.equal(h.button.disabled, false);
+    assert.equal(h.button.textContent, 'open chrome extensions');
+    assert.equal(h.timers.size, 0);
     h.response(request, { tabId: 42 });
     await tick();
-    assert.equal(h.status.textContent, 'copy this address into chrome’s address bar.');
+    assert.equal(h.status.textContent, unavailableMessage);
     h.button.click();
-    await tick();
-    assert.deepEqual(copied, ['chrome://extensions/']);
     assert.equal(h.requests.length, 2);
+    assert.equal(h.requests[1].type, 'open-extensions');
+    h.response(h.requests[1], { tabId: 42 });
+    await tick();
+    assert.equal(h.status.textContent, 'chrome extensions opened.');
     h.dom.window.close();
   }
+});
+
+test('a synchronous bridge error clears pending state without retrying or reporting success', async () => {
+  const h = setup();
+  let attempts = 0;
+  h.window.postMessage = () => {
+    attempts++;
+    throw new Error('bridge unavailable');
+  };
+  h.button.click();
+  await tick();
+  assert.equal(attempts, 1);
+  assert.equal(h.status.textContent, unavailableMessage);
+  assert.equal(h.button.disabled, false);
+  assert.equal(h.button.textContent, 'open chrome extensions');
+  assert.equal(h.timers.size, 0);
+  h.dom.window.close();
 });

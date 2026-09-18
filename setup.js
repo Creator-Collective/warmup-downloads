@@ -3,30 +3,19 @@
 
   const button = document.getElementById('extensions-shortcut');
   const status = document.getElementById('extensions-shortcut-status');
-  const address = document.getElementById('extensions-address');
-  if (!button || !status || !address) return;
+  if (!button || !status) return;
 
-  const extensionsUrl = 'chrome://extensions/';
   const pending = new Map();
-  let canOpenExtensions = false;
   let actionPending = false;
 
   function updateButton() {
-    button.textContent = canOpenExtensions ? 'open chrome extensions' : 'copy extensions address';
+    button.textContent = actionPending ? 'opening…' : 'open chrome extensions';
     button.disabled = actionPending;
   }
 
   function showStatus(message) {
     status.textContent = message;
     status.hidden = !message;
-  }
-
-  function showAddress(message) {
-    address.value = extensionsUrl;
-    address.hidden = false;
-    address.focus();
-    address.select();
-    showStatus(message);
   }
 
   window.addEventListener('message', event => {
@@ -37,20 +26,20 @@
     callback(event.data);
   });
 
-  function request(type, timeout) {
+  function openExtensions() {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error('extension unavailable'));
-      }, timeout);
+      }, 5000);
       pending.set(id, response => {
         clearTimeout(timer);
         if (response.ok === true) resolve(response.data);
         else reject(new Error('extension unavailable'));
       });
       try {
-        window.postMessage({ channel: 'cc-warmup-request', id, type }, location.origin);
+        window.postMessage({ channel: 'cc-warmup-request', id, type: 'open-extensions' }, location.origin);
       } catch (error) {
         clearTimeout(timer);
         pending.delete(id);
@@ -61,25 +50,16 @@
 
   button.addEventListener('click', async () => {
     if (actionPending) return;
-    const openingExtensions = canOpenExtensions;
     actionPending = true;
     updateButton();
     showStatus('');
-    address.hidden = true;
 
     try {
-      if (openingExtensions) {
-        const result = await request('open-extensions', 5000);
-        if (!Number.isInteger(result?.tabId) || result.tabId < 0) throw new Error('extension unavailable');
-        showStatus('chrome extensions opened.');
-      } else {
-        if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
-        await navigator.clipboard.writeText(extensionsUrl);
-        showStatus('copied. paste it into chrome’s address bar.');
-      }
+      const result = await openExtensions();
+      if (!Number.isInteger(result?.tabId) || result.tabId < 0) throw new Error('extension unavailable');
+      showStatus('chrome extensions opened.');
     } catch {
-      if (openingExtensions) canOpenExtensions = false;
-      showAddress('copy this address into chrome’s address bar.');
+      showStatus('reload the cc extension, then refresh this page. for your first install, use chrome’s ⋮ menu → extensions → manage extensions.');
     } finally {
       actionPending = false;
       updateButton();
@@ -87,10 +67,4 @@
   });
 
   updateButton();
-  request('setup-info', 1800).then(info => {
-    canOpenExtensions = info?.canOpenExtensions === true;
-    updateButton();
-  }).catch(() => {
-    // Older extensions and first-time visitors keep the copy-address shortcut.
-  });
 })();
