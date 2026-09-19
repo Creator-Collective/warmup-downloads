@@ -5,6 +5,10 @@ const paces = Object.freeze({
   relaxed: { label: 'relaxed', scale: 1.5, description: 'lighter skim bursts, slower watches, and occasional full-video watches when they fit. occasional 30-68 second breaks. rotates keywords in order.' },
   slow: { label: 'slow', scale: 2, description: 'mostly slower watches with fewer skim bursts and occasional full-video watches when they fit. occasional 40-90 second breaks. rotates keywords in order.' }
 });
+function validateFocus(value = 'balanced') {
+  if (!['balanced', 'like', 'follow', 'comment'].includes(value)) throw new Error('choose a session focus.');
+  return value;
+}
 function validateSettings(input) {
   if (!input || typeof input !== 'object') throw new Error('choose your session settings first.');
   const platform = input.platform == null || input.platform === '' ? 'instagram' : input.platform;
@@ -40,8 +44,8 @@ function validateSettings(input) {
     if (!weights[action] || (action === 'comment' && input.enableComments !== true)) limits[action] = 0;
     if (limits[action] === 0) weights[action] = 0;
   }
-  return { platform, minutes, terms, limits, weights, pace, pauseScale: paces[pace].scale };
+  return { platform, minutes, terms, limits, weights, pace, pauseScale: paces[pace].scale, focus: validateFocus(input.focus) };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { validateSettings, paces };
-else globalThis.sessionPlan = { validateSettings, paces };
+if (typeof module !== 'undefined' && module.exports) module.exports = { validateSettings, validateFocus, paces };
+else globalThis.sessionPlan = { validateSettings, validateFocus, paces };

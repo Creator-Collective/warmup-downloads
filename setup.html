@@ -3,88 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Install or update Creator Collective Warm-up in three simple steps.">
   <title>browser setup · creator collective</title>
   <link rel="icon" href="icon-32.png" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="setup.css">
   <script src="setup.js" defer></script>
 </head>
 <body>
 <header><a class="brand" href="/"><img src="cc-logo.webp" width="32" height="32" alt="">creator collective</a><a class="button secondary" href="/">back to warm-up</a></header>
-<main class="guide">
+<main class="guide setup-guide" data-latest-version="0.6.51">
   <div class="guide-heading"><h1>browser setup</h1></div>
-  <section class="download-card" aria-labelledby="download-heading">
-    <h2 id="download-heading">extension 0.6.50</h2>
-    <div class="setup-actions">
-      <a class="button primary" href="creator-collective-extension-0.6.50.zip" download>download extension zip</a>
-      <button class="secondary" id="extensions-shortcut" type="button" disabled>open chrome extensions</button>
-    </div>
-    <p id="extensions-shortcut-status" class="shortcut-status" role="status" hidden></p>
+  <section class="guide-section version-card" aria-labelledby="version-heading">
+    <div class="setup-card-heading"><h2 id="version-heading">your extension</h2><span class="version-status" id="version-status" role="status" data-state="checking">checking…</span></div>
+    <dl class="version-comparison"><div><dt>installed</dt><dd id="installed-version">checking…</dd></div><div><dt>latest version</dt><dd id="latest-version">0.6.51</dd></div></dl>
+    <div class="version-check"><p id="version-hint">checking this browser profile.</p><button type="button" class="secondary" id="check-extension">check again</button></div>
   </section>
 
-  <section class="guide-section" id="install" aria-labelledby="install-heading">
-    <h2 id="install-heading">first installation</h2>
-    <ol class="install-steps">
-      <li>unzip the download and keep the folder in a permanent location.</li>
-      <li>in Chrome, open <code>chrome://extensions</code> and turn on developer mode.</li>
-      <li>click <strong>load unpacked</strong> and choose the <code>creator-collective-extension</code> folder containing <code>manifest.json</code>.</li>
-      <li>pin the extension. open instagram or tiktok, then click the cc icon.</li>
+  <section class="guide-section setup-instructions" aria-labelledby="instructions-heading">
+    <div class="setup-card-heading"><h2 id="instructions-heading">get set up</h2><div class="setup-modes" role="group" aria-label="setup instructions"><button type="button" id="mode-install" aria-pressed="true">first install</button><button type="button" id="mode-update" aria-pressed="false">update</button></div></div>
+    <ol class="setup-steps">
+      <li><div class="setup-step"><h3 id="step-one-title">download &amp; unzip</h3><p id="step-one-copy">unzip the download. keep the folder somewhere permanent.</p><a class="button primary" href="creator-collective-extension-0.6.51.zip" download>download extension</a></div></li>
+      <li><div class="setup-step" id="step-two"><h3 id="step-two-title">open chrome extensions</h3><p id="step-two-copy">turn on developer mode in the top-right corner.</p><div id="manager-action"><button class="secondary" id="extensions-shortcut" type="button" disabled>open chrome extensions <span aria-hidden="true">↗</span></button><p id="extensions-shortcut-status" class="shortcut-status" role="status" hidden></p></div></div></li>
+      <li><div class="setup-step" id="step-three"><h3 id="step-three-title">load your folder</h3><p id="step-three-copy">click “load unpacked” and select the unzipped creator-collective-extension folder.</p></div></li>
     </ol>
-    <a class="button secondary" href="/">open warm-up <span aria-hidden="true">↗</span></a>
+    <details class="setup-walkthrough" id="walkthrough"><summary>show illustrated steps</summary><div class="walkthrough-content">
+      <div class="walkthrough-heading"><span>illustrated walkthrough</span><span id="walkthrough-progress" aria-live="polite">1 of 3</span></div>
+      <div class="walkthrough-frame" id="walkthrough-download"><div class="folder-illustration" aria-hidden="true"><span class="file-icon">zip</span><span class="file-arrow">→</span><span class="folder-icon"></span></div><strong>download → unzip</strong><p id="walkthrough-download-copy">double-click the zip to open your extension folder.</p></div>
+      <div class="walkthrough-frame" id="walkthrough-manage" hidden><div class="folder-replacement" aria-hidden="true"><div><span class="folder-icon"></span><span>new files</span></div><span class="file-arrow">→</span><div><span class="folder-icon"></span><span>existing folder</span></div></div><div class="mini-browser" aria-hidden="true"><div class="mini-toolbar">chrome://extensions</div><div class="mini-controls"><span>extensions</span><span class="mini-developer">developer mode <i></i></span></div><div class="mini-load">load unpacked</div></div><strong id="walkthrough-manage-title">turn on developer mode</strong><p id="walkthrough-manage-copy">it is in the top-right corner of chrome’s extensions page.</p></div>
+      <div class="walkthrough-frame" id="walkthrough-finish" hidden><div class="mini-extension" aria-hidden="true"><img src="cc-logo.webp" width="32" height="32" alt=""><div><strong>creator collective warm-up</strong><span id="walkthrough-version">0.6.51</span></div><span class="mini-reload">↻</span></div><strong id="walkthrough-finish-title">select your extension folder</strong><p id="walkthrough-finish-copy">choose the unzipped folder. your extension card will appear here.</p></div>
+      <div class="walkthrough-navigation"><button class="secondary" type="button" id="walkthrough-back" disabled>back</button><button class="secondary" type="button" id="walkthrough-next">next step</button></div>
+    </div></details>
+    <a class="button secondary setup-done" href="/">open warm-up <span aria-hidden="true">↗</span></a>
   </section>
-
-  <section class="guide-section" id="update" aria-labelledby="update-heading">
-    <h2 id="update-heading">updating to version 0.6.50</h2>
-    <ol class="install-steps">
-      <li>stop any active session, then download and unzip the latest version.</li>
-      <li>replace the files inside your existing extension folder to keep your settings and saved emails.</li>
-      <li>open <code>chrome://extensions</code> and reload its existing card. the card should show version 0.6.50.</li>
-      <li>close and reopen the side panel to load the updated style and logo.</li>
-    </ol>
-  </section>
-
-  <details class="guide-section help-section">
-    <summary>setup &amp; session help</summary>
-    <div class="help-content">
-      <section class="help-topic" aria-labelledby="requirements-heading">
-        <h2 id="requirements-heading">what you need</h2>
-        <p>use Chrome on mac or windows with your existing instagram or tiktok login. this early-access extension requires manual installation while Chrome Web Store approval is pending.</p>
-        <p>downloads do not update the installed extension automatically. replace files in the same folder and reload its card to keep your settings and signup-email access. loading a different folder creates a separate copy.</p>
-      </section>
-  <section class="help-topic" aria-labelledby="first-session-heading">
-    <h2 id="first-session-heading">check your first session</h2>
-    <p>set the length to 1 minute, enter your niche keywords, and set likes, follows and comments to 0. choose your platform tab and press start. you should see a search, scrolling and live activity. check that stop ends the session before enabling engagement.</p>
-  </section>
-
-  <section class="help-topic" aria-labelledby="running-heading">
-    <h2 id="running-heading">while a session runs</h2>
-    <p>the side panel shows live activity. a session tab also opens in the background to keep the timer running. keep that tab open, keep Chrome running and keep your computer awake. sessions run in your browser; the website does not run them on a server.</p>
-    <p>closing the side panel does not stop your session. use stop in the side panel, session tab or dashboard, or press escape in the session tab. closing Chrome, the session tab or the platform tab stops the session.</p>
-    <p>if stopping stalls, the dashboard closes the unresponsive session tab after a short wait. pressing stop again retries immediately. check the platform before restarting.</p>
-    <p>use a separate platform tab for the session. manually changing that tab's page stops it. an action already sent may still complete after you stop.</p>
-  </section>
-
-  <section class="help-topic" aria-labelledby="beta-heading">
-    <h2 id="beta-heading">what this beta can do</h2>
-    <p>search niche keywords, open a result, move through videos or posts, and try to reach the visible like, follow and comment targets on instagram or tiktok. comments use a recognized detail from a matching caption. edit any target or set it to 0 to turn that action off. it currently supports english controls and skips posts it cannot confidently read.</p>
-    <p>instagram and tiktok remember their own keywords, targets and pacing. session results show confirmed actions against your targets, with unconfirmed attempts shown separately. stopping keeps the final confirmed action.</p>
-    <p>choose auto pacing for a mix of quick skim bursts, slower watches and occasional full-video watches, plus loading time. full-video watches happen when playback can be read and there is enough time before the next keyword or session end.</p>
-    <p>add multiple keywords separated by commas. sessions rotate through them in order, usually every 2 minutes or sooner for short sessions.</p>
-    <p>this browser version is still being tested. counts show confirmed actions, not promises. store approval and testing on other clients' computers are still pending.</p>
-  </section>
-
-  <section class="help-topic" aria-labelledby="connection-heading">
-    <h2 id="connection-heading">if the dashboard says extension needed</h2>
-    <p>use regular Chrome in the same browser profile where you installed the extension. check that Creator Collective Warm-up is enabled on the extensions page, then refresh the dashboard. incognito, mobile browsers and embedded browser panels are not supported for warm-up sessions.</p>
-  </section>
-
-  <section class="help-topic" aria-labelledby="remove-heading">
-    <h2 id="remove-heading">remove it whenever you want</h2>
-    <p>open <code>chrome://extensions</code> and choose remove on Creator Collective Warm-up. you can clear saved dashboard settings through Chrome's site-data settings.</p>
-  </section>
-
-    </div>
-  </details>
-  <footer class="guide-footer"><a href="privacy.html">privacy</a><a href="https://github.com/Creator-Collective/warmup-downloads/issues/new">report a problem ↗</a></footer>
+  <details class="guide-section setup-help"><summary>quick help</summary><ul><li>use Chrome on your computer, in the profile where you installed the extension.</li><li>keep Chrome and the session tab open while warm-up runs. press stop to finish.</li><li>not connecting? enable the extension on chrome’s extensions page, then press check again above.</li></ul></details>
 </main>
 </body>
 </html>

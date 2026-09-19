@@ -2,6 +2,14 @@
 
 Updated 2026-09-19. Installed 0.6.49 passed the requested TikTok motion test below. Account acceptance is excluded from that criterion at the user's request. Public comment delivery and the new Instagram timing in an installed extension are not claimed verified.
 
+## 0.6.51 controls and setup verification
+
+September 19: 517 automated checks pass, both 35-file archives match source, and independent JavaScript, code and security reviews approve the change. Focus changes are bound to the active session identity and validated before updating only its focus; tests cover stale sessions, Stop races, deadlines, paused/zero targets, cooldowns, current storage reads, and old extensions without the capability. Existing zero-mix preferences become explicit zero targets.
+
+A hidden in-app browser loaded the real website and packaged panel files from a disposable local server, with clearly synthetic extension replies. Desktop and 320px/400px layouts showed working platform-icon dropdowns, second-precision activity, focus beside running results, installed/current/outdated/disconnected setup states, three-step installation/update flows and all illustrated walkthrough steps. No horizontal overflow at 320px; no setup console errors. The fixture reproduced the panel's Chrome-only running layout because localhost is not an extension origin. These UI checks are not an installed-extension session test or proof of Chrome manager opening.
+
+No Chrome control, installation changes or real social actions were performed for this UI release. The last observed installed copy is 0.6.49. Website styling/setup update independently; live focus and the packaged side-panel changes require the updated extension. No further download or user-run test was requested. Prior TikTok motion verification and account-acceptance limits below remain unchanged.
+
 ## installed 0.6.49 motion test and 0.6.50 viewing verification
 
 September 19, approximately 17:40–17:47 UTC, signed-in TikTok. The setup handshake identified installed 0.6.49. The user reported that ordinary manual likes and follows also fail on this account and explicitly accepted attempts, rather than persistence, as this test's criterion. This does not establish a success percentage on other accounts.

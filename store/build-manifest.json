@@ -1,5 +1,5 @@
 {
-  "version": "0.6.50",
+  "version": "0.6.51",
   "files": [
     "manifest.json",
     "features.js",
@@ -29,6 +29,8 @@
     "session-results.js",
     "inter.woff2",
     "cc-logo.webp",
+    "platform-instagram.svg",
+    "platform-tiktok.svg",
     "INTER-LICENSE.txt",
     "icon-16.png",
     "icon-32.png",

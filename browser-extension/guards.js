@@ -53,6 +53,8 @@ function normalizePausedActions(value) {
 function publicState(job) {
   if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [] };
   return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, unconfirmed: normalizeUnconfirmed(job.unconfirmed, job.settings?.limits), pausedActions: normalizePausedActions(job.pausedActions), activity: job.activity, comments: sessionComments.normalize(job.comments), tabId: job.tabId,
-    settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights } : undefined };
+    sessionId: typeof job.sessionId === 'string' ? job.sessionId : undefined,
+    canChangeFocus: Boolean(job.sessionId && ['starting', 'running'].includes(job.phase) && !job.stopRequested && job.deadline > Date.now()),
+    settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights, focus: ['like','follow','comment'].includes(job.settings.focus) ? job.settings.focus : 'balanced' } : undefined };
 }
 if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, publicState };

@@ -169,13 +169,14 @@ function actionSpacing(settings, action) {
   return [min, max];
 }
 
-function targetAction(eligible, settings, stats, elapsedMs) {
+function targetAction(eligible, settings, stats, elapsedMs, focus = 'balanced') {
   const debts = eligible.map(action => {
     const expected = expectedActions(settings, action, elapsedMs);
     const debt = Math.max(0, expected - stats[action]);
     return { action, debt, score: expected > 0 ? debt / expected : 0 };
   }).filter(item => item.debt > 0);
   if (!debts.length) return null;
+  if (debts.some(item => item.action === focus)) return focus;
   debts.sort((a, b) => b.score - a.score || b.debt - a.debt || actionCadenceMs(settings, a.action) - actionCadenceMs(settings, b.action));
   return debts[0].action;
 }
@@ -424,7 +425,8 @@ async function runSession(settings, adapter, signal, options = {}) {
         continue;
       }
       let action = needsSearchScroll || !post ? 'scroll' : pickAction(eligible, settings.weights, random);
-      const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt);
+      const focus = options.getFocus ? options.getFocus() : settings.focus;
+      const target = needsSearchScroll ? null : targetAction(eligible, settings, stats, now() - startedAt, focus);
       if (target) action = target;
       if (action === 'read' && (post?.viewer || previousAction === 'read')) action = 'scroll';
       previousAction = action;

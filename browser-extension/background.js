@@ -37,8 +37,19 @@ async function dashboardCommand(message) {
     const tab = await chrome.tabs.create({ url: 'chrome://extensions/' });
     return { tabId: tab.id };
   }
-  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, state: publicState(await recoverStoppingJob()) };
+  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, state: publicState(await recoverStoppingJob()) };
   if (message.type === 'state') return publicState(await recoverStoppingJob());
+  if (message.type === 'set-focus') {
+    const focus = sessionPlan.validateFocus(message.focus);
+    const job = await getJob();
+    if (typeof message.sessionId !== 'string' || !job?.sessionId || message.sessionId !== job.sessionId ||
+        !['starting', 'running'].includes(job.phase) || job.stopRequested || job.deadline <= Date.now()) {
+      throw new Error('this session has ended or changed.');
+    }
+    const next = { ...job, settings: { ...job.settings, focus } };
+    await putJob(next);
+    return publicState(next);
+  }
   if (message.type === 'tabs') {
     const platform = validPlatform(message.platform);
     const tabs = await chrome.tabs.query({ url: [...platforms[platform].patterns] });
@@ -66,7 +77,7 @@ async function dashboardCommand(message) {
   if (!platformURL(tab.url, platform)) throw new Error(`that tab is no longer on ${platforms[platform].label}. choose it again.`);
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
   const token = crypto.randomUUID();
-  const job = { token, tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [], message: 'starting your session…', nextActionAt: null };
+  const job = { token, sessionId: crypto.randomUUID(), tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [], message: 'starting your session…', nextActionAt: null };
   await putJob(job);
   try {
     const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: false, windowId: tab.windowId });

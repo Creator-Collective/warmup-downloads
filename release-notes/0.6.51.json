@@ -1,13 +1,9 @@
 {
-  "version": "0.6.51",
   "releasedAt": "2026-09-19",
   "summary": "simpler controls, session focus and guided setup",
   "changes": [
     "platform logos make browser choices easier to scan; activity timestamps now include seconds.",
     "session targets replace the old pace and mix controls. choose a session focus before or during a run without increasing targets.",
     "setup clearly compares your installed and latest versions, with three short steps and an illustrated walkthrough."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.51.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
