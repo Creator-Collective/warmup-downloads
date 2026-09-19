@@ -2,6 +2,22 @@
 
 Updated 2026-09-19. Installed 0.6.49 passed the requested TikTok motion test below. Account acceptance is excluded from that criterion at the user's request. Public comment delivery and the new Instagram timing in an installed extension are not claimed verified.
 
+## 0.6.52 tiktok search and confirmation verification
+
+September 19: 553 automated checks pass, including 36 new checks. Independent JavaScript, code and security reviews approve the production changes. Both 35-file archives and dashboard mirrors match source. No app build was run.
+
+Live read-only/navigation inspection of the existing TikTok tab, under the user's earlier explicit test authorization, verified the current Top and Videos search-card structures. The personal brand search returned posts with #personalbranding or no literal phrase. A real caption contained a mention of another profile inside browse-video-desc while the primary author remained separate. These observations match the locally reproduced eligibility and author-confirmation failures. TikTok was restored to its home feed. No likes, follows, public comments, extension installation/reload or foreground window control occurred in this verification.
+
+The fixed search membership is local to one requested query and resets before each search, including failures. It accepts only captured rendered result cards with one canonical post, preserves the exact author, excludes visible viewers and unrelated links, and is bounded in size. Caption-based eligibility continues to work. Comments still require a relevant supported caption and unused wording; no generic comment fallback was added. Skipped controls, missing relevance and exhausted wording now have bounded activity explanations instead of silent inactivity.
+
+Three composed tests use the real session engine, TikTok DOM observer, draft/submit transport and fresh-page engagement confirmation. Browser APIs, page delivery, account acceptance and time are explicitly simulated:
+
+- Healthy simulated 60-minute run: 180 confirmed likes, 56 of 57 follows, 16 comments, 272 advances and 30 searches. Actual local clicks/submissions match the counts, with no replay. The hashtag wording mismatch is exercised.
+- Mixed-failure simulated hour: 161 confirmed likes plus 19 uncertain likes, 44 confirmed follows plus 13 uncertain follows, 15 comments, 227 advances and 30 searches. Thirty-four transient confirmation reads recover. No-op clicks never become successes, and an uncertain action is not clicked again.
+- Stop interrupts the composed flow without further actions. Confirmation tabs are inactive, destination-owned and cleaned up. Separate regressions cover restrictions, deadline expiry, genuine author conflicts, recommendation exclusion, query changes, zero targets and missing controls.
+
+A personal-brand-only caption feed can still exhaust the limited relevant comment wording before reaching its comment target. The run continues other eligible actions and reports that reason. Targets are limits, not guaranteed delivery. The user's account-level persistence issue does not establish how Carson's account behaves, and Carson's installed version is unknown. The last observed local installed copy remains 0.6.49; publishing this package does not update an unpacked installation. Full installed 0.6.52 persistence on another account and current public comment delivery are not claimed verified.
+
 ## 0.6.51 controls and setup verification
 
 September 19: 517 automated checks pass, both 35-file archives match source, and independent JavaScript, code and security reviews approve the change. Focus changes are bound to the active session identity and validated before updating only its focus; tests cover stale sessions, Stop races, deadlines, paused/zero targets, cooldowns, current storage reads, and old extensions without the capability. Existing zero-mix preferences become explicit zero targets.

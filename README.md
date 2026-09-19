@@ -1,3 +1,11 @@
+# 0.6.52 tiktok search and confirmation fixes
+
+TikTok likes and follows can use posts captured from the requested search, even when a caption uses different wording such as #personalbranding for personal brand. Membership stays bound to the current query, exact author and post; viewer recommendations cannot grant themselves eligibility. Comments keep their existing caption requirements, and activity now explains structural skips.
+
+Caption mentions no longer look like a conflicting primary author. Fresh-page confirmation retries brief document-loading errors within the existing deadline, without repeating the original click. Genuine author conflicts, uncertain actions, limits, Stop and platform restrictions remain guarded.
+
+All 553 automated checks pass, including three composed session tests using the real session engine, TikTok DOM reader and engagement/confirmation code with a local browser/server simulation. A healthy simulated hour records 180 likes, 56 follows and 16 comments; failure scenarios retain accurate uncertain counts and recover transient reads. These are not live account results or a promise to reach every target. Live inspection verified the affected search-card and caption-mention structures, without new social actions or installation changes. Both 35-file archives match source; no new permissions. See LIVE_VERIFICATION.md for evidence and remaining limits.
+
 # 0.6.51 simpler controls and setup
 
 Platform dropdowns show Instagram and TikTok icons. Session targets stay in one place; the old pacing and engagement-mix section is removed. A session focus can prioritize eligible remaining likes, follows or comments before or during a run, without changing targets, cooldowns, browsing pace or Stop. Old zero-mix preferences migrate to explicit zero targets. Activity timestamps include seconds.

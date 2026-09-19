@@ -72,8 +72,9 @@ function inspectTikTok(request = {}) {
   // Keep rendered offscreen results in order, but never select hidden preload anchors.
   const sequence = unique(links.filter(rendered).map(link => postURL(link.href)).filter(Boolean));
   const posts = unique(links.filter(visible).map(link => postURL(link.href)).filter(Boolean));
+  let search;
   const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null };
+    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null, ...(search ? { search } : {}) };
   const pageId = postURL(location.href);
   const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
   const area = element => {
@@ -97,6 +98,20 @@ function inspectTikTok(request = {}) {
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
   if (dialogs.length > 1) return empty();
   const viewer = dialogs[0] || null;
+  // Search relevance comes from the actual result cards, never every link on
+  // the page or recommendations discovered after a viewer has opened.
+  if (!pageId && !all(document, '[role="dialog"]').some(visible) && /^\/search(?:\/video)?\/?$/.test(location.pathname)) {
+    const term = new URL(location.href).searchParams.get('q');
+    const root = document.querySelector('main, [role="main"]');
+    if (root && term?.trim() && term.length <= 60) {
+      const cards = all(root, '[data-e2e="search_top-item"], [data-e2e="search_video-item"]');
+      const resultIds = cards.filter(card => rendered(card) && !excluded(card)).flatMap(card => {
+        const ids = unique(all(card, 'a[href]').filter(link => rendered(link) && !excluded(link)).map(link => postURL(link.href)).filter(Boolean));
+        return ids.length === 1 ? ids : [];
+      });
+      search = { term, posts: unique(resultIds).slice(0, 500) };
+    }
+  }
   const failureText = viewer ? warningNodes.filter(element => viewer.contains(element))
     .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
   const failedViewer = Boolean(viewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
@@ -154,8 +169,11 @@ function inspectTikTok(request = {}) {
   const profileAuthor = link => {
     try { const url = new URL(link.href, location.href); return ['www.tiktok.com', 'tiktok.com'].includes(url.hostname) && /^\/@[\w.-]+\/?$/.test(url.pathname) ? url.pathname.split('/')[1] : null; } catch { return null; }
   };
+  // A reply/mention in the caption is not another primary post author.
+  const postAuthors = root => unique(all(root, 'a[href]').filter(link => visible(link) && !excluded(link) &&
+    !link.closest('[data-e2e="browse-video-desc"], [data-e2e="video-desc"]')).map(profileAuthor).filter(Boolean));
   if (photo) {
-    const authors = unique(all(scope, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
+    const authors = postAuthors(scope);
     const hasDetails = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"], [data-e2e="browse-like-icon"], [data-e2e="like-icon"]').some(element => visible(element) && !excluded(element));
     if (authors.length !== 1 || authors[0] !== author || !hasDetails) return empty();
     // A permalink can update before React replaces its old carousel. Bind the
@@ -183,7 +201,7 @@ function inspectTikTok(request = {}) {
   }
   const belongsToAuthor = element => {
     for (let parent = element.parentElement; parent && scope.contains(parent); parent = parent.parentElement) {
-      const authors = unique(all(parent, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
+      const authors = postAuthors(parent);
       if (authors.length) return authors.length === 1 && authors[0] === author;
       if (parent === scope) break;
     }
@@ -352,7 +370,7 @@ function inspectTikTok(request = {}) {
   // A stale red heart or label must not override an explicitly unpressed control.
   // Keep conflicting controls ineligible for another click as well.
   if (request.action === 'verify-like') {
-    const authors = unique(all(scope, 'a[href]').filter(link => visible(link) && !excluded(link)).map(profileAuthor).filter(Boolean));
+    const authors = postAuthors(scope);
     return { confirmed: Boolean(liked && visible(like) && authors.length === 1 && authors[0] === author && !likeStateNodes.some(node => node.getAttribute('aria-pressed') === 'false')) };
   }
   if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };

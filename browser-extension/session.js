@@ -14,6 +14,15 @@ function postIdentity(value) {
   } catch { return value; }
 }
 
+function tiktokPostIdentity(value) {
+  try {
+    const url = new URL(value);
+    const post = url.pathname.match(/^\/@([\w.]{1,30})\/(video|photo)\/(\d+)\/?$/);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+      /^(www\.)?tiktok\.com$/.test(url.hostname) && post ? `tiktok:${post[1]}:${post[2]}:${post[3]}` : null;
+  } catch { return null; }
+}
+
 function matchesNiche(text, terms) {
   const normalize = value => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const haystack = ` ${normalize(text)} `;
@@ -204,6 +213,11 @@ async function runSession(settings, adapter, signal, options = {}) {
   const done = { like: new Set(), follow: new Set(), comment: new Set() };
   const pausedActions = new Set();
   const usedComments = new Set();
+  // Search membership belongs to one requested query in this run. A viewer's
+  // recommendations cannot grant themselves eligibility through hidden tiles.
+  const searchResults = new Set();
+  const reportedSkips = new Set();
+  let currentSearchTerm = null;
   let stalled = 0;
   let retrySearch = false;
   let needsSearchScroll = false;
@@ -326,6 +340,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   };
   const search = async () => {
     const term = settings.terms[termIndex % settings.terms.length];
+    currentSearchTerm = term;
+    searchResults.clear();
     termIndex += 1;
     nextTermAt = settings.terms.length > 1 ? now() + termWindowMs : Infinity;
     update(`searching for ${term}…`);
@@ -333,6 +349,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     if (!running()) return;
     retrySearch = loaded === false;
     if (loaded === false) {
+      currentSearchTerm = null;
       stats.skipped += 1;
       stalled = 2;
       update('search is slow or empty. trying another search...');
@@ -376,6 +393,12 @@ async function runSession(settings, adapter, signal, options = {}) {
       continue;
     }
     if (page.post?.id) seen.add(postIdentity(page.post.id));
+    if (platform === 'tiktok' && !page.post && currentSearchTerm !== null && page.search?.term === currentSearchTerm && Array.isArray(page.search.posts)) {
+      for (const id of page.search.posts) {
+        const identity = tiktokPostIdentity(id);
+        if (identity && searchResults.size < 1000) searchResults.add(identity);
+      }
+    }
     const candidates = [...new Set([...(page.sequence || []), ...(page.posts || [])])].filter(id => !hasSeen(id));
     if (now() >= nextTermAt || retrySearch) {
       await search();
@@ -402,14 +425,36 @@ async function runSession(settings, adapter, signal, options = {}) {
       const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms, usedComments) : null;
       const eligible = [];
       let canLike = false;
-      if (post && matchesNiche(post.text, settings.terms)) {
+      if (post) {
+        const captionMatches = matchesNiche(typeof post.text === 'string' ? post.text : '', settings.terms);
+        const fromSearch = platform === 'tiktok' && searchResults.has(tiktokPostIdentity(post.id));
+        const skipReasons = new Map();
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : postIdentity(post.id);
-          if (!pausedActions.has(action) && deadline - now() >= confirmationBudgetMs[action] && key && post[action] && stats[action] + unconfirmed[action] < settings.limits[action] && !done[action].has(key) &&
-              (action !== 'comment' || (commentText && !usedComments.has(commentText.toLocaleLowerCase())))) {
-            if (action === 'like') canLike = true;
-            if (now() >= nextEngagement && now() >= nextAllowed[action]) eligible.push(action);
+          if (!settings.weights[action] || pausedActions.has(action) || deadline - now() < confirmationBudgetMs[action] ||
+              stats[action] + unconfirmed[action] >= settings.limits[action] || (key && done[action].has(key))) continue;
+          let reason;
+          if (!captionMatches && !(action !== 'comment' && fromSearch)) reason = action === 'comment'
+            ? 'comments need a matching caption.' : platform === 'tiktok'
+              ? 'this post does not match your keywords or current search results.' : 'this post does not match your keywords.';
+          else if (!key || !post[action]) reason = 'its control is not available on this post.';
+          else if (action === 'comment' && (!commentText || usedComments.has(commentText.toLocaleLowerCase()))) reason = contextualComment(post.caption, settings.terms)
+            ? 'the relevant comment wording has already been used.' : 'no safe comment fits this caption.';
+          if (reason) {
+            if (!reportedSkips.has(postIdentity(post.id)) && now() >= nextEngagement && now() >= nextAllowed[action] &&
+                expectedActions(settings, action, now() - startedAt) > stats[action] + unconfirmed[action]) {
+              const actions = skipReasons.get(reason) || [];
+              actions.push(action);
+              skipReasons.set(reason, actions);
+            }
+            continue;
           }
+          if (action === 'like') canLike = true;
+          if (now() >= nextEngagement && now() >= nextAllowed[action]) eligible.push(action);
+        }
+        if (skipReasons.size) {
+          reportedSkips.add(postIdentity(post.id));
+          update([...skipReasons].map(([reason, actions]) => `${actions.join(' / ')} skipped: ${reason}`).join(' '));
         }
       }
       const likeReadyAt = Math.max(nextEngagement, nextAllowed.like);

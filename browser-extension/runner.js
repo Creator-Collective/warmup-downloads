@@ -333,20 +333,27 @@ async function verifyEngagementOnFreshPost(action, request) {
       if (current.pendingUrl && !matches(current.pendingUrl)) return false;
       if (!matches(current.url) && current.url !== 'about:blank' && current.url) return false;
       if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
-        await chrome.scripting.executeScript({ target: { tabId }, files: [config.script] });
-        assertRunning();
-        const results = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: (inspector, request, action, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: `verify-${action}` }) : {},
-          args: [config.inspector, request, action, job.deadline]
-        });
-        assertRunning();
-        const result = results[0]?.result;
-        const committed = await chrome.tabs.get(tabId);
-        assertRunning();
-        if (!matches(committed.url) || committed.pendingUrl) return false;
-        if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
-        if (result?.confirmed) return true;
+        try {
+          await chrome.scripting.executeScript({ target: { tabId }, files: [config.script] });
+          assertRunning();
+          const results = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (inspector, request, action, deadline) => Date.now() < deadline ? globalThis[inspector]({ ...request, action: `verify-${action}` }) : {},
+            args: [config.inspector, request, action, job.deadline]
+          });
+          assertRunning();
+          const result = results[0]?.result;
+          const committed = await chrome.tabs.get(tabId);
+          assertRunning();
+          if (!matches(committed.url) || committed.pendingUrl) return false;
+          if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
+          if (result?.confirmed) return true;
+        } catch (error) {
+          assertRunning();
+          if (!transientPageError(error)) throw error;
+          // A fresh document may replace its loading frame. Retry only this
+          // read, within the same deadline, after checking its URL again.
+        }
       }
       await sleep(500);
     }

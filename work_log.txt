@@ -1,3 +1,9 @@
+2026-09-19 | 0.6.52 tiktok search eligibility and confirmation fixes
+changed: accept exact-author posts captured from the chosen search despite different caption wording; exclude unrelated recommendations and reset membership per query. ignore caption mentions when checking the primary author; retry transient fresh-document reads without replaying clicks. explain structural engagement skips while retaining caption-bound comments and all limits/Stop guards.
+files: extension runner/session/tiktok; five focused test files; version/setup/release/store metadata and two archives; README/LIVE_VERIFICATION.
+verified: 553 checks pass, including 36 new regressions and three composed sessions; both35-file archives match source; independent JS/code/security reviews approve. live navigation/DOM inspection confirms search-card and mention structures; no social actions, installation change or app build. full-hour results are simulated, not live account acceptance.
+follow-ups: publish through feature PR and verify production bytes. comment targets remain constrained by usable captions/wording; installed0.6.52 account persistence remains unverified. no new user-run test requested.
+
 2026-09-19 | 0.6.51 simpler warm-up controls and guided setup
 changed: add platform-logo dropdowns and second-precision activity; replace pacing/mix controls with session focus that can prioritize remaining targets mid-run; preserve explicit opt-outs and all limits/Stop guards. simplify setup into three install/update steps with inline actions, clear installed/latest states, illustrated walkthrough and short help; remove setup footer links.
 files: root dashboard/select/plan/history/setup assets; extension background/bridge/guards/runner/session and packaged mirrors; focused tests; release/package/store metadata, README/LIVE_VERIFICATION and both archives.
