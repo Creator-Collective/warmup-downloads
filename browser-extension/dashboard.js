@@ -6,6 +6,9 @@ let connected = false;
 let running = false;
 let busy = false;
 let currentState;
+let supportsFocus = false;
+let focusBusy = false;
+let stateRevision = 0;
 let polling = false;
 let tabDiscoveryVersion = 0;
 let canAutoSelectTab = true;
@@ -16,7 +19,7 @@ const actions = ['like','follow','comment'];
 let limitOverrides = {};
 let editingLimit = null;
 let savedDraft = null;
-const fields = ['platform','niche','minutes','pace','mix-like','mix-follow','mix-comment','limit-like','limit-follow','limit-comment'];
+const fields = ['platform','niche','minutes','focus','limit-like','limit-follow','limit-comment'];
 const draftFields = fields.filter(field => field !== 'platform' && !field.startsWith('limit-'));
 const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
 const platformDrafts = {};
@@ -59,6 +62,8 @@ function restoreDraft(platform) {
   $('platform').value = platform;
   for (const field of draftFields) $(field).value = typeof draft[field] === 'string' ? draft[field] : draftDefaults[field];
   limitOverrides = Object.fromEntries(actions.filter(action => typeof draft.customLimits?.[action] === 'string' && draft.customLimits[action] !== '').map(action => [action, draft.customLimits[action]]));
+  // Preserve actions explicitly disabled in the retired mix as visible zero targets.
+  for (const action of actions) if (draft[`mix-${action}`] === '0') limitOverrides[action] = '0';
   editingLimit = null;
 }
 function saveDraft() {
@@ -69,8 +74,7 @@ restoreDraft(draftPlatform);
 platformChanged();
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
-  return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: $('pace').value, enableComments: true,
-    mix: Object.fromEntries(actions.map(name => [name, numeric($(`mix-${name}`).value)])),
+  return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: 'auto', enableComments: true, focus: supportsFocus ? $('focus').value : 'balanced',
     customLimits: Object.fromEntries(Object.entries(limitOverrides).map(([name, value]) => [name, numeric(value)])) };
 }
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
@@ -96,6 +100,25 @@ function plan() {
   validPlan = valid;
   $('start').disabled = !connected || running || busy || !valid || !$('instagram-tab').value;
   saveDraft();
+  renderFocus();
+}
+function renderFocus() {
+  const parent = $(running ? 'focus-live' : 'focus-home');
+  if ($('focus-controls').parentElement !== parent) parent.append($('focus-controls'));
+  $('focus-controls').hidden = !supportsFocus;
+  $('focus').disabled = !connected || busy || focusBusy || (running && !currentState?.canChangeFocus);
+  for (const option of $('focus').options) {
+    const limit = running ? currentState?.settings?.limits?.[option.value] : Number($(`limit-${option.value}`)?.value);
+    option.disabled = option.value !== 'balanced' && limit === 0;
+  }
+  if (!running) {
+    $('focus-status').hidden = true;
+    if ([...$('focus').options].some(option => option.selected && option.disabled)) {
+      $('focus').value = 'balanced';
+      saveDraft();
+    }
+  }
+  globalThis.warmupSelects?.sync();
 }
 function connection(value) {
   if (connected !== value) tabDiscoveryVersion += 1;
@@ -124,7 +147,7 @@ async function tabs({ reportError = false } = {}) {
   tabDiscoveryError = '';
   const select = $('instagram-tab');
   const selected = select.value;
-  const options = [new Option(list.length ? `choose a ${platform} tab` : `open ${platform} in this chrome profile`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id)))];
+  const options = [new Option(list.length ? 'choose a tab' : `open ${platform} in this chrome profile`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id)))];
   // Keep an open picker stable when polling has found nothing new.
   if (options.length !== select.options.length || options.some((option, index) => option.value !== select.options[index].value || option.text !== select.options[index].text)) select.replaceChildren(...options);
   if (list.some(tab => String(tab.id) === selected)) select.value = selected;
@@ -144,6 +167,7 @@ function selectActiveTab(tabId) {
 function platformChanged() {
   const platform = $('platform').value;
   $('tab-label').textContent = `${platform} tab`;
+  $('instagram-tab').dataset.icon = platform;
   $('open-instagram').textContent = `open ${platform} ↗`;
 }
 function displayPlan(state) {
@@ -155,10 +179,9 @@ function displayPlan(state) {
     platformChanged();
     $('niche').value = settings.terms.join(', ');
     $('minutes').value = String(settings.minutes);
-    $('pace').value = settings.pace;
+    if (!focusBusy) $('focus').value = settings.focus || 'balanced';
     for (const action of actions) {
       $(`limit-${action}`).value = String(settings.limits[action]);
-      $(`mix-${action}`).value = String(settings.weights[action]);
     }
     selectActiveTab(state.tabId);
   } else if (!state.running && savedDraft) {
@@ -178,6 +201,7 @@ function render(state) {
   $('start').hidden = running; $('stop').hidden = !running;
   $('settings').disabled = running || busy;
   $('minutes').disabled = running || busy;
+  renderFocus();
   $('message').textContent = state.message;
   document.body.classList.toggle('running', running);
   $('completed').hidden = !state.settings && !state.activity?.length;
@@ -186,7 +210,7 @@ function render(state) {
   const key = JSON.stringify(state.activity || []);
   if ($('activity').dataset.key !== key) {
     $('activity').dataset.key = key;
-    $('activity').replaceChildren(...(state.activity || []).map(item => { const row = document.createElement('li'); const time = document.createElement('time'); time.textContent = new Date(item.time).toLocaleTimeString([], { hour:'2-digit',minute:'2-digit' }); const text = document.createElement('span'); text.textContent = item.message; row.append(time,text); return row; }));
+    $('activity').replaceChildren(...(state.activity || []).map(item => { const row = document.createElement('li'); const time = document.createElement('time'); time.dateTime = new Date(item.time).toISOString(); time.textContent = new Date(item.time).toLocaleTimeString([], { hour:'2-digit',minute:'2-digit',second:'2-digit' }); const text = document.createElement('span'); text.textContent = item.message; row.append(time,text); return row; }));
   }
   plan();
   if (inPanel) $('activity-panel').style.order = running ? '-1' : '';
@@ -201,7 +225,7 @@ $('session-form').addEventListener('submit', async event => {
 });
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
-for (const field of draftFields) $(field).addEventListener('input', edited);
+for (const field of draftFields.filter(field => field !== 'focus')) $(field).addEventListener('input', edited);
 $('platform').addEventListener('change', () => {
   const platform = $('platform').value;
   if (running || busy || !['instagram', 'tiktok'].includes(platform)) return;
@@ -224,19 +248,53 @@ for (const action of actions) {
   });
 }
 $('instagram-tab').addEventListener('change', () => { canAutoSelectTab = false; edited(); });
+$('focus').addEventListener('change', async () => {
+  if (focusBusy || !supportsFocus) return;
+  if (!running) { edited(); return; }
+  const sessionId = currentState?.sessionId;
+  if (!currentState?.canChangeFocus || !sessionId) return;
+  const focus = $('focus').value;
+  focusBusy = true;
+  stateRevision += 1;
+  $('focus-status').hidden = false;
+  $('focus-status').textContent = 'applying…';
+  renderFocus();
+  try {
+    const state = await request('set-focus', { sessionId, focus });
+    // A response from before Stop or a replacement session cannot revive it.
+    if (currentState?.sessionId !== sessionId || !currentState?.canChangeFocus) return;
+    if (state.sessionId !== sessionId || state.settings?.focus !== focus) throw new Error('focus was not changed. try again.');
+    focusBusy = false;
+    stateRevision += 1;
+    render(state);
+    const platform = state.settings.platform;
+    platformDrafts[platform] = { ...platformDrafts[platform], focus };
+    if (savedDraft && draftPlatform === platform) savedDraft.values.focus = focus;
+    try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform: draftPlatform, profiles: platformDrafts })); } catch { /* in-memory choice remains usable */ }
+    $('focus-status').textContent = 'applies to remaining targets.';
+  } catch (e) {
+    if (currentState?.sessionId === sessionId && currentState?.canChangeFocus) $('focus-status').textContent = e.message;
+  } finally {
+    focusBusy = false;
+    stateRevision += 1;
+    $('focus').value = currentState?.running ? currentState.settings?.focus || 'balanced' : $('focus').value;
+    if (!currentState?.canChangeFocus) $('focus-status').hidden = true;
+    renderFocus();
+  }
+});
 $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
-$('reset-mix').addEventListener('click', () => { for (const action of actions) $(`mix-${action}`).value = action === 'like' ? '2' : '1'; edited(); });
 $('refresh-tabs').addEventListener('click', () => tabs({ reportError: true }));
 $('open-instagram').addEventListener('click', () => request('open-platform', { platform: $('platform').value }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
-$('stop').addEventListener('click', () => request('stop').then(render).catch(e => error(e.message)));
+$('stop').addEventListener('click', () => { stateRevision += 1; if (currentState) currentState.canChangeFocus = false; renderFocus(); return request('stop').then(state => { stateRevision += 1; render(state); }).catch(e => error(e.message)); });
 async function connect() {
-  try { const hello = await request('hello'); error(''); connection(true); render(hello.state); await tabs({ reportError: true }); }
+  try { const hello = await request('hello'); supportsFocus = hello.supportsFocus === true; error(''); connection(true); render(hello.state); await tabs({ reportError: true }); }
   catch { connection(false); }
 }
 setInterval(async () => {
   if (!connected || polling) return;
   polling = true;
-  try { render(await request('state')); if (!running && !busy) await tabs(); } catch { connection(false); $('message').textContent = 'connection lost. the session tab has the latest activity. refresh to reconnect.'; }
+  const revision = stateRevision;
+  try { const state = await request('state'); if (revision === stateRevision) render(state); if (!running && !busy) await tabs(); } catch { connection(false); $('message').textContent = 'connection lost. the session tab has the latest activity. refresh to reconnect.'; }
   finally { polling = false; }
 }, 1500);
 setInterval(() => {

@@ -1,3 +1,9 @@
+2026-09-19 | 0.6.51 simpler warm-up controls and guided setup
+changed: add platform-logo dropdowns and second-precision activity; replace pacing/mix controls with session focus that can prioritize remaining targets mid-run; preserve explicit opt-outs and all limits/Stop guards. simplify setup into three install/update steps with inline actions, clear installed/latest states, illustrated walkthrough and short help; remove setup footer links.
+files: root dashboard/select/plan/history/setup assets; extension background/bridge/guards/runner/session and packaged mirrors; focused tests; release/package/store metadata, README/LIVE_VERIFICATION and both archives.
+verified: 517 checks pass; both35-file archives match source; independent code/JS/security reviews approve. hidden local fixtures verify desktop and320px/400px UI, platform switching, live focus acknowledgement, second timestamps, version states and walkthrough without overflow. no app build or real social actions.
+follow-ups: ship via feature PR and verify production. installedcopy remains0.6.49; updated panel/live focus cannot be applied remotely, no additional download or user test requested.
+
 2026-09-19 | 0.6.50 varied instagram viewing and complete motion verification
 changed: decouple Instagram viewing from overdue engagement targets; vary short/ordinary/full watches, cap quick-skip streaks, and observe playback progress/end/loop with stall, Stop and deadline guards. preserve TikTok cadence and existing comment/confirmation safeguards.
 files: extension session/instagram plus focused tests; version/setup/release/store metadata and two archives; README and LIVE_VERIFICATION.

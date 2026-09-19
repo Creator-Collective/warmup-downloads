@@ -49,7 +49,7 @@
       const status = document.createElement('span'); status.className = 'comment-status';
       status.dataset.status = item.status; status.textContent = item.status === 'confirmed' ? 'posted' : 'not confirmed';
       const time = document.createElement('time'); time.dateTime = new Date(item.time).toISOString();
-      time.textContent = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      time.textContent = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const text = document.createElement('p'); text.className = 'comment-text'; text.textContent = item.text;
       meta.append(link, status, time); row.append(meta, text); return row;
     }));

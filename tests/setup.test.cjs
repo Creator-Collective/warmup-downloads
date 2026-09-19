@@ -2,13 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'setup.js'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'setup.html'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function setup() {
-  const dom = new JSDOM('<button id="extensions-shortcut" type="button" disabled>open chrome extensions</button><p id="extensions-shortcut-status" hidden role="status"></p>', {
+  const dom = new JSDOM(html, {
     url: 'https://creator-collective-warmup.vercel.app/setup.html', runScripts: 'outside-only',
   });
   const { window } = dom;
@@ -33,10 +35,17 @@ function setup() {
     data: { channel: 'cc-warmup-response', id: request.id, ok: true, data },
     ...overrides,
   }));
-  window.eval(script);
+  let reloads = 0;
+  vm.runInNewContext(script, {
+    window, document: window.document, crypto: window.crypto,
+    location: { origin: window.location.origin, reload() { reloads++; } },
+    setTimeout: window.setTimeout, clearTimeout: window.clearTimeout,
+  });
   return {
     dom, window, requests, timers, response,
     button: element('extensions-shortcut'), status: element('extensions-shortcut-status'),
+    check: element('check-extension'), badge: element('version-status'), installed: element('installed-version'),
+    latest: window.document.querySelector('[data-latest-version]').dataset.latestVersion, element, reloads: () => reloads,
     expire() {
       for (const [id, timer] of [...timers]) {
         timers.delete(id);
@@ -88,9 +97,9 @@ test('startup uses the legacy hello command to display installed versions withou
     assert.equal([...h.timers.values()][0].delay, 5000);
     assertReady(h);
     await connect(h, version);
-    assert.equal(h.status.hidden, false);
-    assert.ok(h.status.textContent.includes(version));
-    if (version === '0.6.43') assert.match(h.status.textContent, /updat/i);
+    assert.equal(h.installed.textContent, version);
+    assert.match(h.badge.textContent, /update needed/);
+    assert.equal(h.status.hidden, true);
     h.window.dispatchEvent(new h.window.Event('focus'));
     h.window.document.dispatchEvent(new h.window.Event('visibilitychange'));
     await tick();
@@ -153,7 +162,9 @@ test('a missing bridge times out, rejects late replies and retries only after an
   const h = setup();
   h.expire();
   await tick();
-  assertFailure(h);
+  assertReady(h);
+  assert.equal(h.badge.textContent, 'not connected');
+  assert.equal(h.installed.textContent, 'not detected');
   assert.equal(h.requests.length, 1);
   h.button.click();
   const firstClick = h.requests[1];
@@ -266,4 +277,158 @@ test('synchronous bridge errors settle without retrying or reporting success', a
   assertFailure(h);
   assert.equal(h.timers.size, 0);
   h.dom.window.close();
+});
+
+test('version comparison distinguishes old, current and newer installs numerically', async () => {
+  const cases = [
+    ['0.6.9', 'outdated', 'update needed'],
+    ['0.6.46', 'outdated', 'update needed'],
+    ['latest', 'current', 'up to date'],
+    ['latest-four-parts', 'current', 'up to date'],
+    ['0.6.100', 'newer', 'newer version installed'],
+    ['1.0.0', 'newer', 'newer version installed'],
+  ];
+  for (const [input, state, label] of cases) {
+    const h = setup();
+    const version = input === 'latest' ? h.latest : input === 'latest-four-parts' ? `${h.latest}.0` : input;
+    await connect(h, version);
+    assert.equal(h.badge.dataset.state, state);
+    assert.equal(h.badge.textContent, label);
+    assert.equal(h.installed.textContent, version);
+    assert.equal(h.element('latest-version').textContent, h.latest);
+    assert.equal(h.element('mode-update').getAttribute('aria-pressed'), 'true');
+    assert.equal(h.requests.length, 1, 'detecting an install must not open a tab');
+    h.dom.window.close();
+  }
+});
+
+test('check again detects an updated extension without a refresh or opening any tab', async () => {
+  const h = setup();
+  await connect(h, '0.6.43');
+  h.check.click();
+  h.check.dispatchEvent(new h.window.MouseEvent('click'));
+  h.button.dispatchEvent(new h.window.MouseEvent('click'));
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.requests[1].type, 'hello');
+  assert.equal(h.check.disabled, true);
+  assert.equal(h.button.disabled, true);
+  assert.equal(h.badge.textContent, 'checking…');
+  h.response(h.requests[1], { version: h.latest });
+  await tick();
+  assert.equal(h.badge.textContent, 'up to date');
+  assert.equal(h.installed.textContent, h.latest);
+  assert.equal(h.check.disabled, false);
+  assertReady(h);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.timers.size, 0);
+  h.dom.window.close();
+});
+
+test('check again clears a stale installed version when connection disappears', async () => {
+  const h = setup();
+  await connect(h, h.latest);
+  h.check.click();
+  h.expire();
+  await tick();
+  assert.equal(h.badge.textContent, 'not connected');
+  assert.equal(h.installed.textContent, 'not detected');
+  assert.doesNotMatch(h.element('version-hint').textContent, /not installed|uninstall/i);
+  assert.equal(h.check.disabled, false);
+  assertReady(h);
+  h.dom.window.close();
+});
+
+test('a late startup reply cannot overwrite a newer explicit version check', async () => {
+  const h = setup();
+  const startup = h.requests[0];
+  h.check.click();
+  h.response(h.requests[1], { version: h.latest });
+  await tick();
+  h.response(startup, { version: '0.6.43' });
+  await tick();
+  assert.equal(h.badge.textContent, 'up to date');
+  assert.equal(h.installed.textContent, h.latest);
+  assert.equal(h.timers.size, 0);
+  h.dom.window.close();
+});
+
+test('bad version responses do not display untrusted version strings or claim installation', async () => {
+  for (const version of [null, '0.6.046', '65536.0.0', '<img src=x onerror=alert(1)>']) {
+    const h = setup();
+    await connect(h, version);
+    assert.equal(h.badge.textContent, 'not connected');
+    assert.equal(h.installed.textContent, 'not detected');
+    assert.equal(h.installed.children.length, 0);
+    h.dom.window.close();
+  }
+});
+
+test('manual install/update selection persists across checks and keeps actions in the right steps', async () => {
+  const h = setup();
+  h.element('mode-install').click();
+  await connect(h, '0.6.46');
+  assert.equal(h.element('mode-install').getAttribute('aria-pressed'), 'true');
+  assert.equal(h.element('manager-action').parentElement.id, 'step-two');
+  h.element('mode-update').click();
+  assert.equal(h.element('mode-update').getAttribute('aria-pressed'), 'true');
+  assert.equal(h.element('manager-action').parentElement.id, 'step-three');
+  assert.match(h.element('step-two-copy').textContent, /existing extension folder/);
+  assert.match(h.element('step-three-copy').textContent, /check again/);
+  assert.equal(h.window.document.querySelectorAll('a[download]').length, 1);
+  h.dom.window.close();
+});
+
+test('the labelled illustrated walkthrough advances, goes back and resets when instructions change', async () => {
+  const h = setup();
+  await connect(h);
+  const frames = ['walkthrough-download', 'walkthrough-manage', 'walkthrough-finish'].map(h.element);
+  const visible = () => frames.filter(frame => !frame.hidden).map(frame => frame.id);
+  assert.deepEqual(visible(), ['walkthrough-download']);
+  assert.equal(h.element('walkthrough-back').disabled, true);
+  h.element('walkthrough-next').click();
+  assert.deepEqual(visible(), ['walkthrough-manage']);
+  assert.equal(h.element('walkthrough-progress').textContent, '2 of 3');
+  assert.equal(h.element('walkthrough-manage').classList.contains('is-update'), true);
+  h.element('walkthrough-back').click();
+  assert.deepEqual(visible(), ['walkthrough-download']);
+  h.element('walkthrough-next').click();
+  h.element('walkthrough-next').click();
+  assert.deepEqual(visible(), ['walkthrough-finish']);
+  assert.equal(h.element('walkthrough-next').textContent, 'start again');
+  h.element('walkthrough-next').click();
+  assert.deepEqual(visible(), ['walkthrough-download']);
+  h.element('walkthrough-next').click();
+  h.element('mode-install').click();
+  assert.deepEqual(visible(), ['walkthrough-download']);
+  assert.equal(h.element('walkthrough-manage').classList.contains('is-update'), false);
+  assert.match(h.element('walkthrough').textContent, /illustrated walkthrough/);
+  assert.equal(h.requests.length, 1, 'walkthrough controls must not contact the extension');
+  h.dom.window.close();
+});
+
+
+test('an explicit failed check reloads once to recover a replaced bridge, while startup never reloads', async () => {
+  for (const failure of ['timeout', 'disconnected']) {
+    const h = setup();
+    await connect(h);
+    assert.equal(h.reloads(), 0);
+    h.check.click();
+    const request = h.requests[1];
+    if (failure === 'timeout') h.expire();
+    else h.response(request, null, { data: { channel: 'cc-warmup-response', id: request.id, ok: false, error: 'extension disconnected. refresh this page.' } });
+    await tick();
+    assert.equal(h.reloads(), 1);
+    assert.equal(h.status.textContent, 'reconnecting to the extension…');
+    h.expire();
+    h.response(request, { version: h.latest });
+    await tick();
+    assert.equal(h.reloads(), 1, 'timers and late replies cannot cause another reload');
+    h.dom.window.close();
+    const reloadedPage = setup();
+    reloadedPage.expire();
+    await tick();
+    assert.equal(reloadedPage.reloads(), 0, 'the freshly loaded page cannot enter a reload loop');
+    assert.equal(reloadedPage.badge.textContent, 'not connected');
+    reloadedPage.dom.window.close();
+  }
 });

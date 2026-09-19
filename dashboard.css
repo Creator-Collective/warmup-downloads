@@ -316,3 +316,22 @@ footer a { color: var(--muted); }
   .running .orbit, .is-working .signup-indicator { animation: none; }
   .switch span::after, .primary, .secondary { transition: none; }
 }
+
+/* Platform identity stays consistent in triggers and their menus. */
+.platform-icon { width: 22px; height: 22px; padding: 2px; flex: none; display: block; border-radius: 5px; background: #fff; object-fit: contain; }
+.select-icon { flex: none; }
+.select-trigger { gap: 10px; min-height: 40px; }
+.select-option { gap: 10px; min-height: 40px; }
+.focus-controls { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.focus-status { margin-top: 8px; font-size: 12px; line-height: 1.5; }
+#activity time { min-width: 7.2em; }
+.comment-meta time { font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) {
+  #activity li { gap: 12px; }
+  #activity time { font-size: 11px; }
+}
+
+.activity-panel .focus-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 16px 0; padding: 0; border: 0; }
+.activity-panel .focus-controls > label { margin: 0; }
+.activity-panel .focus-controls > .select-control { flex: 0 1 190px; min-width: 130px; }
+.activity-panel .focus-status { flex-basis: 100%; margin: 0; }

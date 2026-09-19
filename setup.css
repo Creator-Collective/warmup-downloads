@@ -1,0 +1,62 @@
+.setup-guide { max-width: 780px; }
+.setup-guide .guide-heading { margin-bottom: 24px; }
+.setup-guide .setup-card-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.setup-guide .setup-card-heading h2 { margin: 0; font-weight: 550; }
+.version-status { display: inline-flex; align-items: center; gap: 7px; border-radius: 7px; padding: 5px 9px; background: var(--subtle); font-size: 12px; font-weight: 500; }
+.version-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.version-status[data-state="current"], .version-status[data-state="newer"] { background: #ecfdf3; color: #157b3b; }
+.version-status[data-state="outdated"] { background: var(--accent); color: #fff; }
+.version-comparison { display: grid; grid-template-columns: 1fr 1fr; margin: 24px 0 20px; }
+.version-comparison > div + div { border-left: 1px solid var(--line); padding-left: 24px; }
+.version-comparison dt { font-size: 12px; margin-bottom: 8px; }
+.version-comparison dd { margin: 0; font-size: 22px; letter-spacing: -.025em; font-weight: 550; font-variant-numeric: tabular-nums; }
+.version-check { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.setup-guide .version-check p { margin: 0; font-size: 13px; }
+.version-check button { flex-shrink: 0; }
+.setup-modes { display: flex; gap: 3px; padding: 4px; background: var(--subtle); border: 1px solid var(--line); border-radius: 10px; }
+.setup-modes button { border-radius: 7px; background: transparent; color: var(--ink); border: 1px solid transparent; box-shadow: none; padding: 6px 10px; min-height: 30px; font-size: 12px; }
+.setup-modes button[aria-pressed="true"] { background: var(--surface); border-color: var(--line); box-shadow: 0 1px 3px #00000012; }
+.setup-guide .setup-steps { list-style: none; counter-reset: setup; margin: 12px 0 0; padding: 0; }
+.setup-guide .setup-steps > li { counter-increment: setup; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.setup-steps > li::before { content: counter(setup); border: 1px solid var(--line); border-radius: 50%; width: 27px; height: 27px; display: grid; place-items: center; font-size: 12px; font-weight: 550; }
+.setup-step h3 { font-size: 14px; font-weight: 550; line-height: 27px; margin: 0; }
+.setup-guide .setup-step p { font-size: 13px; line-height: 1.6; margin: 5px 0 0; max-width: 56ch; }
+.setup-guide .setup-step .button, .setup-step #extensions-shortcut { margin: 12px 0 0; }
+.setup-guide .setup-step .shortcut-status { margin-top: 10px; }
+.setup-step #manager-action[hidden] { display: none; }
+.setup-walkthrough { margin-top: 18px; }
+.setup-walkthrough summary, .setup-help summary { cursor: pointer; font-size: 13px; font-weight: 500; width: fit-content; }
+.walkthrough-content { margin-top: 18px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.walkthrough-heading { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.walkthrough-frame { padding: 22px 18px; text-align: center; background: var(--subtle); animation: walkthrough-in 180ms ease-out; }
+.walkthrough-frame[hidden] { display: none; }
+.walkthrough-frame > strong { font-size: 13px; font-weight: 550; }
+.setup-guide .walkthrough-frame > p { margin: 5px auto 0; font-size: 12px; max-width: 50ch; }
+.folder-illustration { display: flex; align-items: center; justify-content: center; gap: 24px; height: 106px; }
+.file-icon { display: grid; place-items: center; width: 42px; height: 56px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.file-arrow { font-size: 24px; }
+.folder-icon { position: relative; width: 65px; height: 45px; background: #fff; border: 1px solid #ccc; border-radius: 5px; }
+.folder-icon::before { content: ''; position: absolute; top: -8px; left: -1px; width: 26px; height: 8px; background: #fff; border: 1px solid #ccc; border-bottom: 0; border-radius: 4px 4px 0 0; }
+.folder-replacement { display: none; align-items: center; justify-content: center; gap: 24px; min-height: 132px; }
+.folder-replacement > div { display: grid; justify-items: center; gap: 12px; font-size: 11px; }
+.is-update .folder-replacement { display: flex; }
+.is-update .mini-browser { display: none; }
+.mini-browser { text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); max-width: 380px; margin: 0 auto 18px; overflow: hidden; }
+.mini-toolbar { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 10px; }
+.mini-controls { padding: 14px 12px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; }
+.mini-developer { display: flex; align-items: center; gap: 7px; font-size: 9px; }
+.mini-developer i { width: 23px; height: 13px; border-radius: 10px; background: var(--accent); position: relative; }
+.mini-developer i::before { content: ''; position: absolute; right: 2px; top: 2px; height: 9px; width: 9px; background: #fff; border-radius: 50%; }
+.mini-load { display: inline-block; border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px; margin: 0 12px 14px; font-size: 10px; }
+.mini-extension { display: flex; align-items: center; gap: 12px; text-align: left; max-width: 380px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 18px; margin: 8px auto 24px; min-height: 75px; }
+.mini-extension div { flex: 1; }
+.mini-extension strong, .mini-extension span { display: block; font-size: 11px; }
+.mini-extension div span { margin-top: 5px; font-variant-numeric: tabular-nums; }
+.mini-extension .mini-reload { font-size: 24px; }
+.walkthrough-navigation { padding: 12px 16px; display: flex; justify-content: space-between; gap: 12px; }
+.setup-guide .setup-done { margin: 20px 0 0; }
+.setup-help ul { margin: 12px 0 0; padding-left: 16px; }
+.setup-guide .setup-help li { padding: 5px 0 5px 4px; font-size: 13px; }
+@keyframes walkthrough-in { from { opacity: .5; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .walkthrough-frame { animation: none; } }
+@media (max-width: 520px) { .version-check { align-items: flex-start; } .version-comparison dd { font-size: 20px; } .setup-guide .setup-card-heading { gap: 16px; } .setup-guide .setup-steps > li { gap: 10px; } .version-status { margin-left: auto; } }

@@ -515,7 +515,8 @@ function render(state) {
   el('activity').replaceChildren(...(state.activity || []).map(item => {
     const row = document.createElement('li');
     const time = document.createElement('time');
-    time.textContent = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    time.dateTime = new Date(item.time).toISOString();
+    time.textContent = new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const text = document.createElement('span'); text.textContent = item.message; row.append(time, text); return row;
   }));
 }
@@ -579,7 +580,7 @@ async function start() {
       search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
       open: target => recoverPageStep(() => openViewer(target)),
       leavePost: post => recoverPageStep(() => returnToResults(post, searchURL))
-    }, controller.signal);
+    }, controller.signal, { getFocus: () => job.settings.focus });
     await messageQueue;
     controller.signal.throwIfAborted();
     await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });

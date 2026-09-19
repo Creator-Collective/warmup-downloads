@@ -1,3 +1,11 @@
+# 0.6.51 simpler controls and setup
+
+Platform dropdowns show Instagram and TikTok icons. Session targets stay in one place; the old pacing and engagement-mix section is removed. A session focus can prioritize eligible remaining likes, follows or comments before or during a run, without changing targets, cooldowns, browsing pace or Stop. Old zero-mix preferences migrate to explicit zero targets. Activity timestamps include seconds.
+
+Setup has three short install/update steps with inline actions, installed-versus-latest status, an interactive illustrated walkthrough and brief help. Website presentation works with older installed extensions; changing focus requires the 0.6.51 extension capability. The packaged side panel is updated, but publishing does not update an existing unpacked installation. No new permissions.
+
+All 517 automated checks pass, including live-focus races, limit/Stop guards, legacy settings and setup states. Hidden-browser fixtures verify desktop and 320px layouts and walkthrough navigation. This release did not run new social actions or update the user's installed 0.6.49 copy; the earlier TikTok motion evidence remains recorded in LIVE_VERIFICATION.md.
+
 # 0.6.50 varied instagram viewing
 
 Instagram viewing no longer accelerates when engagement targets fall behind. Sessions mix shorter visits, ordinary watches and occasional complete videos. Complete watches observe real playback progress, end or looping, with bounded stall recovery and the existing Stop, keyword and session deadlines. TikTok cadence and engagement limits are unchanged.

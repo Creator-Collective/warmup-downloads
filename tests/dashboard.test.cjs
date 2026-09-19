@@ -10,7 +10,7 @@ function dashboard(panel = false, saved = null, respond = null) {
   const nodes = new Map();
   const intervals = new Map();
   let stored = saved === null ? null : JSON.stringify(saved);
-  const defaults = { platform:'instagram', niche:'personal branding', minutes:'10', pace:'auto', 'mix-like':'2', 'mix-follow':'1', 'mix-comment':'1', 'instagram-tab':'7' };
+  const defaults = { platform:'instagram', niche:'personal branding', minutes:'10', focus:'balanced', 'instagram-tab':'7' };
   const element = id => {
     if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, options:[], listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(...children){this.options=children;this.value=children[0]?.value || ''}, add(option){this.options.push(option)}, append(){} });
     return nodes.get(id);
@@ -88,15 +88,14 @@ test('an empty amount returns to automatic on blur without treating invalid inpu
  assert.equal(h.element('form-error').hidden,false);
 });
 
-test('duration and pacing recalculate only automatic amounts, preserving typed zero',()=>{
+test('duration recalculates automatic amounts, preserving typed zero',()=>{
  const h=dashboard();
  h.edit('minutes','20');assert.deepEqual(h.settings().limits,{like:60,follow:18,comment:5});
  h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
- h.edit('pace','slow');assert.deepEqual(h.settings().limits,{like:30,follow:0,comment:3});
- h.edit('minutes','60');assert.deepEqual(h.settings().limits,{like:90,follow:0,comment:8});
+ h.edit('minutes','60');assert.deepEqual(h.settings().limits,{like:180,follow:0,comment:15});
  assert.equal(h.element('limit-follow').value,'0');
  h.element('reset-limits').listeners.click();
- assert.deepEqual(h.settings().limits,{like:90,follow:27,comment:8});
+ assert.deepEqual(h.settings().limits,{like:180,follow:54,comment:15});
 });
 
 test('saved settings retain explicit overrides while automatic amounts keep following duration',()=>{
@@ -118,7 +117,7 @@ test('comments can be edited directly and zero disables their session weight',()
  h.edit('minutes','120');assert.equal(h.settings().limits.comment,0);
 });
 
-test('out-of-range amounts and blank mix fields cannot start a session',async()=>{
+test('out-of-range amounts cannot start a session',async()=>{
  const h=dashboard(true);for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
  for(const value of ['-1','61','1.5']) {
   h.edit('limit-follow',value);
@@ -126,8 +125,6 @@ test('out-of-range amounts and blank mix fields cannot start a session',async()=
   await h.element('session-form').listeners.submit({preventDefault(){}});
  }
  assert.equal(h.requests.some(r=>r.type==='start'),false);
- h.element('reset-limits').listeners.click();h.edit('mix-comment','');
- assert.equal(h.element('start').disabled,true);
 });
 
 test('the submitted plan matches the visible automatic and custom amounts',async()=>{
@@ -149,7 +146,6 @@ test('tiktok switches tabs and keeps every engagement target available',async()=
  assert.equal(h.element('open-instagram').textContent,'open tiktok ↗');
  assert.equal(h.element('limit-comment').value,'3');
  assert.equal(h.element('limit-comment').disabled,false);
- assert.equal(h.element('mix-comment').disabled,false);
  assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
  assert.equal(h.requests.at(-1).platform,'tiktok');
  await h.element('session-form').listeners.submit({preventDefault(){}});
@@ -157,23 +153,22 @@ test('tiktok switches tabs and keeps every engagement target available',async()=
  assert.equal(request.settings.platform,'tiktok');
 });
 
-test('each platform remembers its own targets, keywords and pacing',()=>{
+test('each platform remembers its own targets and keywords',()=>{
  const h=dashboard();
- h.edit('niche','instagram niche');h.edit('pace','slow');
+ h.edit('niche','instagram niche');
  h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
  h.edit('limit-comment','7');h.element('limit-comment').listeners.blur();
  h.element('platform').value='tiktok';h.element('platform').listeners.change();
  assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
- h.edit('niche','tiktok niche');h.edit('minutes','20');h.edit('mix-like','1');
+ h.edit('niche','tiktok niche');h.edit('minutes','20');
  h.edit('limit-follow','4');h.element('limit-follow').listeners.blur();
  h.element('platform').value='instagram';h.element('platform').listeners.change();
  assert.equal(h.element('niche').value,'instagram niche');
- assert.equal(h.element('pace').value,'slow');
  assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,7);
  h.element('platform').value='tiktok';h.element('platform').listeners.change();
  assert.equal(h.element('niche').value,'tiktok niche');
  assert.equal(h.element('minutes').value,'20');
- assert.equal(h.settings().limits.follow,4);assert.equal(h.settings().weights.like,1);
+ assert.equal(h.settings().limits.follow,4);assert.equal(h.settings().weights.like,2);
  const reopened=dashboard(false,h.saved());
  assert.equal(reopened.settings().platform,'tiktok');
  assert.deepEqual(reopened.settings(),h.settings());
@@ -210,17 +205,17 @@ test('tiktok results keep their actual targets after controls return to another 
  assert.equal(h.element('stat-follow').textContent,'1 / 2');
 });
 
-test('engagement mix still controls actions and reset restores its default values',()=>{
- const h=dashboard();
- h.edit('mix-comment','0');assert.equal(h.element('limit-comment').value,'0');
- assert.equal(h.settings().limits.comment,0);
- h.element('reset-mix').listeners.click();assert.equal(h.element('limit-comment').value,'3');
- assert.deepEqual(h.settings().weights,{like:2,follow:1,comment:1});
+test('retired mix opt-outs become visible zero targets while pacing becomes automatic',()=>{
+ const h=dashboard(false,{version:3,platform:'instagram',profiles:{instagram:{pace:'slow','mix-like':'0',niche:'branding',minutes:'10',customLimits:{comment:'0'}}}});
+ assert.equal(h.settings().pace,'auto');
+ assert.deepEqual(h.settings().limits,{like:0,follow:9,comment:0});
+ assert.equal(h.element('limit-like').value,'0');
+ assert.deepEqual(h.settings().weights,{like:0,follow:1,comment:0});
 });
 
 test('warm-up markup has no comments toggle, instructional hints or footer links',()=>{
  const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
- assert.doesNotMatch(html.slice(html.indexOf('<form id="session-form"')),/enable-comments|class="hint"|pace-help|how comments work|plan-mode|<footer>|report a problem|>privacy</);
+ assert.doesNotMatch(html.slice(html.indexOf('<form id="session-form"')),/enable-comments|class="hint"|pace-help|pacing &amp; engagement mix|id="pace"|id="mix-|how comments work|plan-mode|<footer>|report a problem|>privacy</);
  assert.match(html,/session targets/);
  for(const action of ['like','follow','comment']) {
   const tag=html.match(new RegExp(`<input id="limit-${action}"[^>]*>`))[0];
@@ -237,7 +232,7 @@ test('reopened controls show the running plan and target without replacing their
  h.context.live=publicState({phase:'running',tabId:42,settings:validateSettings({niche:'photography, lighting',minutes:2,pace:'slow',enableComments:true,customLimits:{like:3,follow:0,comment:0}}),stats:{scroll:1},activity:[],message:'watching'});
  vm.runInContext('render(live)',h.context);
  assert.equal(h.element('niche').value,'photography, lighting');
- assert.equal(h.element('minutes').value,'2');assert.equal(h.element('pace').value,'slow');
+ assert.equal(h.element('minutes').value,'2');
  assert.equal(h.element('limit-like').value,'3');assert.equal(h.element('limit-follow').value,'0');assert.equal(h.element('limit-comment').value,'0');
  assert.equal(h.element('instagram-tab').value,'42');
  assert.equal(h.element('settings').disabled,true);
@@ -256,7 +251,7 @@ test('reopened controls show the running plan and target without replacing their
 test('public running plan excludes runner tokens and unrelated stored data',()=>{
  const settings=validateSettings({niche:'branding',minutes:10,enableComments:true,customLimits:{follow:0,comment:0}});
  const state=publicState({token:'private-token',runnerTabId:90,tabId:7,phase:'running',settings:{...settings,privateData:'not public'},privateData:'not public'});
- assert.deepEqual(state.settings,{platform:'instagram',minutes:10,terms:['branding'],pace:'auto',limits:{like:30,follow:0,comment:0},weights:{like:2,follow:0,comment:0}});
+ assert.deepEqual(state.settings,{platform:'instagram',minutes:10,terms:['branding'],pace:'auto',limits:{like:30,follow:0,comment:0},weights:{like:2,follow:0,comment:0},focus:'balanced'});
  assert.equal(state.tabId,7);assert.equal(state.token,undefined);assert.equal(state.runnerTabId,undefined);
  assert.equal(state.privateData,undefined);assert.equal(state.settings.privateData,undefined);
 });

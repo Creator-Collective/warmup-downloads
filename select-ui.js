@@ -8,6 +8,17 @@
   let openControl = null;
   const gap = 6;
   const edge = 8;
+  const icons = { instagram: 'platform-instagram.svg', tiktok: 'platform-tiktok.svg' };
+  function platformIcon(name) {
+    if (!Object.hasOwn(icons, name)) return null;
+    const icon = document.createElement('img');
+    icon.className = 'platform-icon';
+    icon.src = icons[name];
+    icon.alt = '';
+    icon.width = 20;
+    icon.height = 20;
+    return icon;
+  }
 
   function enhance(select) {
     if (controls.has(select) || select.multiple || select.size > 1) return;
@@ -24,10 +35,14 @@
     trigger.setAttribute('aria-controls', `${id}-listbox`);
     const value = document.createElement('span');
     value.className = 'select-value';
+    const iconSlot = document.createElement('span');
+    iconSlot.className = 'select-icon';
+    iconSlot.hidden = true;
+    iconSlot.setAttribute('aria-hidden', 'true');
     const chevron = document.createElement('span');
     chevron.className = 'select-chevron';
     chevron.setAttribute('aria-hidden', 'true');
-    trigger.append(value, chevron);
+    trigger.append(iconSlot, value, chevron);
     const menu = document.createElement('div');
     menu.className = 'select-menu';
     menu.id = `${id}-listbox`;
@@ -148,7 +163,14 @@
       const selected = options[select.selectedIndex] || null;
       value.textContent = selected?.label || '';
       trigger.title = value.textContent;
-      const nextSignature = JSON.stringify(options.map(option => [option.label, option.value, optionDisabled(option), optionHidden(option)]));
+      const selectedIcon = selected?.dataset.icon || select.dataset.icon;
+      if (iconSlot.dataset.icon !== (selectedIcon || '')) {
+        const icon = platformIcon(selectedIcon);
+        iconSlot.replaceChildren(...(icon ? [icon] : []));
+        iconSlot.dataset.icon = selectedIcon || '';
+        iconSlot.hidden = !icon;
+      }
+      const nextSignature = JSON.stringify(options.map(option => [option.label, option.value, optionDisabled(option), optionHidden(option), option.dataset.icon || select.dataset.icon]));
       // Keep the rows stable during ordinary state polling and keyboard browsing.
       if (signature !== nextSignature || rows.some(row => !options.includes(row.option))) {
         signature = nextSignature;
@@ -166,7 +188,8 @@
           check.className = 'select-option-check';
           check.textContent = '✓';
           check.setAttribute('aria-hidden', 'true');
-          node.append(label, check);
+          const icon = platformIcon(option.dataset.icon || select.dataset.icon);
+          node.append(...(icon ? [icon] : []), label, check);
           node.addEventListener('pointerdown', event => event.preventDefault());
           node.addEventListener('pointermove', () => { if (!optionDisabled(option)) setActive(option, false); });
           node.addEventListener('click', () => commit(option));
