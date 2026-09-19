@@ -583,7 +583,7 @@ for (const platform of ['instagram', 'tiktok']) test(`${platform} ten-minute tar
   });
   h.options.random = () => .5;
   const stats = await runSession(validateSettings({ ...input, platform, minutes: 10 }), h.adapter, h.controller.signal, h.options);
-  assert.ok(stats.like >= 28, `expected likes close to 30, got ${stats.like}`);
+  assert.ok(stats.like >= 28, `expected repeated eligible likes without cutting viewing short, got ${stats.like}`);
   assert.ok(stats.follow >= 8, `expected follows close to 9, got ${stats.follow}`);
   assert.equal(stats.comment, 3);
   assert.ok(stats.scroll > stats.like);
@@ -665,9 +665,9 @@ test('Stop during a TikTok viewing pause prevents the next engagement and advanc
   assert.equal(h.time(), 1000);
 });
 
-test('ten-minute sessions reach 30 likes despite mixed eligibility, real action delays and long videos', async () => {
+test('ten-minute sessions retain eligible engagement and limits while allowing long videos to finish', async () => {
   for (const seed of Array.from({ length: 100 }, (_, i) => i + 1)) {
-    let state = seed; let index = 0;
+    let state = seed; let index = 0; let arrivedAt = 0;
     const likes = new Set(); const follows = new Set(); const comments = new Set();
     const attempts = [];
     const h = harness({
@@ -677,9 +677,10 @@ test('ten-minute sessions reach 30 likes despite mixed eligibility, real action 
         return { post: { id: `video-${index}`, author: `author-${index}`, viewer: true, next: true,
           text: index % 4 === 0 ? 'travel diary' : 'study tips',
           caption: `Study tips work best when you practice a little every day number ${index}.`,
-          like: index % 3 !== 0 && !likes.has(index), follow: !follows.has(index), comment: !comments.has(index), videoRemainingMs: 90000 } };
+          like: index % 3 !== 0 && !likes.has(index), follow: !follows.has(index), comment: !comments.has(index), videoRemainingMs: Math.max(0, 90000 - (h.time() - arrivedAt)),
+          videoPlayback: { durationMs: 90000, positionMs: Math.min(90000, h.time() - arrivedAt), rate: 1, playing: h.time() - arrivedAt < 90000, ended: h.time() - arrivedAt >= 90000, source: `video-${index}` } } };
       },
-      advance: async () => { index++; await h.options.sleep(800); return true; },
+      advance: async () => { index++; await h.options.sleep(800); arrivedAt = h.time(); return true; },
       engage: async action => {
         attempts.push({ action, index, time: h.time() });
         ({ like: likes, follow: follows, comment: comments })[action].add(index);
@@ -691,10 +692,11 @@ test('ten-minute sessions reach 30 likes despite mixed eligibility, real action 
     h.options.sleep = ms => sleep(Math.min(ms, Math.max(0, 600000 - h.time())));
     h.options.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
     const stats = await runSession(validateSettings({ ...input, niche: 'study tips' }), h.adapter, h.controller.signal, h.options);
-    assert.equal(stats.like, 30, `seed ${seed}: ${stats.like} likes`);
+    assert.ok(stats.like > 0 && stats.like <= 30, `seed ${seed}: ${stats.like} likes`);
+    assert.ok(h.updates.some(update => update.message === 'staying for the rest of this video…'), `seed ${seed}: long watches must not be starved by targets`);
     assert.ok(stats.follow > 0 && stats.comment > 0, 'other enabled actions must remain active');
     assert.ok(stats.follow <= 9 && stats.comment <= 3);
-    assert.equal(likes.size, 30);
+    assert.equal(likes.size, stats.like);
     assert.ok(attempts.every(attempt => attempt.index % 4 !== 0));
     const likeAttempts = attempts.filter(attempt => attempt.action === 'like');
     assert.ok(likeAttempts.every(attempt => attempt.index % 3 !== 0));
@@ -715,6 +717,7 @@ test('a held like opportunity is rechecked after waiting and cannot outlive Stop
       advance: async () => { index++; return true; },
       engage: async () => { attempts.push(index); liked.add(index); return 'confirmed'; }
     });
+    h.options.random = () => 0;
     const sleep = h.options.sleep;
     h.options.sleep = async ms => {
       if (!interrupted && h.updates.some(update => update.message === 'watching this post...')) {
@@ -933,8 +936,11 @@ test('auto browsing mixes quick skim bursts with slower holds',async()=>{
  const h=harness({inspect:async()=>({post:{id:`viewer-${index}`,text:'study tips',viewer:true,next:true}}),advance:async()=>{moves.push(h.time());index++;return true}});
  h.options.random=()=>0;
  await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(moves.length>=12,`expected more browsing movement, got ${moves.length} advances`);
- assert.ok(moves.slice(1,4).every((time,i)=>time-moves[i]<=1800));
+ assert.ok(moves.length>=4 && moves.length<=15,`expected a mix of short and sustained views, got ${moves.length} advances`);
+ const holds=moves.slice(1).map((time,i)=>time-moves[i]);
+ assert.ok(holds.some(ms=>ms>=1500&&ms<=4000));
+ assert.ok(holds.some(ms=>ms>=6000));
+ assert.ok(holds.every(ms=>ms>=1500));
  assert.ok(!h.updates.some(u=>u.message==='taking a reading pause…'));
  assert.equal(h.time(),60000);
 });
@@ -955,17 +961,6 @@ test('long sessions wrap back to the first keyword',async()=>{
  assert.deepEqual(searches,['first','second','third','first']);
 });
 
-test('occasional full watches use remaining video time and never occur back to back',async()=>{
- let index=0;const waits=[];
- const h=harness({inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:20000}}),advance:async()=>{index++;return true}});
- h.options.random=()=>0;
- const sleep=h.options.sleep;
- h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
- await runSession(validateSettings({...input,niche:'study tips',minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.includes(20000));assert.ok(waits.some(ms=>ms>=350&&ms<=1400));
- for(let i=1;i<waits.length;i++)assert.ok(!(waits[i]===20000&&waits[i-1]===20000));
- assert.equal(h.time(),120000);
-});
 for (const platform of ['instagram', 'tiktok']) test(`${platform} full watch opportunities cannot delay the next keyword or overrun the session`,async()=>{
  let index=0;const searches=[];const waits=[];
  const h=harness({search:async term=>searches.push({term,time:h.time()}),inspect:async()=>({post:{id:`v-${index}`,text:'study tips',viewer:true,next:true,videoRemainingMs:45000}}),advance:async()=>{index++;return true}});
@@ -981,7 +976,168 @@ test('unknown video duration falls back to normal viewing pauses',async()=>{
  h.options.random=()=>0;
  const sleep=h.options.sleep;h.options.sleep=async ms=>{waits.push(ms);await sleep(ms)};
  await runSession(validateSettings({...input,niche:'study tips',minutes:1,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
- assert.ok(waits.some(ms=>ms>=350&&ms<=1400));
- assert.ok(waits.some(ms=>ms>=14000&&ms<=26000));
- assert.ok(waits.every((ms,index)=>(ms>=350&&ms<=1400)||(ms>=4000&&ms<=26000)||(index===waits.length-1&&ms>=0&&ms<4000)));
+ assert.ok(waits.some(ms=>ms>=1500&&ms<=4000));
+ assert.ok(waits.some(ms=>ms>=10000&&ms<=22000));
+ assert.ok(!h.updates.some(update=>update.message==='staying for the rest of this video…'));
+ assert.ok(waits.every((ms,index)=>(ms>=1500&&ms<=22000)||(index===waits.length-1&&ms>=0&&ms<1500)));
+});
+
+function instagramViewingTrace({ seed = 1, minutes = 3, durationMs = 45000, targets = { like: 9, follow: 3, comment: 1 }, playbackAt, customize } = {}) {
+  let state = seed; let index = 0; let arrivedAt = 0;
+  const visits = []; const selected = []; const reads = [];
+  const h = harness({
+    inspect: async () => {
+      const elapsed = h.time() - arrivedAt;
+      const duration = typeof durationMs === 'function' ? durationMs(index) : durationMs;
+      const playback = playbackAt ? playbackAt({ index, elapsed, duration, time: h.time() }) : {
+        durationMs: duration, positionMs: Math.min(duration, elapsed), rate: 1,
+        playing: elapsed < duration, ended: elapsed >= duration, source: `video-${index}`
+      };
+      reads.push({ index, time: h.time(), playback });
+      return { post: { id: `video-${index}`, author: `author-${index}`, viewer: true, next: true, text: 'study tips',
+        caption: 'Study tips work best when you practice a little every day.',
+        videoPlayback: playback,
+        videoRemainingMs: playback?.playing ? (playback.durationMs - playback.positionMs) / playback.rate : null } };
+    },
+    advance: async () => { visits.push({ index, arrival: arrivedAt, departure: h.time(), held: h.time() - arrivedAt }); index++; arrivedAt = h.time(); return true; },
+    engage: async () => { throw new Error('missing engagement controls must never be clicked'); },
+    update: patch => { h.updates.push(patch); if (patch.message === 'staying for the rest of this video…') selected.push({ index, time: h.time() }); }
+  });
+  h.options.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  const settings = validateSettings({ ...input, platform: 'instagram', niche: 'study tips', minutes, customLimits: targets });
+  customize?.({ h, settings, selected, reads });
+  const run = runSession(settings, h.adapter, h.controller.signal, h.options);
+  return { h, visits, selected, reads, settings, run };
+}
+
+test('Instagram targets and missing controls cannot starve full watches or cause an endless fast-scroll burst', async () => {
+  const sessionShapes = new Set();
+  for (let seed = 1; seed <= 30; seed++) {
+    const trace = instagramViewingTrace({ seed, durationMs: [30000, 45000, 60000][seed % 3] });
+    const stats = await trace.run;
+    const holds = trace.visits.slice(1).map(visit => visit.held);
+    assert.ok(holds.length >= 3 && holds.length <= 25, `seed ${seed}: ${holds.length} visited posts`);
+    assert.ok(holds.every(ms => ms >= 1500), `seed ${seed}: no subsecond post holds`);
+    assert.ok(holds.filter(ms => ms >= 6000).length >= 2, `seed ${seed}: sustained views remain available`);
+    let consecutiveShort = 0;
+    for (const ms of holds) {
+      consecutiveShort = ms < 6000 ? consecutiveShort + 1 : 0;
+      assert.ok(consecutiveShort <= 2, `seed ${seed}: short views must end after at most two posts`);
+    }
+    const full = trace.selected.filter(item => trace.visits.some(visit => visit.index === item.index && visit.held >= [30000, 45000, 60000][seed % 3]));
+    assert.ok(full.length >= 1, `seed ${seed}: at least one video reaches its actual end despite overdue targets`);
+    for (let i = 1; i < trace.selected.length; i++) assert.ok(trace.selected[i].index - trace.selected[i - 1].index > 1, 'selected full watches are not back to back');
+    assert.equal(stats.like + stats.follow + stats.comment, 0);
+    assert.equal(trace.h.time(), 180000);
+    sessionShapes.add(holds.slice(0, 5).join(','));
+  }
+  assert.ok(sessionShapes.size >= 25, 'different session seeds produce different viewing sequences');
+});
+
+test('Instagram viewing is the same with zero targets and overdue unavailable engagements', async () => {
+  for (let seed = 1; seed <= 10; seed++) {
+    const enabled = instagramViewingTrace({ seed });
+    const disabled = instagramViewingTrace({ seed, targets: { like: 0, follow: 0, comment: 0 } });
+    await Promise.all([enabled.run, disabled.run]);
+    assert.deepEqual(enabled.visits, disabled.visits);
+    assert.deepEqual(enabled.selected, disabled.selected);
+  }
+});
+
+test('selected short Instagram clips finish using real end or loop evidence', async () => {
+  for (const loops of [false, true]) for (const duration of [3000, 8000]) {
+    const trace = instagramViewingTrace({ durationMs: duration, playbackAt: ({ index, elapsed }) => ({
+      durationMs: duration, positionMs: loops ? elapsed % duration : Math.min(duration, elapsed),
+      rate: 1, playing: loops || elapsed < duration, ended: !loops && elapsed >= duration, source: `video-${index}`
+    }) });
+    await trace.run;
+    const finished = trace.selected.map(item => trace.visits.find(visit => visit.index === item.index)).filter(Boolean);
+    assert.ok(finished.length > 0);
+    for (const visit of finished) {
+      assert.ok(visit.held >= duration, 'a selected clip reaches the end');
+      assert.ok(visit.held <= duration + 1000, `loop detection should not wait for repeated replays: ${visit.held}`);
+    }
+  }
+});
+
+test('Instagram whole-video holds tolerate brief buffering and use playback speed', async () => {
+  const trace = instagramViewingTrace({ durationMs: 16000, playbackAt: ({ index, elapsed }) => {
+    const buffering = elapsed >= 3000 && elapsed < 6000;
+    const played = Math.max(0, elapsed - (elapsed >= 6000 ? 3000 : buffering ? elapsed - 3000 : 0)) * 2;
+    return { durationMs: 16000, positionMs: Math.min(16000, played), rate: 2, playing: !buffering && played < 16000, ended: played >= 16000, source: `video-${index}` };
+  } });
+  await trace.run;
+  const watched = trace.selected.map(item => trace.visits.find(visit => visit.index === item.index)).filter(Boolean);
+  assert.ok(watched.length > 0);
+  for (const visit of watched) assert.ok(visit.held >= 11000 && visit.held <= 12000, `expected 8s playback plus 3s buffering, got ${visit.held}`);
+});
+
+test('stalled or paused Instagram playback ends its hold without waiting out a long video', async () => {
+  for (const paused of [false, true]) {
+    const trace = instagramViewingTrace({ durationMs: 60000, playbackAt: ({ index, elapsed }) => ({
+      durationMs: 60000, positionMs: Math.min(3000, elapsed), rate: 1, playing: !(paused && elapsed >= 3000), ended: false, source: `video-${index}`
+    }) });
+    await trace.run;
+    const held = trace.selected.map(item => trace.visits.find(visit => visit.index === item.index)).filter(Boolean);
+    assert.ok(held.length > 0);
+    assert.ok(held.every(visit => visit.held >= 11000 && visit.held <= 12000), 'eight seconds without progress returns control to browsing');
+    assert.equal(trace.h.time(), 180000);
+  }
+});
+
+test('Instagram selected watches leave changed media and account restrictions immediately', async () => {
+  for (const outcome of ['changed-post', 'changed-source', 'blocked']) {
+    let selectedIndex;
+    const trace = instagramViewingTrace({ customize: ({ h, selected }) => {
+      const inspect = h.adapter.inspect;
+      h.adapter.inspect = async () => {
+        const page = await inspect();
+        if (!selected.length) return page;
+        selectedIndex = selected[0].index;
+        if (outcome === 'blocked') return { blocked: 'account needs attention' };
+        if (outcome === 'changed-post') page.post.id = 'different-post';
+        if (outcome === 'changed-source') page.post.videoPlayback.source = 'different-media';
+        return page;
+      };
+    } });
+    if (outcome === 'blocked') {
+      await assert.rejects(trace.run, /account needs attention/);
+      assert.equal(trace.visits.some(visit => visit.index === selectedIndex), false);
+    } else {
+      await trace.run;
+      assert.ok(trace.visits.find(visit => visit.index === selectedIndex).held <= 1000, 'changed media ends the selected hold at the first check');
+    }
+  }
+});
+
+test('Stop during a selected Instagram full watch prevents all further inspection and actions', async () => {
+  let inspectedAtStop;
+  const trace = instagramViewingTrace({ customize: ({ h, selected, reads }) => {
+    const sleep = h.options.sleep;
+    h.options.sleep = async ms => {
+      await sleep(ms);
+      if (selected.length) { inspectedAtStop = reads.length; h.controller.abort(); }
+    };
+  } });
+  await trace.run;
+  assert.ok(trace.selected.length === 1);
+  assert.equal(trace.reads.length, inspectedAtStop);
+  assert.equal(trace.visits.some(visit => visit.index === trace.selected[0].index), false);
+  assert.match(trace.h.updates.at(-1).message, /session stopped/);
+});
+
+test('buffering during selected Instagram watches cannot delay keyword rotation or the session deadline', async () => {
+  const searches = [];
+  const trace = instagramViewingTrace({ minutes: 1, durationMs: 8000,
+    playbackAt: ({ index, elapsed }) => ({ durationMs: 8000, positionMs: Math.min(1000, elapsed), rate: 1, playing: true, ended: false, source: `video-${index}` }),
+    customize: ({ h, settings }) => {
+      settings.terms = ['first', 'second', 'third'];
+      h.options.random = () => 0;
+      h.adapter.search = async term => searches.push({ term, time: h.time() });
+    }
+  });
+  await trace.run;
+  assert.ok(trace.selected.length > 0);
+  assert.deepEqual(searches.map(item => item.time), [0, 20000, 40000]);
+  assert.equal(trace.h.time(), 60000);
 });

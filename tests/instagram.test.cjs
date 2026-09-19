@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../browser-extension/instagram.js'), 'utf8');
 const commentComposer = require('./fixtures/comment-composer.cjs');
 
-function postFixture({ saved = false, liked = false, bookmark = true, followState, unrelatedFollowState, viewer = false, closeCount = 1, extraDialog = false } = {}) {
+function postFixture({ saved = false, liked = false, bookmark = true, followState, unrelatedFollowState, viewer = false, closeCount = 1, extraDialog = false, media = [] } = {}) {
   const id = 'https://www.instagram.com/p/example/';
   const clicks = [];
   const rect = (left = 0, top = 0, width = 40, height = 30) => ({ left, top, width, height, right: left + width, bottom: top + height });
@@ -37,7 +37,7 @@ function postFixture({ saved = false, liked = false, bookmark = true, followStat
   const scope = {
     getBoundingClientRect: () => rect(0, 0, 600, 500),
     contains: element => allButtons.includes(element),
-    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : selector === 'a[href]' ? [author, ...(viewer ? [{ href: id }] : [])] : [],
+    querySelectorAll: selector => selector === 'button, [role="button"]' ? allButtons : selector === 'a[href]' ? [author, ...(viewer ? [{ href: id }] : [])] : selector === 'video' ? media : [],
   };
   const closes = Array.from({ length: closeCount }, (_, i) => button('Close', 750 + i * 50, 20));
   const dialog = { getBoundingClientRect: () => rect(0, 0, 1000, 800), innerText: '', querySelector: () => scope, querySelectorAll: () => [] };
@@ -61,6 +61,27 @@ function postFixture({ saved = false, liked = false, bookmark = true, followStat
   vm.runInContext(source, context);
   return { id, clicks, like, save, commentHeart, follow, document, inspect: request => context.inspectInstagram(request) };
 }
+
+test('Instagram exposes playback progress only for one visible video with valid timing', () => {
+  const video = { paused: false, ended: false, readyState: 4, duration: 8, currentTime: 2, playbackRate: 2, currentSrc: 'video-source',
+    getBoundingClientRect: () => ({ left: 0, right: 300, top: 0, bottom: 300, width: 300, height: 300 }) };
+  const fixture = postFixture({ viewer: true, media: [video] });
+  assert.equal(fixture.inspect().post.videoRemainingMs, 3000);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.inspect().post.videoPlayback)), { positionMs: 2000, durationMs: 8000, rate: 2, playing: true, ended: false, source: 'video-source' });
+  for (const state of [{ paused: true, readyState: 4 }, { paused: false, readyState: 1 }]) {
+    Object.assign(video, state);
+    assert.equal(fixture.inspect().post.videoRemainingMs, null);
+    assert.equal(fixture.inspect().post.videoPlayback.playing, false);
+  }
+  Object.assign(video, { readyState: 4, ended: true, currentTime: 8 });
+  assert.equal(fixture.inspect().post.videoPlayback.ended, true);
+  assert.equal(fixture.inspect().post.videoPlayback.positionMs, 8000);
+  assert.equal(fixture.inspect().post.videoRemainingMs, null);
+  for (const values of [{ duration: Infinity }, { duration: 121 }, { currentTime: -1 }, { playbackRate: 0 }]) {
+    assert.equal(postFixture({ media: [{ ...video, ...values }] }).inspect().post.videoPlayback, null);
+  }
+  assert.equal(postFixture({ media: [video, { ...video }] }).inspect().post.videoPlayback, null);
+});
 
 test('only the unique viewer close control is exposed, never an article button or another dialog', () => {
   const valid = postFixture({ viewer: true });

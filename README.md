@@ -1,3 +1,9 @@
+# 0.6.50 varied instagram viewing
+
+Instagram viewing no longer accelerates when engagement targets fall behind. Sessions mix shorter visits, ordinary watches and occasional complete videos. Complete watches observe real playback progress, end or looping, with bounded stall recovery and the existing Stop, keyword and session deadlines. TikTok cadence and engagement limits are unchanged.
+
+Installed 0.6.49 completed the September 19 TikTok motion test: five minutes, both keyword searches, 15 advances, one like attempt and one follow attempt, then natural completion. A separate Stop test passed. The user excludes account-level acceptance from this motion criterion. Local checks cover controlled comment input, submission and confirmation; no public comment was sent during this test. See LIVE_VERIFICATION.md for precise evidence and limits. Publishing source does not automatically update an unpacked installed extension.
+
 # 0.6.49 skipped comment recovery
 
 Definitively skipped comments no longer exhaust unused wording. Replies remain available for a different eligible post only when no submission or draft remains. Same-post guards and reservations for submitted, uncertain, retained-draft and interrupted outcomes stay intact.

@@ -1,13 +1,9 @@
 {
-  "version": "0.6.50",
   "releasedAt": "2026-09-19",
   "summary": "varied instagram viewing with complete videos",
   "changes": [
     "instagram mixes shorter visits, longer watches and occasional complete videos, without rushing to catch up on engagement targets.",
     "complete-video watches follow actual playback and recover from pauses or buffering while respecting stop and session time.",
     "includes the existing tiktok comment recovery and confirmation safeguards."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.50.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

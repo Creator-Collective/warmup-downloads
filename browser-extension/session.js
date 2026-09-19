@@ -208,9 +208,10 @@ async function runSession(settings, adapter, signal, options = {}) {
   let needsSearchScroll = false;
   let previousAction;
   let lastWatchWasFull = false;
-  let skimBurstRemaining = 0;
+  let consecutiveSkims = 0;
   let videosSinceFullWatch = 0;
-  let nextFullWatchAfter = randomBetween(16, 24, random);
+  const fullWatchInterval = () => platform === 'instagram' ? randomBetween(3, 6, random) : randomBetween(16, 24, random);
+  let nextFullWatchAfter = fullWatchInterval();
   const running = () => !signal.aborted && now() < deadline;
   const comments = [];
   const update = message => adapter.update({
@@ -227,21 +228,66 @@ async function runSession(settings, adapter, signal, options = {}) {
     // Missing controls or a target falling behind must not make TikTok race
     // through posts. Give each viewer time to render before inspecting again.
     if (platform === 'tiktok') return !lastWatchWasFull && videosSinceFullWatch >= nextFullWatchAfter ? 'fullwatch' : 'watch';
-    const totalDebt = totalEngagementDebt();
-    if (totalDebt >= 4 && random() < .9) return 'skim';
-    if (totalDebt >= 2 && random() < .65) return 'skim';
-    if (!lastWatchWasFull && videosSinceFullWatch >= nextFullWatchAfter) return 'fullwatch';
-    if (skimBurstRemaining <= 0 && random() < 0.42 / settings.pauseScale) skimBurstRemaining = randomBetween(1, 3, random);
-    if (skimBurstRemaining > 0) {
-      skimBurstRemaining -= 1;
+    // Viewing is independent of engagement targets. Missing controls and a
+    // longer watch must never create a catch-up burst through the next posts.
+    const previousWasFull = lastWatchWasFull;
+    lastWatchWasFull = false;
+    if (!previousWasFull && (videosSinceFullWatch >= nextFullWatchAfter || (videosSinceFullWatch >= 2 && random() < .23))) {
+      consecutiveSkims = 0;
+      lastWatchWasFull = true;
+      videosSinceFullWatch = 0;
+      nextFullWatchAfter = fullWatchInterval();
+      return 'fullwatch';
+    }
+    if (consecutiveSkims < 2 && random() < .28 / settings.pauseScale) {
+      consecutiveSkims += 1;
       return 'skim';
     }
+    consecutiveSkims = 0;
     return 'watch';
+  };
+  const watchVideoRemainder = async initialPost => {
+    const initial = initialPost.videoPlayback;
+    const until = Math.min(deadline, nextTermAt, now() + initialPost.videoRemainingMs + 8000);
+    let previous = initial;
+    let lastProgressAt = now();
+    let progressed = false;
+    while (running() && now() < until) {
+      const remaining = (previous.durationMs - previous.positionMs) / previous.rate;
+      const ms = Math.min(1000, Math.max(100, remaining / 2), until - now());
+      adapter.update({ phase: 'pause', nextActionAt: now() + ms });
+      await sleep(ms, signal);
+      if (!running()) return;
+      adapter.update({ phase: 'action', nextActionAt: null });
+      if (now() >= nextTermAt) return;
+      const page = await adapter.inspect(signal);
+      if (!running()) return;
+      if (page.blocked) throw new Error(page.blocked);
+      const playback = page.post?.videoPlayback;
+      if (postIdentity(page.post?.id) !== postIdentity(initialPost.id) || !playback ||
+          playback.source !== initial.source || playback.durationMs !== initial.durationMs) return;
+      // A real end, or a loop after observed progress near the end, completes
+      // the watch. Elapsed wall time alone cannot establish playback progress.
+      const wrapWindow = Math.max(1500, previous.rate * 1500);
+      const wrapped = progressed && previous.durationMs - previous.positionMs <= wrapWindow &&
+        playback.positionMs < previous.positionMs && playback.positionMs <= wrapWindow;
+      if (playback.ended || wrapped) return;
+      if (playback.positionMs > previous.positionMs + 20) {
+        progressed = true;
+        lastProgressAt = now();
+      } else if (playback.positionMs < previous.positionMs - 20 || now() - lastProgressAt >= 8000) return;
+      previous = playback;
+    }
   };
   const pause = async (action = 'browse') => {
     if (!running()) return;
     const ranges = { transition: [500, 1800], browse: [1800, 5200], retry: [6000, 10000], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[platform === 'tiktok' && action === 'fullwatch' ? 'watch' : action] || ranges.browse;
+    if (platform === 'instagram') {
+      if (action === 'skim') { min = 1500; max = 4000; }
+      if (action === 'watch') { min = 6000; max = 18000; }
+      if (action === 'fullwatch') { min = 10000; max = 22000; }
+    }
     let fullWatchMs = null;
     if (now() >= nextBreak && totalEngagementDebt() < 3 && nextLikeAt() - now() >= 45000 * settings.pauseScale) {
       min = 20000; max = 45000;
@@ -250,26 +296,29 @@ async function runSession(settings, adapter, signal, options = {}) {
     } else if (now() >= nextBreak) {
       nextBreak = now() + randomBetween(45000, 90000, random);
     } else if (action === 'watch' || action === 'fullwatch') {
-      const tryFullWatch = action === 'fullwatch' || (!lastWatchWasFull && random() < 0.25);
-      lastWatchWasFull = false;
+      const tryFullWatch = action === 'fullwatch' || (platform === 'tiktok' && !lastWatchWasFull && random() < 0.25);
+      if (platform === 'tiktok') lastWatchWasFull = false;
       if (tryFullWatch) {
         const page = await adapter.inspect(signal);
         if (!running()) return;
         if (page.blocked) throw new Error(page.blocked);
         const remaining = page.post?.viewer ? page.post.videoRemainingMs : null;
-        if (Number.isFinite(remaining) && remaining > 10000 * settings.pauseScale && remaining <= 120000 &&
-            remaining <= Math.min(deadline, nextTermAt, nextLikeAt()) - now()) {
+        const viewingDeadline = Math.min(deadline, nextTermAt, platform === 'tiktok' ? nextLikeAt() : Infinity);
+        if (Number.isFinite(remaining) && remaining > (platform === 'instagram' ? 500 : 10000 * settings.pauseScale) && remaining <= 120000 &&
+            remaining <= viewingDeadline - now() && (platform !== 'instagram' || page.post.videoPlayback?.playing)) {
           fullWatchMs = remaining;
-          lastWatchWasFull = true;
-          videosSinceFullWatch = 0;
-          nextFullWatchAfter = randomBetween(16, 24, random);
+          if (platform === 'tiktok') {
+            lastWatchWasFull = true;
+            videosSinceFullWatch = 0;
+            nextFullWatchAfter = fullWatchInterval();
+          }
           update('staying for the rest of this video…');
+          if (platform === 'instagram') { await watchVideoRemainder(page.post); return; }
         }
       }
     }
-    const likePauseBudget = platform !== 'tiktok' && (action === 'watch' || action === 'fullwatch') ? Math.max(1000 * settings.pauseScale, nextLikeAt() - now()) : Infinity;
     const minimum = platform === 'tiktok' && ['watch', 'fullwatch', 'retry'].includes(action) ? 6000 : 0;
-    const ms = Math.min(Math.max(minimum, fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random)), likePauseBudget, deadline - now(), Math.max(0, nextTermAt - now()));
+    const ms = Math.min(Math.max(minimum, fullWatchMs ?? randomBetween(Math.round(min * settings.pauseScale), Math.round(max * settings.pauseScale), random)), deadline - now(), Math.max(0, nextTermAt - now()));
     adapter.update({ phase: 'pause', nextActionAt: now() + ms });
     await sleep(ms, signal);
     if (running()) adapter.update({ phase: 'action', nextActionAt: null });

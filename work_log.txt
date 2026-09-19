@@ -1,3 +1,9 @@
+2026-09-19 | 0.6.50 varied instagram viewing and complete motion verification
+changed: decouple Instagram viewing from overdue engagement targets; vary short/ordinary/full watches, cap quick-skip streaks, and observe playback progress/end/loop with stall, Stop and deadline guards. preserve TikTok cadence and existing comment/confirmation safeguards.
+files: extension session/instagram plus focused tests; version/setup/release/store metadata and two archives; README and LIVE_VERIFICATION.
+verified: installed0.6.49 five-minute TikTok run completed15advances, both keywords and one like/follow attempt each; separate Stop and draft-only entry/cleanup passed. account acceptance excluded by user, no public comment posted. 489 automated checks pass; both33-file archives match; code/JS reviews approved. hidden real-video fixture verifies loops/end, paused-video recovery, natural deadline and immediate Stop. no local app build.
+follow-ups: live Instagram selector/installed0.6.50 verification and live comment delivery not claimed. installedcopy stays0.6.49; no further download or user-run test requested. publish via feature PR and verify production.
+
 2026-09-19 | recover unused comment wording after skipped posts
 changed: release a generated reply only after a definitive skip with no submission or remaining draft, so unavailable controls cannot exhaust every reply. preserve per-post guards and all submitted/uncertain/draft reservations.
 files: browser-extension/session.js, tests/session.test.cjs, release/setup/store/package metadata and0.6.49 archives, README/LIVE_VERIFICATION.
