@@ -1,3 +1,7 @@
+# dashboard chrome extensions shortcut
+
+The Creator Collective dashboard can link to `/extensions.html` on the existing warm-up origin. This fixed-purpose page uses the already installed 0.6.46-or-newer extension to open Chrome's extensions manager once. A bounded connection check, exact request/source/origin matching and a positive tab confirmation prevent false success; missing, old or disconnected extensions get the Chrome menu instructions and an explicit retry. Return links always go to the dashboard warm-up page. No extension archive, version or permission changes are needed.
+
 # 0.6.52 tiktok search and confirmation fixes
 
 TikTok likes and follows can use posts captured from the requested search, even when a caption uses different wording such as #personalbranding for personal brand. Membership stays bound to the current query, exact author and post; viewer recommendations cannot grant themselves eligibility. Comments keep their existing caption requirements, and activity now explains structural skips.

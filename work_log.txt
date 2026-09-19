@@ -1,3 +1,9 @@
+2026-09-19 | dashboard extension-manager shortcut
+changed: add a fixed website-only opening page for the creator collective dashboard. it probes the existing extension, opens only Chrome extensions, and shows bounded failure/menu fallback with explicit retry; no extension update or new permission.
+files: extensions.html/js, .vercelignore, README and focused shortcut tests.
+verified: 13 new shortcut cases and 34 focused checks pass; independent code/JS/security review finds no helper issue. full suite recorded before release. no browser installation changes or app build.
+follow-ups: publish helper before dashboard link; installed Chrome opening not exercised in this task, existing command retained.
+
 2026-09-19 | 0.6.52 tiktok search eligibility and confirmation fixes
 changed: accept exact-author posts captured from the chosen search despite different caption wording; exclude unrelated recommendations and reset membership per query. ignore caption mentions when checking the primary author; retry transient fresh-document reads without replaying clicks. explain structural engagement skips while retaining caption-bound comments and all limits/Stop guards.
 files: extension runner/session/tiktok; five focused test files; version/setup/release/store metadata and two archives; README/LIVE_VERIFICATION.
