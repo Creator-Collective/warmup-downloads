@@ -1,13 +1,9 @@
 {
-  "version": "0.6.49",
   "releasedAt": "2026-09-19",
   "summary": "keep unused comments available after skipped posts",
   "changes": [
     "a skipped comment no longer uses up wording that was never posted.",
     "unused wording stays available for another suitable post; submitted or uncertain comments are still protected from duplicates.",
     "tiktok likes and follows that do not stay saved remain unconfirmed."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.49.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
