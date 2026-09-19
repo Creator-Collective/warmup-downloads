@@ -1,7 +1,7 @@
-keep warm-up sessions in the background
+preserve unused replies after skipped comments
 
 misc:
-- create inactive timer tabs from website and side panel
-- preserve selected platform window and existing startup guards
-- cover both entry points and platforms without focus changes
-- package extension 0.6.48 and record remaining live checks
+- release unused wording after definitive comment skips on both platforms
+- retain same-post, submitted-comment and uncertain-draft protections
+- add long-session regressions and package extension 0.6.49
+- record live tiktok persistence failures without claiming acceptance

@@ -412,6 +412,9 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
         update(engagementMessage(action, post, comment, 'pending'));
         const result = await adapter.engage(action, post, comment, signal);
+        // A definitive skip guarantees no submission or remaining draft. Keep
+        // its wording available for another post, but retain this post's guard.
+        if (action === 'comment' && result === 'skipped') usedComments.delete(comment.toLocaleLowerCase());
         if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
           comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }

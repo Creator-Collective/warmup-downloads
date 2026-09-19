@@ -274,6 +274,46 @@ test('an uncertain TikTok submission with a possible draft is recorded and pause
  assert.ok(h.updates.some(update => /comments are off for this session/.test(update.message)));
 });
 
+for (const platform of ['instagram', 'tiktok']) test(`${platform} skipped comment controls do not exhaust wording before a later eligible post`, async () => {
+  let index = 0;
+  const attempts = [];
+  const caption = 'Sharing your process makes personal branding more concrete.';
+  const h = harness({
+    inspect: async () => ({ post: { id: `post-${index}`, author: `author-${index}`, text: caption, caption, viewer: true, comment: true } }),
+    advance: async () => { index++; return true; },
+    engage: async (action, post, text) => {
+      attempts.push({ id: post.id, text });
+      return attempts.length <= 4 ? 'skipped' : 'confirmed';
+    }
+  });
+  const stats = await runSession(validateSettings({ ...input, platform, niche: 'personal branding', minutes: 74, customLimits: { like: 0, follow: 0, comment: 19 } }), h.adapter, h.controller.signal, h.options);
+  assert.equal(attempts.length, 8, 'four unavailable composers must leave all four relevant replies available');
+  assert.equal(new Set(attempts.slice(0, 5).map(attempt => attempt.text)).size, 1, 'unused wording stays available until it is submitted');
+  assert.equal(new Set(attempts.slice(4).map(attempt => attempt.text)).size, 4, 'confirmed wording must not be reused');
+  assert.equal(new Set(attempts.map(attempt => attempt.id)).size, attempts.length, 'a skipped post must not receive another attempt');
+  assert.equal(stats.comment, 4);
+  assert.equal(h.updates.at(-1).comments.length, 4);
+  assert.equal(h.updates.at(-1).unconfirmed.comment, 0);
+  assert.equal(h.time(), 74 * 60000);
+});
+
+for (const platform of ['instagram', 'tiktok']) test(`${platform} unconfirmed submitted comments keep their wording reserved across later posts`, async () => {
+  let index = 0;
+  const attempts = [];
+  const caption = 'Sharing your process makes personal branding more concrete.';
+  const h = harness({
+    inspect: async () => ({ post: { id: `post-${index}`, author: `author-${index}`, text: caption, caption, viewer: true, comment: true } }),
+    advance: async () => { index++; return true; },
+    engage: async (action, post, text) => { attempts.push(text); return 'uncertain'; }
+  });
+  const stats = await runSession(validateSettings({ ...input, platform, niche: 'personal branding', minutes: 74, customLimits: { like: 0, follow: 0, comment: 19 } }), h.adapter, h.controller.signal, h.options);
+  assert.equal(attempts.length, 4, 'potentially published wording must remain unavailable');
+  assert.equal(new Set(attempts).size, 4);
+  assert.equal(stats.comment, 0);
+  assert.equal(h.updates.at(-1).unconfirmed.comment, 4);
+  assert.ok(h.updates.at(-1).comments.every(comment => comment.status === 'uncertain'));
+});
+
 test('real session updates name the observed account for each action and include exact comment text', async () => {
   const post = { id: 'https://www.instagram.com/p/example/', author: '/Creator.Name/', viewer: true, text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true };
   const comment = contextualComment(post.caption, ['study tips']);
@@ -395,8 +435,8 @@ test('an uncertain TikTok follow is reported once while likes and comments conti
   assert.equal(h.time(), 600000);
 });
 
-test('TikTok reports an in-flight like or follow outcome after Stop without starting another action', async () => {
- for (const action of ['like', 'follow']) {
+test('TikTok reports an in-flight engagement outcome after Stop without starting another action', async () => {
+ for (const action of ['like', 'follow', 'comment']) {
   for (const result of ['confirmed', 'uncertain']) {
     const h = harness({ engage: async action => { h.calls.push([action]); h.controller.abort(); return result; } });
     const stats = await runSession(validateSettings({ ...input, platform: 'tiktok', customLimits: { like: 0, follow: 0, comment: 0, [action]: 1 } }), h.adapter, h.controller.signal, h.options);
@@ -452,12 +492,16 @@ test('login or activity restrictions stop further actions', async () => {
   assert.deepEqual(h.calls.map(call => call[0]), ['search']);
 });
 
-test('same post cannot receive the same action twice within a session', async () => {
-  const h = harness({ inspect: async () => ({ post: { id: 'p', author: 'a', text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true } }) });
+for (const outcome of ['confirmed', 'skipped']) test(`${outcome} actions cannot repeat on the same post within a session`, async () => {
+  const h = harness({
+    inspect: async () => ({ post: { id: 'p', author: 'a', text: 'study tips', caption: 'Study tips work best when you practice a little every day.', like: true, follow: true, comment: true } }),
+    engage: async action => { h.calls.push([action]); return outcome; }
+  });
   const stats = await runSession(validateSettings(input), h.adapter, h.controller.signal, h.options);
-  assert.equal(stats.comment, 1);
-  assert.equal(stats.like, 1);
-  assert.equal(stats.follow, 1);
+  for (const action of ['like', 'follow', 'comment']) {
+    assert.equal(h.calls.filter(call => call[0] === action).length, 1);
+    assert.equal(stats[action], outcome === 'confirmed' ? 1 : 0);
+  }
 });
 
 test('an already stopped session cannot start a search', async () => {

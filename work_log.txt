@@ -1,3 +1,9 @@
+2026-09-19 | recover unused comment wording after skipped posts
+changed: release a generated reply only after a definitive skip with no submission or remaining draft, so unavailable controls cannot exhaust every reply. preserve per-post guards and all submitted/uncertain/draft reservations.
+files: browser-extension/session.js, tests/session.test.cjs, release/setup/store/package metadata and0.6.49 archives, README/LIVE_VERIFICATION.
+verified: all481 checks pass, including76 focused session tests; long-session regressions fail on prior code on both platforms. code and JavaScript reviews approve. archives match source; no local build. live0.6.48 browsing/timer/Stop/visibility passed; like and follow persistence failed, and a separate ordinary like also reverted.
+follow-ups: publish0.6.49 and verify production. no comments posted without explicit authorization; installed0.6.49 and live comment counting remain unverified. TikTok rollback cause remains unresolved.
+
 2026-09-18 | 0.6.48 preserve focus when starting warm-up
 changed: website and side-panel Start create the timer inactive in the selected platform tab's existing window, matching the documented background behavior. removed unused origin-dependent activation parameter.
 files: extension background, focused extension tests, version/setup/release/store metadata, README/LIVE_VERIFICATION and archives.

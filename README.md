@@ -1,3 +1,9 @@
+# 0.6.49 skipped comment recovery
+
+Definitively skipped comments no longer exhaust unused wording. Replies remain available for a different eligible post only when no submission or draft remains. Same-post guards and reservations for submitted, uncertain, retained-draft and interrupted outcomes stay intact.
+
+Installed 0.6.48 was tested on September 19: browsing, timer completion, Stop and keeping TikTok visible passed. The attempted like and follow did not persist after fresh navigation and correctly stayed unconfirmed. Comment posting was not authorized for this test. This release fixes a separately reproduced comment exhaustion bug, not TikTok acceptance; see LIVE_VERIFICATION.md.
+
 # 0.6.48 background session start
 
 Both website and side-panel Start create the timer tab inactive in the selected platform tab's window. Starting warm-up no longer switches the selected tab. Explicit open-platform and show-platform actions keep their existing behavior. This release includes 0.6.47 like confirmation, without claiming to resolve TikTok's observed rollback of ordinary likes and follows.

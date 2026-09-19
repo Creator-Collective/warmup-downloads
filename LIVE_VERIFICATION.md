@@ -1,6 +1,6 @@
 # tiktok verification status
 
-Updated 2026-09-18. Overall status: not fully verified. Automated checks do not establish that TikTok accepted a live action.
+Updated 2026-09-19. Overall status: not fully verified. Automated checks do not establish that TikTok accepted a live action.
 
 ## installed 0.6.38
 
@@ -78,3 +78,20 @@ This corrects a demonstrated reporting failure. It does not establish why TikTok
 The setup handshake still reported installed 0.6.46 while the available download was 0.6.47. No TikTok or Instagram tab was open at this follow-up, and no session or social action was started. The current extension audit found one additional reproducible product inconsistency: website Start activated the runner tab even though setup describes it as a background tab.
 
 Both website and panel now create the runner inactive in the selected platform tab's window. Existing zero-target exclusion, per-platform settings, Stop recovery and comment guards remain unchanged. The prior live like/follow rollback cause remains unknown. Browser security policy blocks extension-management automation, so the installed update still needs the user. A new explicit comment-test request is pending; no comment was posted.
+
+## installed 0.6.48 live tests, September 19
+
+Setup confirmed installed 0.6.48, signed-in TikTok @ollymode. The user explicitly requested testing with TikTok selected. Saved settings were five minutes, personal brand, targets 0/0/0. No comments were drafted or posted; specific comment authorization was requested but not received.
+
+- Two-minute 1 like / 1 follow / 0 comment session at approximately 17:06-17:09 UTC completed normally with eight advances, zero confirmed likes/follows and one unconfirmed like. TikTok remained visible and playing. The like attempt was on @salemkinging/video/7662645033958526215. Fresh navigation afterward showed the primary 61.6K-like button with aria-pressed=false. The counter correctly stayed zero. No follow was attempted within this run.
+- A three-minute follow-only session started at approximately 17:10 UTC. It attempted @miarosemcgrath/video/7680098183468322070 and reported one unconfirmed follow. The test was deliberately stopped with 1:42 remaining after four advances. Start returned, settings became editable and the session stayed stopped. Fresh navigation to @miarosemcgrath showed the specific profile button 'Follow Mia McGrath | Frugal Chic®', so the follow did not persist.
+- An ordinary UI comparison, with the extension session stopped, used the previously unliked @ririalicex/video/7634626986060680470. One click made its 78.3K-like button aria-pressed=true, then it reverted to false within about a minute before reload and remained false after reload. No second click or follow retry was performed. No visible error alert explained the rollback. This establishes failure through the ordinary control too, not its underlying cause or behavior on other accounts.
+- Original five-minute/zero-target settings were restored, and TikTok returned to its feed. No Instagram session was started.
+
+## 0.6.49 comment recovery and remaining verification
+
+Carson's supplied report showed 74 minutes, 96 advances, two confirmed likes, 118 unconfirmed likes, 60 unconfirmed follows and zero comments. His pictured hashtag-only caption is intentionally ineligible for generated comments; the report alone does not identify the cause of the action failures.
+
+A separate reproducible bug reserved each generated reply even when the adapter definitively skipped it without submission or a remaining draft. With four available personal-brand replies, four initial skips prevented further attempts throughout a simulated 74-minute session. Release0.6.49 removes only those unused reservations. Same-post guards, submitted/uncertain comments, retained drafts and interrupted outcomes remain protected. Regression tests reproduce the original failure on both platforms and verify continued eligible attempts after the correction.
+
+Installed0.6.48 browsing, timer, Stop, tab visibility and truthful unconfirmed counts passed; durable likes/follows failed. Installed0.6.49 comment recovery and the live comment counter remain unverified. Do not call the extension fully functional or attribute the rollbacks to one person's computer.
