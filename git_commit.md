@@ -1,7 +1,8 @@
-preserve unused replies after skipped comments
+vary instagram viewing and verify complete warm-up motions
 
 misc:
-- release unused wording after definitive comment skips on both platforms
-- retain same-post, submitted-comment and uncertain-draft protections
-- add long-session regressions and package extension 0.6.49
-- record live tiktok persistence failures without claiming acceptance
+- separate instagram viewing cadence from engagement targets
+- watch selected videos to actual completion with bounded stall recovery
+- preserve stop, keyword and session deadlines and tiktok behavior
+- cover varied sessions and playback edge cases; record installed motion test
+- package 0.6.50 and update release metadata

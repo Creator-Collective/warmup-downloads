@@ -125,12 +125,14 @@ function inspectInstagram(request = {}) {
   const viewerNext = postDialog && scope !== postDialog ? control(postDialog, 'next', element => !scope.contains(element)) : null;
   const videos = [...scope.querySelectorAll('video')].filter(visible);
   const video = videos.length === 1 ? videos[0] : null;
-  const videoRemainingMs = video && !video.paused && !video.ended && video.readyState >= 2 &&
+  const videoPlayback = video &&
     Number.isFinite(video.duration) && video.duration > 0 && video.duration <= 120 &&
-    Number.isFinite(video.currentTime) && video.currentTime >= 0 && video.currentTime < video.duration &&
+    Number.isFinite(video.currentTime) && video.currentTime >= 0 && video.currentTime <= video.duration &&
     Number.isFinite(video.playbackRate) && video.playbackRate > 0
-    ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
-  const post = { id, author, videoRemainingMs, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
+    ? { positionMs: Math.round(video.currentTime * 1000), durationMs: Math.round(video.duration * 1000), rate: video.playbackRate,
+      playing: !video.paused && !video.ended && video.readyState >= 2, ended: Boolean(video.ended), source: video.currentSrc || video.src || '' } : null;
+  const videoRemainingMs = videoPlayback?.playing ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
+  const post = { id, author, videoRemainingMs, videoPlayback, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
   if (!request.action) return { posts, sequence, post };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, reason: 'post-or-author-changed' };
   if (request.action === 'close') {

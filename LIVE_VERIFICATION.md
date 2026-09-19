@@ -1,6 +1,25 @@
-# tiktok verification status
+# warm-up verification record
 
-Updated 2026-09-19. Overall status: not fully verified. Automated checks do not establish that TikTok accepted a live action.
+Updated 2026-09-19. Installed 0.6.49 passed the requested TikTok motion test below. Account acceptance is excluded from that criterion at the user's request. Public comment delivery and the new Instagram timing in an installed extension are not claimed verified.
+
+## installed 0.6.49 motion test and 0.6.50 viewing verification
+
+September 19, approximately 17:40–17:47 UTC, signed-in TikTok. The setup handshake identified installed 0.6.49. The user reported that ordinary manual likes and follows also fail on this account and explicitly accepted attempts, rather than persistence, as this test's criterion. This does not establish a success percentage on other accounts.
+
+- A five-minute relaxed session with personal brand and storytelling, targets 1 like / 1 follow / 0 comments, completed naturally with 15 advances. Both keywords were reached, followed by a return to the first keyword. A like and a follow were each attempted once and correctly remained unconfirmed. Loaded, playing media and recovery after failed openings were observed; the platform tab remained visible.
+- A separate zero-engagement session was stopped after roughly 23 seconds, with 37 seconds left and two advances. Start returned and settings unlocked. The session remained stopped. Five minutes, personal brand, relaxed pace and zero targets were restored; TikTok was returned to its home feed.
+- The live comment editor accepted a draft without submitting it. A fresh revisit to that exact post, with Comments opened, confirmed the composer was empty after cleanup. No public comment was posted. Local real React 18 / Draft.js tests cover draft entry, rerender, one-time submission, editor clearing and new own-comment confirmation; these are not proof of current live TikTok comment delivery.
+- Prior live photo navigation evidence is retained below. Current automated checks cover video/photo identification and recovery, both launch surfaces, inactive runner placement, multiple keywords/batches, action guards, interrupted results, restart recovery and comment eligibility. No claim is made that every platform layout or other user's account was exercised live.
+
+The Instagram correction removes viewing acceleration caused by overdue engagement targets. Across 30 seeded three-minute sessions with missing controls and overdue nonzero targets, the tests each completed a 30–60-second video and bounded consecutive quick skips to two. Short clips, loop/end, buffering, paused/stalled playback, changed media, Stop and keyword/session deadlines have focused checks. TikTok's viewing policy is unchanged.
+
+A hidden local browser fixture used the current production session engine and Instagram DOM reader with a generated real 14-second video. Its only substitutions were local post/search navigation, an Instagram-shaped origin and disabled engagement actions:
+
+- Loop mode: selected posts stayed open for approximately 14.08 seconds and advanced only after actual video loops. The 60-second session ended at 60.005 seconds.
+- End mode: an actual video-ended event at position 14 seconds preceded navigation. Pausing a later selected full watch at position 13.409 seconds recovered after approximately 8.1 seconds with no loop or end recorded, then completed subsequent playback and the session deadline.
+- Stop during another selected full watch returned stopped immediately at position 6.893 seconds, without an end/loop or further post advance.
+
+This verifies real browser playback behavior, not current live Instagram selector compatibility or installed extension transport. The browser's installed copy remains 0.6.49; publishing 0.6.50 does not modify an unpacked local installation. No additional download or user-run test is requested.
 
 ## installed 0.6.38
 
