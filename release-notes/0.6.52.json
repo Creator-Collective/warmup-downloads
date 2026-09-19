@@ -1,13 +1,9 @@
 {
-  "version": "0.6.52",
   "releasedAt": "2026-09-19",
   "summary": "tiktok search eligibility and confirmation fixes",
   "changes": [
     "likes and follows can use posts from your chosen tiktok search, including captions with different wording. unrelated recommendations do not gain search eligibility.",
     "caption mentions no longer confuse the post author, and brief loading interruptions can retry confirmation reads without repeating a like or follow.",
     "activity explains why an action is skipped. comments still need relevant caption wording; only confirmed actions count toward targets."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.52.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
