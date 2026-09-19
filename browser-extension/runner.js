@@ -277,14 +277,33 @@ async function scroll() {
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     const page = inspector();
     if (page.blocked) throw new Error(page.blocked);
-    const markers = [...document.querySelectorAll('video,img,a[href],h1,h2,p')].filter(e => {
-      const r = e.getBoundingClientRect(); return r.width > 40 && r.height > 12 && r.bottom > 0 && r.top < innerHeight;
-    }).slice(0, 100).map(e => ({ e, rect: e.getBoundingClientRect() }));
-    let root = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
-    while (root && root !== document.documentElement && !(root.scrollHeight > root.clientHeight + 100 && /(auto|scroll)/.test(getComputedStyle(root).overflowY))) root = root.parentElement;
-    (root || document.scrollingElement).scrollBy({ top: Math.round(innerHeight * .7), behavior: 'instant' });
+    const resultLink = [...document.querySelectorAll('main a[href],[role="main"] a[href]')].find(link => {
+      try {
+        const url = new URL(link.href, location.href);
+        const postPath = location.hostname.includes('tiktok') ? /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/ : /^\/(p|reel)\/[\w-]+\/?$/;
+        if (url.origin !== location.origin || !postPath.test(url.pathname)) return false;
+        const rect = link.getBoundingClientRect();
+        if (!(rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight &&
+          rect.right > 0 && rect.left < innerWidth)) return false;
+        for (let node = link; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (node.getAttribute('aria-hidden') === 'true' || style.visibility === 'hidden' ||
+            style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+        }
+        return true;
+      } catch { return false; }
+    });
+    // Anchor scrolling to results, even when the viewport center is over a
+    // sidebar. The document's scrolling element can differ from <html>.
+    let root = resultLink || document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    while (root && root !== document.documentElement && !(root.scrollHeight > root.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(root).overflowY))) root = root.parentElement;
+    if (!root || root === document.documentElement) root = document.scrollingElement || document.documentElement;
+    const before = root.scrollTop;
+    root.scrollBy({ top: Math.round(innerHeight * .7), behavior: 'instant' });
     await new Promise(resolve => setTimeout(resolve, 500));
-    return markers.some(({ e, rect }) => { const next = e.getBoundingClientRect(); return e.isConnected && rect.top - next.top >= Math.min(100, innerHeight * .15) && Math.abs(rect.height - next.height) < 2; });
+    // Small final movements and virtualized tiles still count; moving unrelated
+    // elements or replacing their DOM nodes does not prove the results scrolled.
+    return root.scrollTop > before;
   }, [job.deadline]);
   } catch (error) {
     assertRunning();

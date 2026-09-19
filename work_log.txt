@@ -1,3 +1,9 @@
+2026-09-19 | 0.6.53 recover stalled search results
+changed: recover after 30 seconds without a new usable post, refresh or rotate supplied keywords with bounded attempts, and stop clearly when recovery fails; retain viewed-post/action history. scroll the visible results container and count real position changes, including small moves and replaced tiles.
+files: browser-extension/session.js, runner.js, focused tests; release/setup/package/store metadata, README, LIVE_VERIFICATION and both archives.
+verified: 581 automated checks pass, including package/source integrity; five recovery regressions fail on prior code. independent code/JavaScript/security reviews clear. no local build, Chrome control or social actions.
+follow-ups: publish through PR; existing unpacked copies need replacement/reload. Carson's exact initial Instagram trigger and installed-account behavior remain unverified.
+
 2026-09-19 | dashboard extension-manager shortcut
 changed: add a fixed website-only opening page for the creator collective dashboard. it probes the existing extension, opens only Chrome extensions, and shows bounded failure/menu fallback with explicit retry; no extension update or new permission.
 files: extensions.html/js, .vercelignore, README and focused shortcut tests.

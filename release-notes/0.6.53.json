@@ -1,13 +1,9 @@
 {
-  "version": "0.6.53",
   "releasedAt": "2026-09-19",
   "summary": "recover sessions when search results stop advancing",
   "changes": [
     "repeated scrolling without new posts triggers a bounded recovery: refresh the current search or move to another keyword you supplied.",
     "scrolling uses the results area and checks that its position actually changed. seen posts and action history remain protected during recovery.",
     "if results still do not advance, the session stops with a clear explanation instead of running down the timer. engagement targets remain maximums, not guaranteed totals."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.53.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
