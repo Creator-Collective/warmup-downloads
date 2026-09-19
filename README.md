@@ -1,3 +1,9 @@
+# 0.6.53 stalled search recovery
+
+Sessions detect repeated scrolling without new posts and make bounded recovery attempts by refreshing the current search or moving to another supplied keyword. Scrolls target the results area and require an actual position change. Seen posts and action history survive recovery; results that remain unavailable stop the session with a clear explanation instead of wasting the remaining time.
+
+All 581 automated checks pass, including recovery, scrolling, cancellation and archive integrity. Five recovery regressions fail against the previous code and pass with this fix. Independent code, JavaScript and security reviews found no remaining issues. No installed-extension or live Instagram verification, Carson-account inspection, or social actions have been performed for this release. The screenshot shows stalled results but does not establish what initially stopped Instagram advancing. Targets remain maximums, not guaranteed totals. See LIVE_VERIFICATION.md for evidence and limits.
+
 # dashboard chrome extensions shortcut
 
 The Creator Collective dashboard can link to `/extensions.html` on the existing warm-up origin. This fixed-purpose page uses the already installed 0.6.46-or-newer extension to open Chrome's extensions manager once. A bounded connection check, exact request/source/origin matching and a positive tab confirmation prevent false success; missing, old or disconnected extensions get the Chrome menu instructions and an explicit retry. Return links always go to the dashboard warm-up page. No extension archive, version or permission changes are needed.

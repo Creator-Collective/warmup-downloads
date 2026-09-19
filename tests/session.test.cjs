@@ -209,11 +209,11 @@ test('an observed failed photo viewer without close never opens covered search r
     },
     open: async id => { h.calls.push(['open', id]); return false; }
   });
-  await runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  await assert.rejects(runSession(validateSettings({ ...input, platform: 'tiktok', minutes: 1 }), h.adapter, h.controller.signal, h.options), /still isn't showing new posts\. session stopped/);
   assert.ok(recoveryAttempts > 0);
   assert.ok(h.calls.filter(call => call[0] === 'search').length > 1);
   assert.equal(h.calls.some(call => call[0] === 'open'), false);
-  assert.match(h.updates.at(-1).message, /session is complete/);
+  assert.ok(!h.updates.some(update => /session is complete/.test(update.message)));
 });
 
 test('random pauses stay within their automatic bounds', () => {
@@ -841,7 +841,7 @@ test('posts watched through next are not reopened when returning to results',asy
    leavePost:async()=>{phase=3},
  });
  h.options.random=()=>0;
- await runSession(validateSettings({...input,minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options);
+ await assert.rejects(runSession(validateSettings({...input,minutes:2,mix:{like:0,follow:0,comment:0}}),h.adapter,h.controller.signal,h.options), /still isn't showing new posts\. session stopped/);
  assert.equal(phase,3);
 });
 
@@ -861,22 +861,71 @@ test('one keyword keeps its result position beyond eight scrolls without restart
   assert.equal(new Set(opened).size, opened.length);
 });
 
-test('exhausted results wait for new content instead of reloading or replaying the first batch', async () => {
+for (const platform of ['instagram', 'tiktok']) test(`${platform} exhausted results refresh and open a new post without replaying the first batch`, async () => {
   const a = 'https://www.instagram.com/p/a/'; const b = 'https://www.instagram.com/p/b/';
-  const opened = []; let post = null;
+  const opened = []; let post = null; let searches = 0;
   const h = harness({
-    inspect: async () => post ? { post } : { posts: [a], sequence: h.time() < 90000 ? [a] : [a, b] },
-    open: async id => { opened.push(id); post = { id, viewer: true, text: 'study tips' }; return true; },
+    search: async term => { searches++; post = null; h.calls.push(['search', term]); },
+    inspect: async () => post ? { post } : { posts: searches < 2 ? [a] : [a, b] },
+    open: async id => {
+      opened.push(id); post = { id, viewer: true, text: 'study tips' };
+      if (id === b) h.controller.abort();
+      return true;
+    },
     advance: async () => false,
     leavePost: async () => { post = null; return true; },
     scroll: async () => false
   });
   h.options.random = () => 0;
-  await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 3, mix: { like: 0, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
+  await runSession(validateSettings({ ...input, platform, niche: 'study tips', minutes: 3, mix: { like: 0, follow: 0, comment: 0 } }), h.adapter, h.controller.signal, h.options);
   assert.deepEqual(opened, [a, b]);
+  assert.equal(searches, 2);
+  assert.ok(h.updates.some(update => /refreshing this search/.test(update.message)));
+  assert.ok(h.time() >= 30000 && h.time() < 90000);
+});
+
+test('stalled discovery rotates keywords early even when scrolling reports movement', async () => {
+  const h = harness({ inspect: async () => ({ posts: [] }) });
+  h.adapter.search = async term => {
+    h.calls.push(['search', term, h.time()]);
+    if (term === 'second') h.controller.abort();
+  };
+  await runSession(validateSettings({ ...input, niche: 'first, second', minutes: 10 }), h.adapter, h.controller.signal, h.options);
+  const searches = h.calls.filter(call => call[0] === 'search');
+  assert.deepEqual(searches.map(call => call[1]), ['first', 'second']);
+  assert.ok(searches[1][2] >= 30000 && searches[1][2] < 60000);
+  assert.ok(h.updates.some(update => /trying the next keyword/.test(update.message)));
+});
+
+for (const moved of [false, true]) test(`permanently exhausted results stop early with a clear reason when scroll returns ${moved}`, async () => {
+  const h = harness({ inspect: async () => ({ posts: [] }), scroll: async () => moved });
+  await assert.rejects(runSession(validateSettings({ ...input, niche: 'study tips', minutes: 90 }), h.adapter, h.controller.signal, h.options), /still isn't showing new posts\. session stopped/);
+  assert.equal(h.calls.filter(call => call[0] === 'search').length, 3);
+  assert.ok(h.time() >= 90000 && h.time() < 150000);
+  assert.ok(!h.updates.some(update => /time.s up/.test(update.message)));
+});
+
+test('temporary result loading recovers without refreshing a search that produces a new post', async () => {
+  const h = harness({ inspect: async () => ({ posts: h.time() < 15000 ? [] : ['https://www.instagram.com/p/new/'] }), scroll: async () => false });
+  h.adapter.open = async id => { h.calls.push(['open', id]); h.controller.abort(); return true; };
+  await runSession(validateSettings({ ...input, niche: 'study tips', minutes: 3 }), h.adapter, h.controller.signal, h.options);
   assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
-  assert.ok(h.updates.some(update => /no new posts/.test(update.message)));
-  assert.equal(h.time(), 180000);
+  assert.equal(h.calls.filter(call => call[0] === 'open').length, 1);
+});
+
+for (const stop of ['stop', 'deadline', 'blocked']) test(`exhausted discovery respects ${stop} before starting another search`, async () => {
+  const h = harness({ inspect: async () => {
+    if (h.time() >= 30000) {
+      if (stop === 'stop') h.controller.abort();
+      if (stop === 'deadline') await h.options.sleep(60000);
+      if (stop === 'blocked') return { blocked: 'instagram needs your attention.' };
+    }
+    return { posts: [] };
+  }, scroll: async () => false });
+  const run = runSession(validateSettings({ ...input, niche: 'study tips', minutes: 1 }), h.adapter, h.controller.signal, h.options);
+  if (stop === 'blocked') await assert.rejects(run, /needs your attention/);
+  else await run;
+  assert.equal(h.calls.filter(call => call[0] === 'search').length, 1);
 });
 
 test('watched identities survive p/reel aliases and the next-video path receives the same history', async () => {

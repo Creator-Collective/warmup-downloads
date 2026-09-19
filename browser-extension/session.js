@@ -221,6 +221,12 @@ async function runSession(settings, adapter, signal, options = {}) {
   let stalled = 0;
   let retrySearch = false;
   let needsSearchScroll = false;
+  // Scrolling or reloading the same results is not discovery. Only reaching a
+  // new post replenishes recovery attempts; retain seen/action history throughout.
+  let discoveryWindowStartedAt = startedAt;
+  let recoverySearches = 0;
+  const maxRecoverySearches = Math.max(2, settings.terms.length);
+  const discoveredPost = () => { discoveryWindowStartedAt = now(); recoverySearches = 0; };
   let previousAction;
   let lastWatchWasFull = false;
   let consecutiveSkims = 0;
@@ -347,6 +353,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     update(`searching for ${term}…`);
     const loaded = await adapter.search(term, signal);
     if (!running()) return;
+    discoveryWindowStartedAt = now();
     retrySearch = loaded === false;
     if (loaded === false) {
       currentSearchTerm = null;
@@ -361,6 +368,15 @@ async function runSession(settings, adapter, signal, options = {}) {
     previousAction = undefined;
     update(`opened search: ${term}`);
   };
+  const recoverSearch = async () => {
+    if (!running()) return;
+    if (recoverySearches >= maxRecoverySearches) {
+      throw new Error(`${platform} still isn't showing new posts. session stopped. check the results in ${platform} or try different keywords before restarting.`);
+    }
+    recoverySearches += 1;
+    update(settings.terms.length > 1 ? 'results stopped advancing. trying the next keyword...' : 'results stopped advancing. refreshing this search...');
+    await search();
+  };
   update('starting your niche session…');
   if (!running()) return stats;
   await search();
@@ -374,7 +390,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       update('waiting for the page to finish loading...');
       await sleep(Math.min(1500, deadline - now()), signal);
       stalled += 1;
-      if (running() && stalled >= 3) await search();
+      if (running() && stalled >= 3) await recoverSearch();
       continue;
     }
     if (page.unavailableViewer) {
@@ -387,12 +403,15 @@ async function runSession(settings, adapter, signal, options = {}) {
         update('continuing from your search results...');
       } else {
         stalled += 1;
-        await search();
+        await recoverSearch();
       }
       if (running()) await pause('transition');
       continue;
     }
-    if (page.post?.id) seen.add(postIdentity(page.post.id));
+    if (page.post?.id) {
+      if (!hasSeen(page.post.id)) discoveredPost();
+      seen.add(postIdentity(page.post.id));
+    }
     if (platform === 'tiktok' && !page.post && currentSearchTerm !== null && page.search?.term === currentSearchTerm && Array.isArray(page.search.posts)) {
       for (const id of page.search.posts) {
         const identity = tiktokPostIdentity(id);
@@ -400,7 +419,14 @@ async function runSession(settings, adapter, signal, options = {}) {
       }
     }
     const candidates = [...new Set([...(page.sequence || []), ...(page.posts || [])])].filter(id => !hasSeen(id));
-    if (now() >= nextTermAt || retrySearch) {
+    const discoveryStalled = now() - discoveryWindowStartedAt >= 30000 &&
+      ((!page.post && !candidates.length) || stalled >= 2);
+    if (retrySearch || discoveryStalled) {
+      // Allow delayed results to arrive before replacing the current search.
+      // Even successful scrolls must eventually produce a usable, unseen post.
+      await recoverSearch();
+      pauseAfter = 'retry';
+    } else if (now() >= nextTermAt) {
       await search();
       pauseAfter = 'transition';
     } else if (!needsSearchScroll && !page.post && candidates.length) {
@@ -418,6 +444,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       }
       stats.open += 1;
       stalled = 0;
+      discoveredPost();
       update('watching a post from your search.');
       pauseAfter = viewerPause();
     } else {
@@ -490,7 +517,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (post && (!inViewer || !moved)) await adapter.leavePost(post, signal);
         if (inViewer && moved) pauseAfter = viewerPause();
         if (!post && !moved && stalled >= 2) pauseAfter = 'exhausted';
-        update(inViewer ? (moved ? 'watching the next post.' : 'continuing from your search results...') : (moved ? 'scrolled to more content.' : 'no new posts yet. waiting for more results...'));
+        update(inViewer ? (moved ? 'watching the next post.' : 'continuing from your search results...') : (moved ? 'scrolled to more content.' : 'scrolling made no progress. waiting for results...'));
       } else {
         const key = action === 'follow' ? post.author : postIdentity(post.id);
         if (post.viewer) pauseAfter = 'transition';

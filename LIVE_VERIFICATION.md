@@ -1,5 +1,11 @@
 # warm-up verification record
 
+## 0.6.53 stalled search recovery, September 19
+
+The reported Instagram session repeatedly alternated between scrolling and no new results while the timer continued. The screenshot does not establish why Instagram initially stopped advancing. This release adds bounded search recovery, retains seen-post and action history, selects the results scroll area, and confirms a real position change before reporting a scroll. Persistent failure stops the session with help instead of consuming the remaining timer.
+
+All 581 automated checks pass, including recovery, scrolling, cancellation and archive integrity. Five recovery regressions fail against the previous code and pass with this fix. Independent code, JavaScript and security reviews found no remaining issues. This release has not been verified in an installed extension or against live Instagram or Carson's account. No Chrome control, account inspection, messages, likes, follows or comments were performed. Target completion and platform acceptance are not guaranteed. Publishing the download does not update an existing unpacked installation.
+
 Updated 2026-09-19. Installed 0.6.49 passed the requested TikTok motion test below. Account acceptance is excluded from that criterion at the user's request. Public comment delivery and the new Instagram timing in an installed extension are not claimed verified.
 
 ## 0.6.52 tiktok search and confirmation verification
