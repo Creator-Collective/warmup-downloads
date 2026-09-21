@@ -19,7 +19,7 @@ function background(initial) {
     sidePanel: { setPanelBehavior: async () => {} },
     runtime: { id: 'extension-id', getURL: p => `chrome-extension://extension-id/${p.replace(/^\//, '')}`, getManifest: () => ({ version: '0.6.51' }), onMessage: event() },
     storage: { session: { get: async () => ({ job: structuredClone(job) }), set: async value => { job = structuredClone(value.job); } } },
-    tabs: { get: async id => ({ id, url: 'https://www.tiktok.com/', windowId: 1 }), query: async () => [], create: async options => { created.push(options); return { id: 90 }; }, remove: async () => {}, onRemoved: event(), onUpdated: event() },
+    tabs: { get: async id => ({ id, url: 'https://www.instagram.com/', windowId: 1 }), query: async () => [], create: async options => { created.push(options); return { id: 90 }; }, remove: async () => {}, onRemoved: event(), onUpdated: event() },
     action: { onClicked: event() },
   };
   const context = vm.createContext({ chrome, console, URL, crypto: webcrypto, structuredClone });
@@ -42,7 +42,7 @@ function bridge(worker, { pageOrigin = origin, subframe = false } = {}) {
 }
 
 async function start(h) {
-  const result = await h.message({ type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'study tips', enableComments: true, customLimits: { like: 10, follow: 3, comment: 2 } } });
+  const result = await h.message({ type: 'start', tabId: 8, settings: { platform: 'instagram', minutes: 10, niche: 'study tips', enableComments: true, customLimits: { like: 10, follow: 3, comment: 2 } } });
   assert.equal(result.ok, true);
   return h.job();
 }
@@ -91,7 +91,7 @@ test('untrusted origins, frames, senders and message events cannot change focus'
   const b = bridge(h);
   for (const overrides of [{ source: {} }, { origin: 'https://evil.example' }]) await b.request(focusRequest(job), overrides);
   assert.equal(b.forwarded.length, 0);
-  for (const source of [{ ...sender, url: 'https://www.tiktok.com/' }, { ...sender, frameId: 2 }, { ...panel, id: 'other-extension' }, { ...panel, url: 'chrome-extension://extension-id/runner.html' }]) {
+  for (const source of [{ ...sender, url: 'https://www.instagram.com/' }, { ...sender, frameId: 2 }, { ...panel, id: 'other-extension' }, { ...panel, url: 'chrome-extension://extension-id/runner.html' }]) {
     const response = await h.message(focusRequest(job), source);
     assert.notEqual(response?.ok, true);
   }
@@ -167,9 +167,9 @@ test('older stored jobs without a session identity remain readable but cannot ac
 });
 
 test('runner reads live focus from storage updates without restarting the engine', async () => {
-  const job = { token: 'test-token', sessionId: 'test-session', tabId: 7, runnerTabId: 90, deadline: Date.now() + 600000, phase: 'starting', settings: { platform: 'tiktok', minutes: 10, focus: 'balanced' }, stats: {}, activity: [], message: 'starting' };
+  const job = { token: 'test-token', sessionId: 'test-session', tabId: 7, runnerTabId: 90, deadline: Date.now() + 600000, phase: 'starting', settings: { platform: 'instagram', minutes: 10, focus: 'balanced' }, stats: {}, activity: [], message: 'starting' };
   const calls = [];
-  const chrome = { runtime: { sendMessage: async message => { calls.push(message); return { ok: true, data: message.type === 'runner-job' ? job : null }; } }, tabs: { get: async () => ({ url: 'https://www.tiktok.com/' }), onUpdated: event() }, storage: { onChanged: event() } };
+  const chrome = { runtime: { sendMessage: async message => { calls.push(message); return { ok: true, data: message.type === 'runner-job' ? job : null }; } }, tabs: { get: async () => ({ url: 'https://www.instagram.com/' }), onUpdated: event() }, storage: { onChanged: event() } };
   const node = () => ({ textContent: '', disabled: false, dataset: {}, addEventListener() {}, replaceChildren() {}, append() {}, classList: { toggle() {} } });
   const elements = new Map();
   let engineCalls = 0;

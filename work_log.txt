@@ -1,3 +1,9 @@
+2026-09-21 | 0.6.54 instagram-only warm-up
+changed: remove tiktok from current controls and host permissions; reject tiktok starts/tab commands and stop saved active tiktok sessions after updating without touching platform tabs. retain instagram preferences, separate tiktok drafts and historical results.
+files: dashboard/index/privacy/setup; extension background/bridge/manifest and generated mirrors; focused tests; release/package/store metadata, README/LIVE_VERIFICATION and both archives.
+verified: all 587 automated checks pass; both 35-file archives match source. independent code, javascript and security reviews clear. companion student dashboard has 8 passing tests and clear react review. no application build, Chrome control or social actions.
+follow-ups: publish through PR and verify production files; existing unpacked installs require replacing files and reloading. installed Instagram behavior was not retested.
+
 2026-09-19 | 0.6.53 recover stalled search results
 changed: recover after 30 seconds without a new usable post, refresh or rotate supplied keywords with bounded attempts, and stop clearly when recovery fails; retain viewed-post/action history. scroll the visible results container and count real position changes, including small moves and replaced tiles.
 files: browser-extension/session.js, runner.js, focused tests; release/setup/package/store metadata, README, LIVE_VERIFICATION and both archives.

@@ -1,3 +1,9 @@
+# 0.6.54 instagram-only warm-up
+
+Warm-up now offers Instagram only. TikTok session controls and host permissions are removed. New TikTok commands are rejected, and any saved active TikTok session stops after updating without opening, closing or interacting with platform tabs. Existing Instagram preferences and past session results remain available; TikTok preferences never become Instagram settings.
+
+Replace the files in the existing unpacked extension folder, reload its extension card and reopen warm-up. The website updates independently; publishing this download does not update an installed unpacked extension. Historical TikTok code and verification notes are retained for a future return, but TikTok sessions are unavailable in this release.
+
 # 0.6.53 stalled search recovery
 
 Sessions detect repeated scrolling without new posts and make bounded recovery attempts by refreshing the current search or moving to another supplied keyword. Scrolls target the results area and require an actual position change. Seen posts and action history survive recovery; results that remain unavailable stop the session with a clear explanation instead of wasting the remaining time.

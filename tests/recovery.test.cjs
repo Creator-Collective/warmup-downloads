@@ -300,56 +300,88 @@ test('unanswered messages are bounded and never allow a late startup to replay',
 });
 
 
-test('tiktok posted and unconfirmed history survives retries, activity turnover and worker restart without duplicates', async () => {
-  const h = background(undefined, 'tiktok');
-  assert.equal((await h.start()).ok, true);
-  const job = h.job();
-  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+function historicalTikTokJob(phase = 'running') {
   const posted = { text: 'the exact posted tiktok comment', url: 'https://tiktok.com/@creator/video/123', author: '@creator', status: 'confirmed', time: 100100, secret: 'omit this' };
   const uncertain = { text: 'the exact unconfirmed tiktok comment', url: 'https://www.tiktok.com/@other/video/456/', author: '@other', status: 'uncertain', time: 100200 };
-  const patch = { phase: 'running', stats: { comment: 1, skipped: 1 }, comments: [posted, { ...posted, url: 'https://www.tiktok.com/@creator/video/123/' }, uncertain, { ...uncertain, url: 'https://tiktok.com/@other/video/456' }], message: 'comment not confirmed.' };
-  for (let i = 0; i < 2; i++) assert.equal((await h.message({ type: 'runner-update', token: job.token, patch }, sender)).ok, true);
-  for (let i = 0; i < 20; i++) await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', message: `watching tiktok ${i}` } }, sender);
-  const restarted = background(h.job());
-  await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'finished' } }, sender);
-  const state = (await restarted.message({ type: 'state' })).data;
-  assert.equal(state.settings.platform, 'tiktok');
-  assert.equal(state.running, false);
-  assert.equal(state.comments.length, 2);
-  assert.deepEqual(Array.from(state.comments, item => item.status), ['confirmed', 'uncertain']);
-  assert.deepEqual(Array.from(state.comments, item => item.url), ['https://www.tiktok.com/@creator/video/123/', 'https://www.tiktok.com/@other/video/456/']);
-  assert.deepEqual(Array.from(state.comments, item => item.text), [posted.text, uncertain.text]);
-  assert.equal(state.comments[0].author, 'creator');
-  assert.equal(state.comments[0].secret, undefined);
-  assert.equal(state.stats.comment, 1, 'an unconfirmed submission is not counted as posted');
-  assert.equal(state.activity.length, 12);
-  assert.ok(!state.activity.some(item => item.message === patch.message));
-  assert.equal((await restarted.start()).ok, true);
-  assert.equal((await restarted.message({ type: 'runner-update', token: job.token, patch }, sender)).ok, false);
-  assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
+  return {
+    token: 'token', sessionId: 'old-tiktok-session', tabId: 7, runnerTabId: 90, phase,
+    settings: { platform: 'tiktok', minutes: 10, terms: ['personal branding'], pace: 'auto', limits: { like: 4, follow: 2, comment: 2 }, weights: { like: 2, follow: 1, comment: 1 } },
+    stopRequested: phase === 'stopping', stopRequestedAt: phase === 'stopping' ? 90000 : undefined,
+    deadline: 700000, nextActionAt: 110000, stats: { like: 2, follow: 1, comment: 1, skipped: 1 },
+    unconfirmed: { like: 0, follow: 1, comment: 1 }, pausedActions: ['comment'],
+    comments: [posted, { ...posted, url: 'https://www.tiktok.com/@creator/video/123/' }, uncertain, { ...uncertain, url: 'https://tiktok.com/@other/video/456' }],
+    activity: Array.from({ length: 12 }, (_, index) => ({ time: 100100 - index, message: `watching tiktok ${11 - index}` })),
+    message: 'comment not confirmed.'
+  };
+}
+
+test('saved TikTok results remain reviewable after updating, without accepting late runner results', async t => {
+  for (const phase of ['complete', 'stopped', 'error']) await t.test(phase, async () => {
+    const saved = historicalTikTokJob(phase);
+    const h = background(saved);
+    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${saved.token}`, tab: { id: saved.runnerTabId } };
+    for (const retryPhase of ['running', 'complete']) {
+      assert.equal((await h.message({ type: 'runner-update', token: saved.token, patch: { phase: retryPhase, comments: [], stats: { comment: 99 }, message: 'late retry' } }, sender)).ok, true);
+    }
+    const restarted = background(h.job());
+    const state = (await restarted.message({ type: 'state' })).data;
+    assert.equal(state.settings.platform, 'tiktok');
+    assert.equal(state.phase, phase);
+    assert.equal(state.running, false);
+    assert.equal(state.message, saved.message);
+    assert.equal(state.comments.length, 2);
+    assert.deepEqual(Array.from(state.comments, item => item.status), ['confirmed', 'uncertain']);
+    assert.deepEqual(Array.from(state.comments, item => item.url), ['https://www.tiktok.com/@creator/video/123/', 'https://www.tiktok.com/@other/video/456/']);
+    assert.deepEqual(Array.from(state.comments, item => item.text), [saved.comments[0].text, saved.comments[2].text]);
+    assert.equal(state.comments[0].author, 'creator');
+    assert.equal(state.comments[0].secret, undefined);
+    assert.equal(state.stats.comment, 1, 'an unconfirmed submission is not counted as posted');
+    assert.deepEqual(Array.from(state.activity, item => ({ ...item })), saved.activity);
+    assert.deepEqual({ ...state.unconfirmed }, saved.unconfirmed);
+    assert.deepEqual(Array.from(state.pausedActions), saved.pausedActions);
+    assert.equal((await restarted.start()).ok, false, 'saved TikTok settings cannot restart a TikTok session');
+  });
 });
 
-test('tiktok comment outcomes arriving during Stop survive restart and cannot revive a stopped session', async t => {
-  for (const status of ['confirmed', 'uncertain']) await t.test(status, async () => {
-    const h = background(undefined, 'tiktok');
-    assert.equal((await h.start()).ok, true);
-    const job = h.job();
-    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
-    await h.message({ type: 'stop' });
-    const restarted = background(h.job());
-    const comment = { text: `tiktok comment ${status} while stopping`, url: 'https://www.tiktok.com/@creator/video/123/', author: '@creator', time: 100100, status };
-    const patch = { phase: 'running', comments: [comment], message: 'late comment result' };
-    for (let i = 0; i < 2; i++) await restarted.message({ type: 'runner-update', token: job.token, patch }, sender);
-    assert.equal(restarted.job().phase, 'stopping');
-    assert.match(restarted.job().message, /session stopped/);
-    await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'stopped' } }, sender);
-    await restarted.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', comments: [], message: 'late retry' } }, sender);
-    const state = (await restarted.message({ type: 'state' })).data;
-    assert.equal(state.running, false);
-    assert.equal(state.phase, 'stopped');
-    assert.equal(state.comments.length, 1);
-    assert.equal(state.comments[0].text, comment.text);
-    assert.equal(state.comments[0].status, status);
-    assert.match(state.message, /session stopped/);
+test('updating stops saved active TikTok sessions without tab actions and allows a new Instagram session', async t => {
+  for (const phase of ['starting', 'running', 'stopping']) await t.test(phase, async () => {
+    const saved = historicalTikTokJob(phase);
+    const h = background(saved);
+    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${saved.token}`, tab: { id: saved.runnerTabId } };
+    const tabCalls = [];
+    const originals = {};
+    for (const method of ['query', 'get', 'create', 'update', 'remove']) {
+      originals[method] = h.chrome.tabs[method];
+      h.chrome.tabs[method] = async () => { tabCalls.push(method); throw new Error('the paused TikTok session must not touch browser tabs'); };
+    }
+    // Startup must stop old sessions even before a dashboard or runner reconnects.
+    await until(() => h.job().phase === 'stopped');
+    assert.equal(h.job().stopRequested, true);
+    assert.equal(h.job().nextActionAt, null);
+    assert.match(h.job().message, /tiktok session stopped.*instagram only/);
+    assert.deepEqual(h.job().comments, saved.comments);
+    assert.deepEqual(h.job().stats, saved.stats);
+    assert.deepEqual(h.job().unconfirmed, saved.unconfirmed);
+    assert.deepEqual(h.job().pausedActions, saved.pausedActions);
+    const stopped = structuredClone(h.job());
+    for (const type of ['hello', 'state', 'stop']) assert.equal((await h.message({ type })).ok, true);
+    assert.equal((await h.message({ type: 'runner-show', token: saved.token }, sender)).ok, false);
+    assert.equal((await h.message({ type: 'runner-job', token: saved.token }, sender)).data.phase, 'stopped');
+    await h.message({ type: 'runner-update', token: saved.token, patch: { phase: 'running', stats: { comment: 99 }, comments: [], nextActionAt: 110000, message: 'late retry' } }, sender);
+    assert.deepEqual(h.job(), stopped, 'late activity cannot revive TikTok or erase saved results');
+    let runs = 0;
+    const oldRunner = runner(async () => { runs++; }, message => h.message(message, sender));
+    oldRunner.start();
+    await until(() => oldRunner.nodes.get('status')?.textContent === 'stopped');
+    assert.equal(runs, 0, 'reopening the old runner must not run the session engine');
+    assert.deepEqual(tabCalls, []);
+    Object.assign(h.chrome.tabs, originals);
+    h.tabs.set(8, { id: 8, url: 'https://www.instagram.com/', windowId: 1 });
+    assert.equal((await h.message({ type: 'start', tabId: 8, settings: { ...settings, platform: 'instagram' } })).ok, true);
+    assert.equal(h.job().settings.platform, 'instagram');
+    assert.equal(h.job().phase, 'starting');
+    assert.notEqual(h.job().token, saved.token);
+    assert.equal((await h.message({ type: 'runner-update', token: saved.token, patch: { phase: 'running' } }, sender)).ok, false);
+    assert.deepEqual((await h.message({ type: 'state' })).data.comments, []);
   });
 });

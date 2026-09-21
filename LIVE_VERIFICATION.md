@@ -1,5 +1,11 @@
 # warm-up verification record
 
+## 0.6.54 instagram-only warm-up, September 21
+
+All 587 automated checks pass. Both 35-file download archives and packaged dashboard mirrors match current source. Independent code, JavaScript and security reviews found no actionable issues. Coverage includes Instagram-only commands, stored TikTok jobs in starting/running/stopping states becoming stopped without tab actions, preserved historical results, Instagram starting afterward, separate saved preferences, and older installed extensions exposing Stop without TikTok focus controls.
+
+No Chrome control, extension installation/reload or social actions were performed. This is not a live Instagram session verification. Existing unpacked installations need new files and a reload; publishing alone does not update them. TikTok support is temporarily unavailable, with its prior source and verification history retained below.
+
 ## 0.6.53 stalled search recovery, September 19
 
 The reported Instagram session repeatedly alternated between scrolling and no new results while the timer continued. The screenshot does not establish why Instagram initially stopped advancing. This release adds bounded search recovery, retains seen-post and action history, selects the results scroll area, and confirms a real position change before reporting a scroll. Persistent failure stops the session with help instead of consuming the remaining timer.
