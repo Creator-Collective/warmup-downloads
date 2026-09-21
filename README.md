@@ -1,3 +1,11 @@
+# 0.6.56 resume stopped instagram sessions
+
+Stopped sessions can resume with their remaining time, original targets, completed counts and action history. Paused time does not consume the session. Uncertain attempts remain reserved, and retained comment drafts keep comments paused. Starting a new session remains available separately. Resume requires a checkpoint from this version and is available while the browser retains the session; older sessions and browser restarts cannot be recovered.
+
+Instagram post navigation now permits a bounded transition through the same search results, including equivalent query encoding. Returning to the results grid does not click a stale Close control. Unrelated destinations and manual navigation outside the transition still stop the session.
+
+Replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up. The website update alone does not update an installed extension. No new extension permissions.
+
 # 0.6.55 more natural instagram comments
 
 instagram comments use simpler, more natural wording in place of stock questions and forced slang. the same caption requirements and repeat protection still apply.

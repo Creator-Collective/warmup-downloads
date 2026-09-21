@@ -6,6 +6,23 @@ const getJob = async () => (await chrome.storage.session.get('job')).job;
 const putJob = job => chrome.storage.session.set({ job });
 const extensionOrigin = chrome.runtime.getURL('/');
 const INSTAGRAM_ONLY = 'warm-up is instagram only for now.';
+function freezeJob(job, patch = {}) {
+  const frozen = job.stopRequested || ['stopped', 'error', 'complete'].includes(job.phase);
+  const remainingMs = patch.phase === 'complete' ? 0 : frozen ? remainingTime(job) : Math.min(
+    remainingTime(job), Number.isFinite(job.checkpoint?.remainingMs) ? job.checkpoint.remainingMs : Infinity
+  );
+  const checkpoint = job.checkpoint ? { ...job.checkpoint, remainingMs, elapsedMs: job.settings.minutes * 60000 - remainingMs } : null;
+  return { ...job, ...patch, remainingMs, checkpoint };
+}
+async function closeOwnedRunner(job) {
+  if (!job?.runnerTabId) return;
+  const tabs = await chrome.tabs.query({});
+  const runner = tabs.find(tab => tab.id === job.runnerTabId);
+  if (!runner) return;
+  const expected = chrome.runtime.getURL(`runner.html#${job.token}`);
+  if (runner.url === expected) await chrome.tabs.remove(runner.id);
+  else if (!runner.url || runner.pendingUrl === expected) throw new Error('the previous session tab is still loading. close it before continuing.');
+}
 function enabledPlatform(value) {
   const platform = validPlatform(value);
   if (platform !== 'instagram') throw new Error(INSTAGRAM_ONLY);
@@ -14,13 +31,13 @@ function enabledPlatform(value) {
 async function suspendDisabledJob() {
   const job = await getJob();
   if (!job || job.settings?.platform !== 'tiktok' || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
-  const stopped = { ...job, phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}` };
+  const stopped = freezeJob(job, { phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}` });
   await putJob(stopped);
   return stopped;
 }
 async function stopJob(message = 'session stopped. you have control.') {
   const job = await getJob();
-  if (job && ['starting', 'running'].includes(job.phase)) await putJob({ ...job, stopRequested: true, stopRequestedAt: Date.now(), phase: 'stopping', nextActionAt: null, message });
+  if (job && ['starting', 'running'].includes(job.phase)) await putJob(freezeJob(job, { stopRequested: true, stopRequestedAt: Date.now(), phase: 'stopping', nextActionAt: null, message }));
 }
 async function recoverStoppingJob(force = false) {
   const job = await getJob();
@@ -28,14 +45,8 @@ async function recoverStoppingJob(force = false) {
   // A missing acknowledgement cannot release the action lock while the old
   // runner is still alive. Close only that runner before allowing another run.
   try {
-    const tabs = await chrome.tabs.query({});
-    const runner = tabs.find(tab => tab.id === job.runnerTabId);
-    if (runner) {
-      const expected = chrome.runtime.getURL(`runner.html#${job.token}`);
-      if (runner.url === expected) await chrome.tabs.remove(runner.id);
-      else if (!runner.url || runner.pendingUrl === expected) throw new Error('session tab is still loading');
-    }
-    const stopped = { ...job, phase: 'error', stopRequested: true, nextActionAt: null, message: `session stopped after its tab stopped responding. an action already sent may still complete. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` };
+    await closeOwnedRunner(job);
+    const stopped = freezeJob(job, { phase: 'error', stopRequested: true, nextActionAt: null, message: `session stopped after its tab stopped responding. an action already sent may still complete. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` });
     await putJob(stopped);
     return stopped;
   } catch {
@@ -79,26 +90,32 @@ async function dashboardCommand(message) {
     await stopJob();
     return publicState(await recoverStoppingJob(wasStopping));
   }
-  if (message.type !== 'start') throw new Error('unknown dashboard action.');
+  if (!['start', 'resume'].includes(message.type)) throw new Error('unknown dashboard action.');
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
-  const settings = sessionPlan.validateSettings(message.settings);
+  const current = await getJob();
+  const resuming = message.type === 'resume';
+  if (resuming && (typeof message.sessionId !== 'string' || message.sessionId !== current?.sessionId || !resumableJob(current))) throw new Error('this session can’t be resumed. start a new session.');
+  const settings = resuming ? current.settings : sessionPlan.validateSettings(message.settings);
   const platform = enabledPlatform(settings.platform);
   if (!Number.isInteger(message.tabId)) throw new Error(`choose a ${platforms[platform].label} tab first.`);
-  const current = await getJob();
   if (current && ['starting', 'running', 'stopping'].includes(current.phase)) throw new Error('a session is already running. stop it before starting another.');
   const tab = await chrome.tabs.get(message.tabId);
   if (!platformURL(tab.url, platform)) throw new Error(`that tab is no longer on ${platforms[platform].label}. choose it again.`);
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
+  await closeOwnedRunner(current);
   const token = crypto.randomUUID();
-  const job = { token, sessionId: crypto.randomUUID(), tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + settings.minutes * 60000, stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [], message: 'starting your session…', nextActionAt: null };
+  const remainingMs = resuming ? remainingTime(current) : settings.minutes * 60000;
+  const checkpoint = resuming ? { ...normalizeCheckpoint(current.checkpoint, settings), remainingMs, elapsedMs: settings.minutes * 60000 - remainingMs } : null;
+  const job = { token, sessionId: resuming ? current.sessionId : crypto.randomUUID(), tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + remainingMs, remainingMs, checkpoint,
+    stats: resuming ? current.stats : {}, unconfirmed: resuming ? current.unconfirmed : normalizeUnconfirmed(), pausedActions: resuming ? current.pausedActions : [], activity: resuming ? current.activity : [], comments: resuming ? current.comments : [], message: resuming ? 'resuming your session…' : 'starting your session…', nextActionAt: null };
   await putJob(job);
   try {
     const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: false, windowId: tab.windowId });
     job.runnerTabId = runner.id;
     await putJob(job);
   } catch (error) {
-    await putJob({ ...job, phase: 'error', stopRequested: true, message: 'couldn’t open the session. try again.' });
+    await putJob(freezeJob(job, { phase: 'error', stopRequested: true, message: 'couldn’t open the session. try again.' }));
     throw error;
   }
   return publicState(job);
@@ -132,6 +149,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'runner-job') return job;
     if (message.type === 'runner-stop') { await stopJob(); return null; }
     if (message.type === 'runner-show') { enabledPlatform(job.settings?.platform); await chrome.tabs.update(job.tabId, { active: true }); return null; }
+    if (message.type === 'runner-checkpoint') {
+      const checkpoint = normalizeCheckpoint(message.checkpoint, job.settings);
+      if (!checkpoint) {
+        await putJob({ ...job, checkpoint: null });
+        throw new Error('couldn’t safely save this session. start a new session after stopping.');
+      }
+      const frozen = job.stopRequested || ['stopped', 'error', 'complete'].includes(job.phase);
+      const remainingMs = frozen ? remainingTime(job) : Math.min(remainingTime(job), checkpoint.remainingMs);
+      const saved = { ...checkpoint, remainingMs, elapsedMs: job.settings.minutes * 60000 - remainingMs };
+      await putJob({ ...job, checkpoint: saved, remainingMs, stats: saved.stats, unconfirmed: saved.unconfirmed, pausedActions: saved.pausedActions, comments: commentHistory.normalize(saved.comments) });
+      return null;
+    }
     if (message.type !== 'runner-update') throw new Error('unknown session action.');
     // Repeated terminal acknowledgements are harmless; late updates must never
     // revive a finished session or overwrite its uncertain-action warning.
@@ -154,19 +183,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const phase = ['running', 'stopped', 'complete', 'error'].includes(patch.phase) ? patch.phase : job.phase;
     const text = typeof patch.message === 'string' ? patch.message.slice(0, 600) : job.message;
     const activity = text !== job.message ? [{ time: Date.now(), message: text }, ...job.activity].slice(0, 12) : job.activity;
-    await putJob({ ...job, ...outcomes, phase, activity, message: text, nextActionAt: Number.isFinite(patch.nextActionAt) ? Math.min(patch.nextActionAt, job.deadline) : null });
+    const next = { ...job, ...outcomes, phase, activity, message: text, nextActionAt: Number.isFinite(patch.nextActionAt) ? Math.min(patch.nextActionAt, job.deadline) : null };
+    await putJob(['stopped', 'complete', 'error'].includes(phase) ? freezeJob(job, { ...next, stopRequested: true }) : next);
     return null;
   }).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
   return true;
 });
-chrome.tabs.onRemoved.addListener(tabId => { void serial(async () => { const job = await getJob(); if (job && [job.runnerTabId, job.tabId].includes(tabId) && ['starting','running','stopping'].includes(job.phase)) { await putJob({ ...job, stopRequested: true, phase: 'stopped', nextActionAt: null, message: 'session stopped because its tab closed. an action already sent may still complete.' }); } }); });
+chrome.tabs.onRemoved.addListener(tabId => { void serial(async () => { const job = await getJob(); if (job && [job.runnerTabId, job.tabId].includes(tabId) && ['starting','running','stopping'].includes(job.phase)) { await putJob(freezeJob(job, { stopRequested: true, phase: 'stopped', nextActionAt: null, message: 'session stopped because its tab closed. an action already sent may still complete.' })); } }); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (!change.url && !change.discarded) return;
   void serial(async () => {
     const job = await getJob();
     if (!job || !['starting','running','stopping'].includes(job.phase)) return;
     if ((tabId === job.runnerTabId && change.url && change.url !== chrome.runtime.getURL(`runner.html#${job.token}`)) || ([job.runnerTabId,job.tabId].includes(tabId) && change.discarded)) {
-      await putJob({ ...job, stopRequested: true, phase: 'stopped', nextActionAt: null, message: `session stopped because a session tab changed or unloaded. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` });
+      await putJob(freezeJob(job, { stopRequested: true, phase: 'stopped', nextActionAt: null, message: `session stopped because a session tab changed or unloaded. check ${platforms[validPlatform(job.settings?.platform)].label} before restarting.` }));
     } else if (tabId === job.tabId && change.url && !platformURL(change.url, job.settings?.platform)) await stopJob(`session stopped because the tab left ${platforms[validPlatform(job.settings?.platform)].label}.`);
   });
 });

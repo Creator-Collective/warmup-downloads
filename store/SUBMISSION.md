@@ -25,9 +25,9 @@ Permissions justification:
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.55.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.56.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
-Version 0.6.55 replaces stock questions and forced slang with more natural, short Instagram comments. Existing caption requirements and repeat protection remain in place. Existing unpacked installations need their files replaced and the extension reloaded; the website update alone does not update the installed extension. No new permissions or live social actions are claimed for this release.
+Version 0.6.56 adds resume for stopped Instagram sessions with remaining time, original targets and saved progress. It preserves previous actions and uncertain attempts, and handles expected post/search transitions without false stops. Resume requires a session started with this release and retained browser session storage. Existing unpacked installations need file replacement and reload. No new permissions or live social actions are claimed for this release.
 
 Version 0.6.54 temporarily removes TikTok from the session controls and host permissions. Existing active TikTok sessions stop after updating; prior results and saved preferences remain local. Instagram-only behavior is checked with automated fixtures; no installed browser or social actions are claimed for this release.
 

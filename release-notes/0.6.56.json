@@ -1,5 +1,4 @@
 {
-  "version": "0.6.56",
   "releasedAt": "2026-09-21",
   "summary": "resume stopped instagram sessions",
   "changes": [
@@ -7,8 +6,5 @@
     "keep action history and uncertain attempts when resuming so completed actions are not repeated.",
     "recover normal transitions between instagram posts and the same search results without stopping the session.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up. resume is available for sessions started with this version."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.56.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

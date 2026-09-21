@@ -1,5 +1,11 @@
 # warm-up verification record
 
+## 0.6.56 resume and instagram page transitions, September 21
+
+All 615 automated checks pass. Both 35-file archives and packaged dashboard mirrors match source. Independent code, JavaScript and security reviews have no remaining findings. Tests cover bounded post/search transitions, equivalent keyword encoding, timeout recovery, unrelated/manual navigation stops, remaining-time freeze during delayed Stop acknowledgement, saved targets/counts, uncertain-action reservation, comment draft pauses, old-token rejection, concurrent resume prevention, legacy-extension compatibility, and a real engine checkpoint through background persistence and resumed-runner handoff.
+
+No Chrome control, installed-extension reload, Instagram session, or social action was performed. The screenshot does not prove the exact original URL event; the reproduced transition cases are fixed. Resume requires a session started with 0.6.56 and retained browser session storage. Previous-version sessions and browser restarts cannot be recovered. Existing unpacked installations require replacing files and reloading; the website deployment alone does not update them.
+
 ## 0.6.54 instagram-only warm-up, September 21
 
 All 587 automated checks pass. Both 35-file download archives and packaged dashboard mirrors match current source. Independent code, JavaScript and security reviews found no actionable issues. Coverage includes Instagram-only commands, stored TikTok jobs in starting/running/stopping states becoming stopped without tab actions, preserved historical results, Instagram starting afterward, separate saved preferences, and older installed extensions exposing Stop without TikTok focus controls.

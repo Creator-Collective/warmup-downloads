@@ -70,6 +70,8 @@ h3 { font-size: 14px; font-weight: 550; margin: 22px 0 8px; }
 p { margin: 0; color: var(--ink); }
 .page-heading p { margin-top: 8px; }
 .run-controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.run-controls button { min-height: 40px; }
+.resume-summary { margin: -12px 0 24px; color: var(--muted); font-size: 12px; text-wrap: pretty; }
 .run-controls label { margin: 0; font-size: 12px; color: var(--ink); }
 .unit { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 38px; width: 84px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0 8px; font-size: 13px; line-height: 20px; }
 .unit input { width: 3ch; min-height: 20px; height: 20px; margin: 0; border: 0; padding: 0; font-size: inherit; line-height: inherit; text-align: center; appearance: textfield; box-shadow: none; border-radius: 2px; }
@@ -258,6 +260,7 @@ footer a { color: var(--muted); }
   .run-controls { width: 100%; flex-wrap: wrap; }
   .run-controls label { margin-right: auto; }
   .run-controls .primary { flex: 1 0 100%; }
+  .run-controls .secondary { flex: 1 0 100%; }
   footer { flex-wrap: wrap; gap: 10px 20px; }
   footer > span { flex-basis: 100%; }
   .runner .run-controls .primary { flex: 0 1 auto; }
@@ -284,6 +287,8 @@ footer a { color: var(--muted); }
 .side-panel .page-heading p, .side-panel #settings > .hint, .side-panel #empty-state, .side-panel footer > span { display: none; }
 .side-panel .run-controls { display: grid; grid-template-columns: 1fr 78px; gap: 10px; }
 .side-panel .run-controls .primary { grid-column: 1 / -1; }
+.side-panel .run-controls .secondary { grid-column: 1 / -1; }
+.side-panel .resume-summary { margin: 0 0 16px; }
 .side-panel .run-controls .unit { width: 78px; }
 .side-panel .workspace { display: flex; flex-direction: column; gap: 14px; }
 .side-panel .workspace > section { width: 100%; padding: 16px; min-height: 0; }

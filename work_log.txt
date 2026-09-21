@@ -1,3 +1,9 @@
+2026-09-21 | 0.6.56 resume stopped sessions and recover instagram navigation
+changed: keep bounded expected post/search transitions from falsely stopping warm-up; add resume with frozen remaining time, original targets, counts and full action history. reserve actions before clicks, preserve uncertain attempts and comment pauses, rotate runner credentials, and keep start new session separate.
+files: extension runner/session/background/guards/bridge; dashboard/index/css and generated mirrors; regression tests; version/release/setup/store metadata, both archives, README/LIVE_VERIFICATION, work_log.txt and git_commit.md.
+verified: all 615 automated checks pass, including real engine-to-background resume handoff, late-stop timing, duplicate prevention, manual navigation and package/source integrity. code, javascript and security reviews clear. no app build, Chrome control or social actions.
+follow-ups: publish through PR and verify production bytes. existing unpacked installs need updated files and reload; resume supports sessions started with this release while browser session storage is retained. live Instagram session behavior not retested.
+
 2026-09-21 | 0.6.55 more natural instagram comments
 changed: rewrite the 52 caption-based replies with everyday wording, fewer interview-style questions and sparse emoji; keep caption matching, pool sizes, repeat protection and submission behavior unchanged.
 files: browser-extension/session.js; manifest/package/setup/store metadata; release-notes/0.6.55.json, release.json, README, both packaged archives, work_log.txt and git_commit.md.

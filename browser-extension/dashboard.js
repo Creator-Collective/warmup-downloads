@@ -80,6 +80,7 @@ function showError(message) { $('form-error').textContent = message; $('form-err
 function error(message) { requestError = message; showError(message); }
 function plan() {
   globalThis.warmupSelects?.sync();
+  renderResume();
   if (running && currentState?.settings) {
     showError(requestError);
     $('start').disabled = true;
@@ -100,6 +101,26 @@ function plan() {
   $('start').disabled = !connected || running || busy || !valid || !$('instagram-tab').value;
   saveDraft();
   renderFocus();
+}
+function renderResume() {
+  const available = !running && currentState?.canResume === true;
+  $('resume').hidden = !available;
+  $('resume').disabled = !available || !connected || busy || !$('instagram-tab').value;
+  $('start').textContent = available ? 'start new session' : 'start session';
+  $('start').classList.toggle('primary', !available);
+  $('start').classList.toggle('secondary', available);
+  $('resume-summary').hidden = !available;
+  if (available) {
+    const settings = currentState.settings;
+    $('resume-summary').textContent = `resume uses saved settings: ${settings.terms.join(', ')} · ${settings.limits.like} likes · ${settings.limits.follow} follows · ${settings.limits.comment} comments · ${settings.focus || 'balanced'} focus. edits apply to new sessions.`;
+  }
+}
+function renderRemaining() {
+  const state = currentState;
+  const remainingMs = state?.running && state.phase !== 'stopping' ? state.deadline - Date.now() : state?.remainingMs;
+  if ((!state?.running && !state?.canResume) || !Number.isFinite(remainingMs)) { $('remaining').textContent = ''; return; }
+  const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  $('remaining').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')} left`;
 }
 function renderFocus() {
   const parent = $(running ? 'focus-live' : 'focus-home');
@@ -130,6 +151,7 @@ function connection(value) {
   $('refresh-tabs').disabled = !value || running;
   platformChanged();
   plan();
+  renderRemaining();
 }
 async function tabs({ reportError = false } = {}) {
   if (!connected || running || busy) return;
@@ -214,15 +236,25 @@ function render(state) {
     $('activity').replaceChildren(...(state.activity || []).map(item => { const row = document.createElement('li'); const time = document.createElement('time'); time.dateTime = new Date(item.time).toISOString(); time.textContent = new Date(item.time).toLocaleTimeString([], { hour:'2-digit',minute:'2-digit',second:'2-digit' }); const text = document.createElement('span'); text.textContent = item.message; row.append(time,text); return row; }));
   }
   plan();
+  renderRemaining();
   if (inPanel) $('activity-panel').style.order = running ? '-1' : '';
 }
 $('session-form').addEventListener('submit', async event => {
   event.preventDefault(); if (running || busy) return;
   try {
-    error(''); sessionPlan.validateSettings(input()); busy = true; $('settings').disabled = true; $('minutes').disabled = true; plan();
+    error(''); sessionPlan.validateSettings(input()); busy = true; stateRevision += 1; $('settings').disabled = true; $('minutes').disabled = true; plan();
     render(await request('start', { settings: input(), tabId: Number($('instagram-tab').value) }));
   } catch (e) { error(e.message); }
-  finally { busy = false; $('settings').disabled = running; $('minutes').disabled = running; $('start').disabled = !connected || running || !validPlan || !$('instagram-tab').value; globalThis.warmupSelects?.sync(); }
+  finally { busy = false; stateRevision += 1; $('settings').disabled = running; $('minutes').disabled = running; $('start').disabled = !connected || running || !validPlan || !$('instagram-tab').value; renderResume(); globalThis.warmupSelects?.sync(); }
+});
+$('resume').addEventListener('click', async () => {
+  if (running || busy || !connected || !currentState?.canResume || !$('instagram-tab').value) return;
+  const sessionId = currentState.sessionId;
+  try {
+    error(''); busy = true; stateRevision += 1; $('settings').disabled = true; $('minutes').disabled = true; plan();
+    render(await request('resume', { sessionId, tabId: Number($('instagram-tab').value) }));
+  } catch (e) { error(e.message); }
+  finally { busy = false; stateRevision += 1; $('settings').disabled = running; $('minutes').disabled = running; plan(); }
 });
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
@@ -288,9 +320,5 @@ setInterval(async () => {
   try { const state = await request('state'); if (revision === stateRevision) render(state); if (!running && !busy) await tabs(); } catch { connection(false); $('message').textContent = 'connection lost. the session tab has the latest activity. refresh to reconnect.'; }
   finally { polling = false; }
 }, 1500);
-setInterval(() => {
-  if (!currentState?.running) { $('remaining').textContent = ''; return; }
-  const seconds = Math.max(0, Math.ceil((currentState.deadline - Date.now()) / 1000));
-  $('remaining').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')} left`;
-}, 1000);
+setInterval(renderRemaining, 1000);
 plan(); connect();

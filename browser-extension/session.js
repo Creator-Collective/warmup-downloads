@@ -197,34 +197,45 @@ async function runSession(settings, adapter, signal, options = {}) {
   const now = options.now || Date.now;
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
-  const startedAt = now();
-  const deadline = startedAt + settings.minutes * 60000;
-  const nextAllowed = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, startedAt + actionWarmups(settings, action)[0]]));
-  let nextEngagement = nextAllowed.like;
-  let nextBreak = startedAt + randomBetween(300000, 540000, random);
+  const checkpoint = options.checkpoint?.version === 1 ? options.checkpoint : null;
+  const nonnegative = (value, fallback = 0) => Number.isFinite(value) && value >= 0 ? value : fallback;
+  const resumedAt = now();
+  const totalMs = settings.minutes * 60000;
+  const elapsedMs = Math.min(totalMs, nonnegative(checkpoint?.elapsedMs));
+  const startedAt = resumedAt - elapsedMs;
+  const remainingMs = Math.min(totalMs - elapsedMs, nonnegative(checkpoint?.remainingMs, totalMs), nonnegative(options.remainingMs, totalMs));
+  const deadline = resumedAt + remainingMs;
+  const nextAllowed = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action,
+    resumedAt + nonnegative(checkpoint?.cooldowns?.[action], actionWarmups(settings, action)[0])
+  ]));
+  let nextEngagement = resumedAt + nonnegative(checkpoint?.cooldowns?.engagement, nextAllowed.like - resumedAt);
+  let nextBreak = resumedAt + nonnegative(checkpoint?.cooldowns?.break, randomBetween(300000, 540000, random));
   const termWindowMs = Math.max(10000, Math.min(120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
-  let termIndex = 0;
+  let termIndex = Math.floor(nonnegative(checkpoint?.termIndex));
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
+  for (const key of Object.keys(stats)) stats[key] = nonnegative(checkpoint?.stats?.[key]);
   // Background tabs can round sub-second timers up during confirmation.
   const confirmationBudgetMs = { like: platform === 'tiktok' ? 22000 : 8000, follow: 22000, comment: 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
-  const seen = new Set();
+  for (const key of Object.keys(unconfirmed)) unconfirmed[key] = nonnegative(checkpoint?.unconfirmed?.[key]);
+  const strings = values => Array.isArray(values) ? values.filter(value => typeof value === 'string') : [];
+  const seen = new Set(strings(checkpoint?.seen));
   const hasSeen = id => seen.has(postIdentity(id));
-  const done = { like: new Set(), follow: new Set(), comment: new Set() };
-  const pausedActions = new Set();
-  const usedComments = new Set();
+  const done = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, new Set(strings(checkpoint?.done?.[action]))]));
+  const pausedActions = new Set(strings(checkpoint?.pausedActions).filter(action => action in done));
+  const usedComments = new Set(strings(checkpoint?.usedComments));
   // Search membership belongs to one requested query in this run. A viewer's
   // recommendations cannot grant themselves eligibility through hidden tiles.
   const searchResults = new Set();
   const reportedSkips = new Set();
-  let currentSearchTerm = null;
+  let currentSearchTerm = settings.terms.includes(checkpoint?.currentSearchTerm) ? checkpoint.currentSearchTerm : null;
   let stalled = 0;
   let retrySearch = false;
   let needsSearchScroll = false;
   // Scrolling or reloading the same results is not discovery. Only reaching a
   // new post replenishes recovery attempts; retain seen/action history throughout.
-  let discoveryWindowStartedAt = startedAt;
+  let discoveryWindowStartedAt = resumedAt;
   let recoverySearches = 0;
   const maxRecoverySearches = Math.max(2, settings.terms.length);
   const discoveredPost = () => { discoveryWindowStartedAt = now(); recoverySearches = 0; };
@@ -235,7 +246,45 @@ async function runSession(settings, adapter, signal, options = {}) {
   const fullWatchInterval = () => platform === 'instagram' ? randomBetween(3, 6, random) : randomBetween(16, 24, random);
   let nextFullWatchAfter = fullWatchInterval();
   const running = () => !signal.aborted && now() < deadline;
-  const comments = [];
+  const comments = Array.isArray(checkpoint?.comments) ? checkpoint.comments.map(item => ({ ...item })) : [];
+  let inFlight = checkpoint?.inFlight && checkpoint.inFlight.action in done ? { ...checkpoint.inFlight } : null;
+  const settleInterrupted = () => {
+    if (!inFlight) return;
+    const { action, key, comment, post, time } = inFlight;
+    done[action].add(key);
+    unconfirmed[action] += 1;
+    stats.skipped += 1;
+    if (action === 'comment') {
+      pausedActions.add('comment');
+      if (typeof comment === 'string') {
+        usedComments.add(comment.toLocaleLowerCase());
+        comments.push({ text: comment, url: post?.id, author: post?.author, time, status: 'uncertain' });
+      }
+    }
+    inFlight = null;
+  };
+  settleInterrupted();
+  // Version 1 is stored together with the original validated settings. Durations
+  // are remaining active-run milliseconds, so time away cannot reset cooldowns.
+  // Preserve full history; never trim it into repeat eligibility. Fail closed at
+  // 10,000 history keys (2,048 chars each) or 1,000 comment records per session.
+  const saveCheckpoint = async () => {
+    if (!adapter.checkpoint) return;
+    const collections = [seen, usedComments, ...Object.values(done)];
+    if (collections.some(values => values.size > 10000 || [...values].some(value => typeof value !== 'string' || value.length > 2048)) || comments.length > 1000) {
+      throw new Error('session history is full. start a new session.');
+    }
+    const at = now();
+    await adapter.checkpoint({
+      version: 1, stats: { ...stats }, unconfirmed: { ...unconfirmed }, pausedActions: [...pausedActions],
+      comments: comments.map(item => ({ ...item })), seen: [...seen],
+      done: Object.fromEntries(Object.entries(done).map(([action, keys]) => [action, [...keys]])),
+      usedComments: [...usedComments], termIndex, currentSearchTerm,
+      elapsedMs: Math.min(totalMs, Math.max(0, at - startedAt)), remainingMs: Math.max(0, deadline - at),
+      cooldowns: Object.fromEntries([...Object.entries(nextAllowed), ['engagement', nextEngagement], ['break', nextBreak]].map(([action, until]) => [action, Math.max(0, until - at)])),
+      inFlight: inFlight ? { ...inFlight, post: { ...inFlight.post } } : null
+    });
+  };
   const update = message => adapter.update({
     stats: { ...stats }, unconfirmed: { ...unconfirmed }, pausedActions: [...pausedActions],
     comments: comments.map(item => ({ ...item })), remainingMs: Math.max(0, deadline - now()),
@@ -303,6 +352,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   };
   const pause = async (action = 'browse') => {
     if (!running()) return;
+    await saveCheckpoint();
+    if (!running()) return;
     const ranges = { transition: [500, 1800], browse: [1800, 5200], retry: [6000, 10000], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[platform === 'tiktok' && action === 'fullwatch' ? 'watch' : action] || ranges.browse;
     if (platform === 'instagram') {
@@ -345,13 +396,15 @@ async function runSession(settings, adapter, signal, options = {}) {
     await sleep(ms, signal);
     if (running()) adapter.update({ phase: 'action', nextActionAt: null });
   };
-  const search = async () => {
-    const term = settings.terms[termIndex % settings.terms.length];
+  const search = async (resumeCurrent = false) => {
+    const term = resumeCurrent && currentSearchTerm ? currentSearchTerm : settings.terms[termIndex % settings.terms.length];
     currentSearchTerm = term;
     searchResults.clear();
-    termIndex += 1;
+    if (!resumeCurrent || !checkpoint?.currentSearchTerm) termIndex += 1;
     nextTermAt = settings.terms.length > 1 ? now() + termWindowMs : Infinity;
     update(`searching for ${term}…`);
+    await saveCheckpoint();
+    if (!running()) return;
     const loaded = await adapter.search(term, signal);
     if (!running()) return;
     discoveryWindowStartedAt = now();
@@ -378,10 +431,15 @@ async function runSession(settings, adapter, signal, options = {}) {
     update(settings.terms.length > 1 ? 'results stopped advancing. trying the next keyword...' : 'results stopped advancing. refreshing this search...');
     await search();
   };
-  update('starting your niche session…');
+  let failure;
+  try {
+  update(checkpoint ? 'resuming your niche session…' : 'starting your niche session…');
+  await saveCheckpoint();
   if (!running()) return stats;
-  await search();
+  await search(Boolean(checkpoint && currentSearchTerm));
   while (running()) {
+    await saveCheckpoint();
+    if (!running()) break;
     let pauseAfter = 'browse';
     const page = await adapter.inspect(signal);
     if (!running()) break;
@@ -534,13 +592,19 @@ async function runSession(settings, adapter, signal, options = {}) {
           comment = commentText;
           usedComments.add(comment.toLocaleLowerCase());
         }
+        inFlight = { action, key, comment: comment || null, post: { id: post.id, ...(typeof post.author === 'string' ? { author: post.author } : {}) }, time: now() };
+        // Persist the reservation before the adapter can click or type. A lost
+        // runner is then an uncertain attempt, never permission to try it twice.
+        try { await saveCheckpoint(); }
+        catch (error) { inFlight = null; throw error; }
+        if (!running()) { inFlight = null; break; }
         update(engagementMessage(action, post, comment, 'pending'));
         const result = await adapter.engage(action, post, comment, signal);
         // A definitive skip guarantees no submission or remaining draft. Keep
         // its wording available for another post, but retain this post's guard.
         if (action === 'comment' && result === 'skipped') usedComments.delete(comment.toLocaleLowerCase());
         if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
-          comments.push({ text: comment, url: post.id, author: post.author, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
+          comments.push({ text: comment, url: post.id, author: typeof post.author === 'string' ? post.author : undefined, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }
         // Count a verified result even if Stop arrived during the final confirmation.
         if (result === 'confirmed') stats[action] += 1;
@@ -552,6 +616,8 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (action === 'comment' && ['draft-retained', 'uncertain-draft'].includes(result)) {
           pausedActions.add('comment');
         }
+        inFlight = null;
+        await saveCheckpoint();
         update(engagementMessage(action, post, comment, result));
       }
     }
@@ -559,6 +625,20 @@ async function runSession(settings, adapter, signal, options = {}) {
   }
   update(signal.aborted ? 'session stopped. you have control.' : 'time’s up. your session is complete.');
   return stats;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const interrupted = Boolean(inFlight);
+    settleInterrupted();
+    try {
+      await saveCheckpoint();
+      if (interrupted) update('session stopped before the last action could be confirmed.');
+    } catch (error) {
+      // Keep the actual stop/error reason when final persistence also fails.
+      if (!failure) throw error;
+    }
+  }
 }
 
 globalThis.sessionEngine = { runSession };
