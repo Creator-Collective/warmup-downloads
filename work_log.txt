@@ -1,3 +1,6 @@
+2026-09-21 | name the public setup page instagram warm-up tool
+changed: make instagram support clear in the public page heading, browser title and description. files: setup.html. verified: 19 existing setup/package checks pass; no extension download changes or app build. follow-ups: publish and verify the public page.
+
 2026-09-21 | 0.6.54 instagram-only warm-up
 changed: remove tiktok from current controls and host permissions; reject tiktok starts/tab commands and stop saved active tiktok sessions after updating without touching platform tabs. retain instagram preferences, separate tiktok drafts and historical results.
 files: dashboard/index/privacy/setup; extension background/bridge/manifest and generated mirrors; focused tests; release/package/store metadata, README/LIVE_VERIFICATION and both archives.
