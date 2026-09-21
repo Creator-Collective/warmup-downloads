@@ -35,6 +35,7 @@ function matchesNiche(text, terms) {
 
 // Caption-only reactions, written locally. Captions are data, never instructions.
 // A recognizable detail is required; unknown topics skip instead of echoing a caption.
+// Keep replies conversational: brief reactions, occasional simple questions, sparse emoji.
 function contextualComment(caption, terms, used = new Set()) {
   if (typeof caption !== 'string' || caption.length > 6000 || !matchesNiche(caption, terms)) return null;
   // Trailing discovery tags are metadata; keep the full caption for niche matching.
@@ -55,31 +56,31 @@ function contextualComment(caption, terms, used = new Set()) {
     if (amounts.length > 1) continue; // Do not confuse cost with the unsellable value.
     const amount = amounts[0]?.trim();
     if (amount && /\b(?:can't|cannot|couldn't|unable to) sell\b/u.test(detail)) {
-      replies = [`${amount} and no way to sell 😭`, `wait how do you even sell that ${amount}`, `${amount} stuck there is rough`, `so that ${amount} is just on a screen 💀`];
+      replies = [`${amount} but can't cash out 😭`, `so the ${amount} is just stuck there`, `having ${amount} and being unable to sell is rough`, `wait so they can't touch that ${amount}`];
     } else if (/\b(?:not|no) financial advice\b/u.test(detail)) {
-      replies = ['the financial advice disclaimer 😭', 'there it is, the disclaimer lol', 'not financial advice, got it 😂', 'the disclaimer made it in'];
+      replies = ['the disclaimer lol', 'had to get that disclaimer in', 'there it is, not financial advice', 'that disclaimer is doing a lot of work'];
     } else if (/\b(?:not|no|never|without|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|can't|couldn't|cannot)\b/u.test(detail)) {
       continue; // Keyword presence alone cannot establish a negated activity.
     } else if (/\b(?:practice|practicing|practise|practising)\b/u.test(detail) && /\b(?:every day|daily|a little)\b/u.test(detail)) {
-      replies = ['a little practice every day adds up', 'the every day part is the hard part 😅', 'small daily reps, got it', 'keeping up the daily practice is the trick', 'daily practice sounds simple until day two lol', 'a little each day feels doable', 'those daily reps though 👀', 'keeping it small makes sense'];
+      replies = ['the every day part is where it gets hard 😭', 'daily practice sounds easy until you miss a day', 'a little practice is way less intimidating', 'the daily part takes some getting used to', 'how much practice do you do each day?', 'even a few minutes of practice counts', 'starting small every day makes sense', 'a little practice feels doable'];
     } else if (/\b(?:sharing|showing|share|show) (?:your|the|my|our) process\b/u.test(detail)) {
-      replies = ['the process is the interesting part tbh', 'more of the behind the scenes please 👀', 'showing the messy middle too?', 'the how is half the story'];
+      replies = ['the behind the scenes is my favorite part', "i'd watch a whole video on the process", 'more of the actual process please', 'always curious about the process'];
     } else if (/\b(?:personal branding|personal brand)\b/u.test(detail)) {
-      replies = ['personal branding without overthinking it please 😅', 'how long did finding your own style take', 'the personal part gets forgotten so fast', 'more on finding your own voice?'];
+      replies = ['the personal part gets lost so easily', 'finding your own style takes a minute', 'easy to overthink the personal brand stuff', 'figuring out how to sound like yourself is weirdly hard'];
     } else if (/\b(?:study tips|studying|study habits)\b/u.test(detail)) {
-      replies = ['which study tip would you start with', 'studying without overcomplicating it 🙌', 'what does a normal study day look like', 'the study routine is half the battle'];
+      replies = ['getting started is the hardest part of studying', 'the study routine takes some getting used to', 'studying takes so much trial and error', 'how long are your study sessions?'];
     } else if (/\b(?:storytelling|telling stories|tell a story)\b/u.test(detail)) {
-      replies = ['how do you decide where the story starts', 'the storytelling part 👀', 'what makes you keep a detail in the story', 'more on how you build the story please'];
+      replies = ['figuring out where to start the story is tricky', 'the story is what keeps me watching', 'a good story makes such a difference', 'cutting parts of the story is the hard part'];
     } else if (/\b(?:editing|video edits|video editing)\b/u.test(detail)) {
-      replies = ['how long does the editing usually take', 'the editing process needs its own post 👀', 'what part of the edit takes the longest', 'curious how many versions you go through'];
+      replies = ['could watch the editing process all day', 'would watch the whole editing process', 'always curious how people edit', 'what do you edit on?'];
     } else if (/\b(?:ugc rates|pricing|setting (?:your |my )?rates)\b/u.test(detail)) {
-      replies = ['how did you land on that price', 'the pricing part always gets me 😅', 'what would you charge starting out', 'curious how much room there is to negotiate'];
+      replies = ['pricing is such a guessing game at first', 'the rates part is always awkward', 'figuring out what to charge takes a minute', 'how did you pick your starting rate?'];
     } else if (/\b(?:cooking|baking)\b/u.test(detail) || (/\b(?:recipe|ingredients)\b/u.test(detail) && /\b(?:pasta|cake|bread|chicken|rice|soup|cookies|flour|butter|oven|sauce)\b/u.test(detail))) {
-      replies = ['what would you swap if an ingredient is missing', 'how much prep time are we talking', 'the recipe details please 👀', 'does this keep well for the next day'];
+      replies = ['how long does this take to make?', 'would this keep in the fridge?', 'curious what goes into the prep', 'curious how this turns out the next day'];
     } else if (/\b(?:workout|training routine|gym routine)\b/u.test(detail)) {
-      replies = ['how long does the whole workout take', 'what does the rest day look like', 'how would you scale this for a beginner', 'the routine details please 💪'];
+      replies = ['how long is the whole workout?', 'getting started is half the workout', 'finding a workout routine that sticks takes a while', 'how often do you do this routine?'];
     } else if (/\b(?:posting consistently|consistent posting|post every day|posting every day)\b/u.test(detail)) {
-      replies = ['how do you keep ideas coming every day', 'the consistency part is no joke 😅', 'do you batch posts or make them on the day', 'what do you do on the no ideas days'];
+      replies = ['coming up with ideas every day is the hard part', 'posting every day takes so much planning', 'do you make a few posts at once?', 'some days the ideas just disappear'];
     }
     if (!replies.length) continue;
     let hash = 0;

@@ -1,3 +1,9 @@
+2026-09-21 | 0.6.55 more natural instagram comments
+changed: rewrite the 52 caption-based replies with everyday wording, fewer interview-style questions and sparse emoji; keep caption matching, pool sizes, repeat protection and submission behavior unchanged.
+files: browser-extension/session.js; manifest/package/setup/store metadata; release-notes/0.6.55.json, release.json, README, both packaged archives, work_log.txt and git_commit.md.
+verified: all 587 existing checks passed; 91 focused session checks passed again after final copy adjustments; both 35-file archives match source; code and javascript reviews completed. no application build, Chrome control or public comments.
+follow-ups: publish through PR and verify the production download; existing unpacked installs need file replacement and reload.
+
 2026-09-21 | name the public setup page instagram warm-up tool
 changed: make instagram support clear in the public page heading, browser title and description. files: setup.html. verified: 19 existing setup/package checks pass; no extension download changes or app build. follow-ups: publish and verify the public page.
 

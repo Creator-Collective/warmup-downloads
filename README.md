@@ -1,3 +1,9 @@
+# 0.6.55 more natural instagram comments
+
+instagram comments use simpler, more natural wording in place of stock questions and forced slang. the same caption requirements and repeat protection still apply.
+
+replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up. updating the website alone does not update an installed extension.
+
 # 0.6.54 instagram-only warm-up
 
 Warm-up now offers Instagram only. TikTok session controls and host permissions are removed. New TikTok commands are rejected, and any saved active TikTok session stops after updating without opening, closing or interacting with platform tabs. Existing Instagram preferences and past session results remain available; TikTok preferences never become Instagram settings.
