@@ -3,6 +3,8 @@ const token = location.hash.slice(1);
 const controller = new AbortController();
 let job;
 let expectedDestination;
+let viewerNavigation;
+let currentSearchURL;
 let viewerSequence = [];
 let pendingEngagement = false;
 let pendingDraft = false;
@@ -69,6 +71,11 @@ function sameDestination(actual, expected) {
     const a = new URL(actual); const b = new URL(expected);
     const post = url => url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/?$/)?.[1];
     if (a.origin === b.origin && a.search === b.search && a.hash === b.hash && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '')) return true;
+    if (instagramURL(actual) && a.origin === b.origin && a.hash === b.hash &&
+        /^\/explore\/search\/keyword\/?$/.test(a.pathname) && /^\/explore\/search\/keyword\/?$/.test(b.pathname)) {
+      const parameters = url => JSON.stringify([...url.searchParams].sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv)));
+      return parameters(a) === parameters(b);
+    }
     const tiktok = url => url.protocol === 'https:' && !url.port && !url.username && !url.password && ['www.tiktok.com', 'tiktok.com'].includes(url.hostname);
     if (tiktok(a) && tiktok(b)) {
       const video = url => url.pathname.match(/^\/@[\w.-]+\/(?:video|photo)\/(\d+)\/?$/)?.[1];
@@ -80,6 +87,33 @@ function sameDestination(actual, expected) {
     }
     return a.origin === b.origin && !a.search && !b.search && !a.hash && !b.hash && Boolean(post(a)) && post(a) === post(b);
   } catch { return false; }
+}
+function allowedViewerDestination(url) {
+  return viewerNavigation && Date.now() < viewerNavigation.deadline &&
+    viewerNavigation.destinations.some(destination => sameDestination(url, destination));
+}
+async function navigateViewer(target, operation) {
+  if (currentPlatform() !== 'instagram') { expectedDestination = target; return operation(); }
+  const tab = await chrome.tabs.get(job.tabId);
+  assertRunning();
+  if (expectedDestination && !sameDestination(tab.url, expectedDestination)) {
+    throw new Error(`session stopped because the ${currentPlatform()} page changed.`);
+  }
+  const navigation = {
+    destinations: [tab.url, target, currentSearchURL].filter(Boolean),
+    deadline: Math.min(Date.now() + 16000, job.deadline)
+  };
+  viewerNavigation = navigation;
+  expectedDestination = target;
+  try { return await operation(); }
+  finally {
+    // A failed Next may have left the same post open or returned to its search.
+    // Adopt only one of those known destinations before ending the allowance.
+    try {
+      const settled = await chrome.tabs.get(job.tabId);
+      if (!controller.signal.aborted && !settled.pendingUrl && navigation.destinations.some(destination => sameDestination(settled.url, destination))) expectedDestination = settled.url;
+    } finally { if (viewerNavigation === navigation) viewerNavigation = null; }
+  }
 }
 function transientPageError(error) {
   return error?.transientPage === true || /frame (?:with id .*|.*was )removed|no frame with id|document (?:was )?unloaded|execution context (?:was )?destroyed|cannot find context/i.test(error?.message || '');
@@ -138,6 +172,7 @@ async function navigate(url) {
     if (page.blocked) throw new Error(page.blocked);
   }
   expectedDestination = url;
+  if (config.platform === 'instagram' && /^\/explore\/search\/keyword\/?$/.test(new URL(url).pathname)) currentSearchURL = url;
   await chrome.tabs.update(job.tabId, { url });
   const until = Math.min(Date.now() + 25000, job.deadline);
   while (Date.now() < until) {
@@ -172,7 +207,7 @@ async function openViewer(target) {
   const page = await inspect();
   viewerSequence = page.sequence || page.posts || [];
   if (!viewerSequence.some(id => sameDestination(id, target))) return false;
-  expectedDestination = target;
+  return navigateViewer(target, async () => {
   const clicked = await execute((target, deadline) => {
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     if (Date.now() >= deadline || inspector().blocked) return false;
@@ -206,6 +241,7 @@ async function openViewer(target) {
   }, [target, job.deadline]);
   if (!clicked) return false;
   return waitForPost(target);
+  });
 }
 async function advanceViewer(post, hasSeen = () => false) {
   if (!post.viewer || !post.next) return false;
@@ -218,7 +254,7 @@ async function advanceViewer(post, hasSeen = () => false) {
   const target = index >= 0 ? viewerSequence[index + 1] : null;
   if (!target || hasSeen(target)) return false;
   assertRunning();
-  expectedDestination = target;
+  return navigateViewer(target, async () => {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
@@ -235,14 +271,22 @@ async function advanceViewer(post, hasSeen = () => false) {
   }, [post.id, job.deadline]);
   if (!clicked) return false;
   return waitForPost(target);
+  });
 }
 async function returnToResults(post, searchURL) {
   if (!searchURL) return false;
+  const tab = await chrome.tabs.get(job.tabId);
+  assertRunning();
+  if (sameDestination(tab.url, searchURL) && !tab.pendingUrl) {
+    const page = await inspect();
+    if (page.blocked) throw new Error(page.blocked);
+    if (!page.post && !page.unavailable) { expectedDestination = searchURL; return true; }
+  }
   if (!post?.viewer) return navigate(searchURL);
   if (currentPlatform() === 'tiktok' && !post.close) return navigate(searchURL);
   // Closing the modal preserves the loaded results and scroll position. A full
   // navigation would throw that progress away and start the same batch again.
-  expectedDestination = searchURL;
+  return navigateViewer(searchURL, async () => {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
     if (location.hostname.includes('tiktok')) {
@@ -270,6 +314,7 @@ async function returnToResults(post, searchURL) {
     await sleep(400);
   }
   return false;
+  });
 }
 async function scroll() {
   try { return await execute(async deadline => {
@@ -559,7 +604,7 @@ function update(patch) {
   }).catch(error => { controller.abort(error); });
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (job?.tabId === tabId && change.url && expectedDestination && !sameDestination(change.url, expectedDestination)) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
+  if (job?.tabId === tabId && change.url && expectedDestination && !sameDestination(change.url, expectedDestination) && !allowedViewerDestination(change.url)) controller.abort(new Error(`session stopped because the ${currentPlatform()} page changed.`));
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes.job) return;
@@ -602,17 +647,21 @@ async function start() {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
       update, inspect: () => inspect(), scroll, engage,
+      checkpoint: async checkpoint => {
+        await messageQueue;
+        await send('runner-checkpoint', { checkpoint });
+      },
       advance: (post, signal, hasSeen) => recoverPageStep(() => advanceViewer(post, hasSeen)),
       search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
       open: target => recoverPageStep(() => openViewer(target)),
       leavePost: post => recoverPageStep(() => returnToResults(post, searchURL))
-    }, controller.signal, { getFocus: () => job.settings.focus });
+    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()) });
     await messageQueue;
     controller.signal.throwIfAborted();
     await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });
   } catch (error) {
     await messageQueue;
-    const finished = Date.now() >= job.deadline;
+    const finished = !job.stopRequested && Date.now() >= job.deadline;
     await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `${error.message || 'session stopped.'} an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' });
   } finally { clearInterval(timer); remaining(); }
 }

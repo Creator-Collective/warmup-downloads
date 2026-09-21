@@ -1021,6 +1021,7 @@ test('opening and advancing viewer use its controls without navigating back to t
    await adapter.open(first);
    assert.equal(await adapter.advance({id:first,viewer:true,next:true}),true);
  });
+ h.chrome.tabs.get=async()=>({url:current || 'https://www.instagram.com/'});
  h.chrome.tabs.update=async options=>{updates.push(options)};
  h.chrome.scripting.executeScript=async request=>{
    h.calls.push({injection:request});
@@ -1072,6 +1073,7 @@ test('returning from Instagram viewer closes the modal and never reloads the sea
  const h = runnerContext('starting', async (settings, adapter, signal) => {
   await adapter.search('branding');
   current = post.id;
+  vm.runInContext(`expectedDestination = '${post.id}'`, h.ctx);
   assert.equal(await adapter.leavePost(post, signal), true);
   assert.equal(signal.aborted, false);
  });
@@ -1362,4 +1364,110 @@ test('TikTok ignored paste is not submitted or counted and does not use native D
  assert.equal(f.result, 'draft-retained');
  assert.equal(f.composer.submitted, 0);
  assert.deepEqual(f.composer.inputs, []);
+});
+
+function instagramNavigationFixture(nextDestination) {
+ const search = 'https://www.instagram.com/explore/search/keyword/?q=drop%20shipping';
+ const first = 'https://www.instagram.com/p/first/';
+ const second = 'https://www.instagram.com/p/second/';
+ let current = search; let time = Date.now(); let clicks = 0; let closes = 0;
+ const h = runnerContext('starting', async (settings, adapter, signal) => {
+  assert.equal(await adapter.search('drop shipping'), true);
+  assert.equal(await adapter.open(first), true);
+  h.result = await adapter.advance({ id:first, viewer:true, next:true }, signal);
+  if (!h.result) assert.equal(await adapter.leavePost({id:first,viewer:true}, signal), true);
+  h.idleDestination = vm.runInContext('expectedDestination', h.ctx);
+  h.activeTransition = vm.runInContext('viewerNavigation', h.ctx);
+  if (h.after) h.after(signal);
+ });
+ const change = url => { current = url; h.chrome.tabs.onUpdated.listeners[0](7, { url }); };
+ h.ctx.Date = { now: () => time };
+ h.ctx.setTimeout = (fn, ms) => setTimeout(() => { if (ms < 3000) time += ms; fn(); }, ms >= 3000 ? 100 : 0);
+ h.chrome.tabs.get = async () => ({url:current,status:'complete'});
+ h.chrome.tabs.update = async (id, options) => { change(options.url); };
+ h.chrome.scripting.executeScript = async request => {
+  if (request.files) return [{result:null}];
+  if (typeof request.args?.[1] === 'number') {
+   if (/action: 'close'/.test(request.func.toString())) { closes++; change(search); return [{result:true}]; }
+   clicks++;
+   if (clicks === 1) change(first);
+   else if (nextDestination === 'failed' || nextDestination === 'slow-failed') { if (nextDestination === 'slow-failed') time += 17000; return [{result:false}]; }
+   else {
+    change(first); // Instagram can deliver the outgoing URL after Next starts.
+    change(search.replace('%20', '+'));
+    if (nextDestination !== 'grid') change(nextDestination || second);
+   }
+   return [{result:true}];
+  }
+  return [{result:{posts:[first,second],sequence:[first,second],post:/\/p\//.test(current)?{id:current,viewer:true,next:true}:null}}];
+ };
+ return {h, search, first, second, change, clicks:()=>clicks, closes:()=>closes};
+}
+
+test('Instagram Next permits only its own source and same-search intermediate before the target', async () => {
+ const f = instagramNavigationFixture();
+ await finishRunner(f.h);
+ assert.equal(f.h.result,true);
+ assert.equal(f.h.idleDestination,f.second);
+ assert.equal(f.h.activeTransition,null);
+ assert.equal(f.clicks(),2);
+ assert.equal(f.closes(),0);
+ assert.ok(f.h.calls.some(call=>call.patch?.phase==='complete'));
+});
+
+test('Instagram Next can settle back on its search without another stale Close click', async () => {
+ const f = instagramNavigationFixture('grid');
+ await finishRunner(f.h);
+ assert.equal(f.h.result,false);
+ assert.equal(f.closes(),0);
+ assert.equal(f.h.activeTransition,null);
+ assert.ok(f.h.calls.some(call=>call.patch?.phase==='complete'));
+});
+
+test('Instagram transition still rejects unrelated posts, searches and external destinations', async () => {
+ for (const destination of ['https://www.instagram.com/p/unrelated/','https://www.instagram.com/explore/search/keyword/?q=other','https://www.instagram.com/accounts/login/','https://example.com/']) {
+  const f = instagramNavigationFixture(destination);
+  await finishRunner(f.h);
+  assert.ok(f.h.calls.some(call=>call.patch?.phase==='stopped' && /page changed/.test(call.patch.message)), destination);
+  assert.equal(f.closes(),0);
+  assert.equal(vm.runInContext('viewerNavigation',f.h.ctx),null);
+ }
+});
+
+test('Instagram transition allowance ends on success and failed clicks; idle manual navigation stops', async () => {
+ for (const result of [undefined,'failed']) {
+  const f = instagramNavigationFixture(result);
+  f.h.after = signal => {
+   assert.equal(signal.aborted,false);
+   f.change(result === 'failed' ? f.second : f.search);
+   assert.equal(signal.aborted,true);
+  };
+  await finishRunner(f.h);
+  assert.equal(f.h.activeTransition,null);
+  assert.ok(f.h.calls.some(call=>call.patch?.phase==='stopped'));
+ }
+});
+
+test('a slow failed Instagram click restores its source after the transition allowance expires', async () => {
+ const f = instagramNavigationFixture('slow-failed');
+ await finishRunner(f.h);
+ assert.equal(f.h.result,false);
+ assert.equal(f.closes(),1);
+ assert.equal(f.h.idleDestination,f.search);
+ assert.equal(f.h.activeTransition,null);
+ assert.ok(f.h.calls.some(call=>call.patch?.phase==='complete'));
+});
+
+test('a stopped runner keeps its stopped result when final acknowledgement passes the old deadline', async () => {
+ let now = Date.now();
+ const h = runnerContext('starting', async () => {
+  h.job.stopRequested = true;
+  h.job.remainingMs = 1000;
+  now = h.job.deadline + 5000;
+  vm.runInContext("controller.abort(new Error('session stopped. you have control.'))",h.ctx);
+ });
+ h.ctx.Date = { now:()=>now };
+ await finishRunner(h);
+ assert.ok(h.calls.some(call=>call.patch?.phase==='stopped'));
+ assert.ok(!h.calls.some(call=>call.patch?.phase==='complete'));
 });

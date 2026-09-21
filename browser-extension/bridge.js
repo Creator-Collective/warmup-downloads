@@ -1,6 +1,6 @@
 (() => {
   if (window !== window.top || location.origin !== 'https://creator-collective-warmup.vercel.app') return;
-  const allowed = new Set(['hello', 'tabs', 'state', 'start', 'stop', 'set-focus', 'open-instagram', 'open-platform', 'setup-info', 'open-extensions']);
+  const allowed = new Set(['hello', 'tabs', 'state', 'start', 'resume', 'stop', 'set-focus', 'open-instagram', 'open-platform', 'setup-info', 'open-extensions']);
   window.addEventListener('message', async event => {
     const request = event.data;
     if (event.source !== window || event.origin !== location.origin || request?.channel !== 'cc-warmup-request' || typeof request.id !== 'string' || request.id.length > 80 || !allowed.has(request.type)) return;
@@ -11,6 +11,7 @@
     try {
       const payload = request.type === 'set-focus'
         ? { type: request.type, focus: request.focus, sessionId: request.sessionId }
+        : request.type === 'resume' ? { type: request.type, sessionId: request.sessionId, tabId: request.tabId }
         : { type: request.type, tabId: request.tabId, settings: request.settings, platform: request.platform };
       const response = await chrome.runtime.sendMessage(payload);
       window.postMessage({ channel: 'cc-warmup-response', id: request.id, ...response }, location.origin);
