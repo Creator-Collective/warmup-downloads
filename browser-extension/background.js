@@ -5,6 +5,19 @@ const serial = operation => { const result = queue.then(operation); queue = resu
 const getJob = async () => (await chrome.storage.session.get('job')).job;
 const putJob = job => chrome.storage.session.set({ job });
 const extensionOrigin = chrome.runtime.getURL('/');
+const INSTAGRAM_ONLY = 'warm-up is instagram only for now.';
+function enabledPlatform(value) {
+  const platform = validPlatform(value);
+  if (platform !== 'instagram') throw new Error(INSTAGRAM_ONLY);
+  return platform;
+}
+async function suspendDisabledJob() {
+  const job = await getJob();
+  if (!job || job.settings?.platform !== 'tiktok' || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
+  const stopped = { ...job, phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}` };
+  await putJob(stopped);
+  return stopped;
+}
 async function stopJob(message = 'session stopped. you have control.') {
   const job = await getJob();
   if (job && ['starting', 'running'].includes(job.phase)) await putJob({ ...job, stopRequested: true, stopRequestedAt: Date.now(), phase: 'stopping', nextActionAt: null, message });
@@ -37,6 +50,7 @@ async function dashboardCommand(message) {
     const tab = await chrome.tabs.create({ url: 'chrome://extensions/' });
     return { tabId: tab.id };
   }
+  await suspendDisabledJob();
   if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, state: publicState(await recoverStoppingJob()) };
   if (message.type === 'state') return publicState(await recoverStoppingJob());
   if (message.type === 'set-focus') {
@@ -51,12 +65,12 @@ async function dashboardCommand(message) {
     return publicState(next);
   }
   if (message.type === 'tabs') {
-    const platform = validPlatform(message.platform);
+    const platform = enabledPlatform(message.platform);
     const tabs = await chrome.tabs.query({ url: [...platforms[platform].patterns] });
     return tabs.filter(tab => !tab.incognito && platformURL(tab.url, platform)).map(tab => ({ id: tab.id, title: tab.title || platforms[platform].label }));
   }
   if (message.type === 'open-instagram' || message.type === 'open-platform') {
-    const platform = validPlatform(message.platform);
+    const platform = enabledPlatform(message.platform);
     const tab = await chrome.tabs.create({ url: platforms[platform].home });
     return { tabId: tab.id };
   }
@@ -69,7 +83,7 @@ async function dashboardCommand(message) {
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
   const settings = sessionPlan.validateSettings(message.settings);
-  const platform = validPlatform(settings.platform);
+  const platform = enabledPlatform(settings.platform);
   if (!Number.isInteger(message.tabId)) throw new Error(`choose a ${platforms[platform].label} tab first.`);
   const current = await getJob();
   if (current && ['starting', 'running', 'stopping'].includes(current.phase)) throw new Error('a session is already running. stop it before starting another.');
@@ -113,11 +127,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (sender.id !== chrome.runtime.id) return false;
   serial(async () => {
-    const job = await getJob();
+    const job = await suspendDisabledJob();
     if (!runnerSender(sender, job, extensionOrigin) || message.token !== job.token) throw new Error('this session is no longer active.');
     if (message.type === 'runner-job') return job;
     if (message.type === 'runner-stop') { await stopJob(); return null; }
-    if (message.type === 'runner-show') { await chrome.tabs.update(job.tabId, { active: true }); return null; }
+    if (message.type === 'runner-show') { enabledPlatform(job.settings?.platform); await chrome.tabs.update(job.tabId, { active: true }); return null; }
     if (message.type !== 'runner-update') throw new Error('unknown session action.');
     // Repeated terminal acknowledgements are harmless; late updates must never
     // revive a finished session or overwrite its uncertain-action warning.
@@ -158,6 +172,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 });
 // Chrome handles the toolbar click directly, preserving its user gesture.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error('Could not enable warm-up side panel:', error.message));
+void serial(suspendDisabledJob).catch(error => console.error('Could not stop unavailable warm-up platform:', error.message));
 void serial(() => signupController.suspendIfDisabled()).catch(error => console.error('Could not stop paused account creation:', error.message));
 chrome.tabs.onRemoved.addListener(tabId => { void signupController.tabRemoved(tabId).catch(() => {}); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {

@@ -1,13 +1,9 @@
 {
-  "version": "0.6.54",
   "releasedAt": "2026-09-21",
   "summary": "warm-up is instagram only for now",
   "changes": [
     "removed tiktok from warm-up setup and session controls.",
     "existing instagram settings are kept. saved tiktok sessions stop after updating, and the extension no longer requests access to tiktok.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up to use this version."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.54.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

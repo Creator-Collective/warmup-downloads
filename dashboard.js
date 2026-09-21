@@ -23,7 +23,7 @@ const fields = ['platform','niche','minutes','focus','limit-like','limit-follow'
 const draftFields = fields.filter(field => field !== 'platform' && !field.startsWith('limit-'));
 const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
 const platformDrafts = {};
-let draftPlatform = 'instagram';
+const draftPlatform = 'instagram';
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
   const callback = pending.get(event.data.id);
@@ -43,7 +43,6 @@ function request(type, extra = {}) {
 }
 try {
   const saved = JSON.parse(localStorage.getItem('cc-web-session') || '{}');
-  draftPlatform = saved.platform === 'tiktok' ? 'tiktok' : 'instagram';
   if (saved.version === 3) {
     for (const platform of ['instagram', 'tiktok']) {
       if (saved.profiles?.[platform] && typeof saved.profiles[platform] === 'object') platformDrafts[platform] = saved.profiles[platform];
@@ -54,7 +53,7 @@ try {
       const value = saved.version === 2 ? saved.customLimits?.[action] : saved[`limit-${action}`];
       if (typeof value === 'string' && value !== '') customLimits[action] = value;
     }
-    platformDrafts[draftPlatform] = { ...saved, customLimits };
+    platformDrafts[saved.platform === 'tiktok' ? 'tiktok' : 'instagram'] = { ...saved, customLimits };
   }
 } catch { /* defaults remain usable */ }
 function restoreDraft(platform) {
@@ -74,7 +73,7 @@ restoreDraft(draftPlatform);
 platformChanged();
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
-  return { platform: $('platform').value, niche: $('niche').value, minutes: numeric($('minutes').value), pace: 'auto', enableComments: true, focus: supportsFocus ? $('focus').value : 'balanced',
+  return { platform: 'instagram', niche: $('niche').value, minutes: numeric($('minutes').value), pace: 'auto', enableComments: true, focus: supportsFocus ? $('focus').value : 'balanced',
     customLimits: Object.fromEntries(Object.entries(limitOverrides).map(([name, value]) => [name, numeric(value)])) };
 }
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
@@ -105,8 +104,9 @@ function plan() {
 function renderFocus() {
   const parent = $(running ? 'focus-live' : 'focus-home');
   if ($('focus-controls').parentElement !== parent) parent.append($('focus-controls'));
-  $('focus-controls').hidden = !supportsFocus;
-  $('focus').disabled = !connected || busy || focusBusy || (running && !currentState?.canChangeFocus);
+  const available = supportsFocus && (!running || !currentState?.settings?.platform || currentState.settings.platform === 'instagram');
+  $('focus-controls').hidden = !available;
+  $('focus').disabled = !available || !connected || busy || focusBusy || (running && !currentState?.canChangeFocus);
   for (const option of $('focus').options) {
     const limit = running ? currentState?.settings?.limits?.[option.value] : Number($(`limit-${option.value}`)?.value);
     option.disabled = option.value !== 'balanced' && limit === 0;
@@ -133,7 +133,7 @@ function connection(value) {
 }
 async function tabs({ reportError = false } = {}) {
   if (!connected || running || busy) return;
-  const platform = $('platform').value;
+  const platform = 'instagram';
   const version = ++tabDiscoveryVersion;
   const isCurrent = () => connected && !running && !busy && version === tabDiscoveryVersion && platform === $('platform').value;
   let list;
@@ -165,13 +165,14 @@ function selectActiveTab(tabId) {
   select.value = value;
 }
 function platformChanged() {
-  const platform = $('platform').value;
+  const platform = 'instagram';
+  $('platform').value = platform;
   $('tab-label').textContent = `${platform} tab`;
   $('instagram-tab').dataset.icon = platform;
   $('open-instagram').textContent = `open ${platform} ↗`;
 }
 function displayPlan(state) {
-  if (state.running && state.settings) {
+  if (state.running && state.settings && (!state.settings.platform || state.settings.platform === 'instagram')) {
     if (!savedDraft) savedDraft = { values: Object.fromEntries(fields.map(field => [field, $(field).value])), limits: { ...limitOverrides }, tabId: $('instagram-tab').value };
     editingLimit = null;
     const settings = state.settings;
@@ -226,17 +227,6 @@ $('session-form').addEventListener('submit', async event => {
 $('session-form').addEventListener('invalid', event => { const details = event.target.closest('details'); if (details) details.open = true; }, true);
 function edited() { error(''); plan(); }
 for (const field of draftFields.filter(field => field !== 'focus')) $(field).addEventListener('input', edited);
-$('platform').addEventListener('change', () => {
-  const platform = $('platform').value;
-  if (running || busy || !['instagram', 'tiktok'].includes(platform)) return;
-  saveDraft();
-  draftPlatform = platform;
-  restoreDraft(platform);
-  tabDiscoveryVersion += 1; canAutoSelectTab = true;
-  $('instagram-tab').replaceChildren(new Option(`open ${$('platform').value} in this chrome profile`, ''));
-  $('instagram-tab').value = '';
-  platformChanged(); edited(); if (connected && !running) tabs({ reportError: true });
-});
 for (const action of actions) {
   const field = $(`limit-${action}`);
   field.addEventListener('focus', () => { editingLimit = action; });
@@ -251,6 +241,7 @@ $('instagram-tab').addEventListener('change', () => { canAutoSelectTab = false; 
 $('focus').addEventListener('change', async () => {
   if (focusBusy || !supportsFocus) return;
   if (!running) { edited(); return; }
+  if (currentState?.settings?.platform && currentState.settings.platform !== 'instagram') return;
   const sessionId = currentState?.sessionId;
   if (!currentState?.canChangeFocus || !sessionId) return;
   const focus = $('focus').value;
@@ -284,7 +275,7 @@ $('focus').addEventListener('change', async () => {
 });
 $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
 $('refresh-tabs').addEventListener('click', () => tabs({ reportError: true }));
-$('open-instagram').addEventListener('click', () => request('open-platform', { platform: $('platform').value }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
+$('open-instagram').addEventListener('click', () => request('open-platform', { platform: 'instagram' }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => { stateRevision += 1; if (currentState) currentState.canChangeFocus = false; renderFocus(); return request('stop').then(state => { stateRevision += 1; render(state); }).catch(e => error(e.message)); });
 async function connect() {
   try { const hello = await request('hello'); supportsFocus = hello.supportsFocus === true; error(''); connection(true); render(hello.state); await tabs({ reportError: true }); }

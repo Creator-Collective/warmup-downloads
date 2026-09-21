@@ -1,8 +1,7 @@
-recover warm-up sessions from stalled results
+make warm-up instagram only for now
 
 misc:
-- refresh or rotate stalled searches with bounded retries and a clear stop
-- preserve viewed posts and engagement history during recovery
-- scroll visible results and confirm real movement
-- publish extension 0.6.53 with matching setup and archives
-- verify 581 checks and recovery failures against prior code
+- remove tiktok selection and access while preserving instagram settings
+- reject new tiktok sessions and stop saved active sessions after updating
+- publish 0.6.54 downloads and setup with matching release metadata
+- verify instagram-only commands, upgrade behavior and archived package integrity

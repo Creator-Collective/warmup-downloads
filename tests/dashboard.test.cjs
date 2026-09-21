@@ -138,68 +138,55 @@ test('the submitted plan matches the visible automatic and custom amounts',async
  assert.equal(h.element('settings').disabled,true);
 });
 
-test('tiktok switches tabs and keeps every engagement target available',async()=>{
- const h=dashboard(true);for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
- h.element('platform').value='tiktok';h.element('platform').listeners.change();
- for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
- assert.equal(h.element('tab-label').textContent,'tiktok tab');
- assert.equal(h.element('open-instagram').textContent,'open tiktok ↗');
+test('saved tiktok selection opens and starts only instagram with every engagement target available',async()=>{
+ const h=dashboard(true,{platform:'tiktok'});for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(h.element('tab-label').textContent,'instagram tab');
+ assert.equal(h.element('open-instagram').textContent,'open instagram ↗');
  assert.equal(h.element('limit-comment').value,'3');
  assert.equal(h.element('limit-comment').disabled,false);
  assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
- assert.equal(h.requests.at(-1).platform,'tiktok');
+ assert.equal(h.requests.at(-1).platform,'instagram');
  await h.element('session-form').listeners.submit({preventDefault(){}});
  const request=h.requests.findLast(r=>r.type==='start');
- assert.equal(request.settings.platform,'tiktok');
+ assert.equal(request.settings.platform,'instagram');
 });
 
-test('each platform remembers its own targets and keywords',()=>{
- const h=dashboard();
- h.edit('niche','instagram niche');
- h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
- h.edit('limit-comment','7');h.element('limit-comment').listeners.blur();
- h.element('platform').value='tiktok';h.element('platform').listeners.change();
- assert.deepEqual(h.settings().limits,{like:30,follow:9,comment:3});
- h.edit('niche','tiktok niche');h.edit('minutes','20');
- h.edit('limit-follow','4');h.element('limit-follow').listeners.blur();
- h.element('platform').value='instagram';h.element('platform').listeners.change();
+test('instagram preferences survive a saved tiktok selection and remain separate',()=>{
+ const archived = {niche:'tiktok niche',minutes:'20',customLimits:{follow:'4'}};
+ const h=dashboard(false,{version:3,platform:'tiktok',profiles:{instagram:{niche:'instagram niche',minutes:'10',customLimits:{follow:'0',comment:'7'}},tiktok:archived}});
  assert.equal(h.element('niche').value,'instagram niche');
  assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,7);
- h.element('platform').value='tiktok';h.element('platform').listeners.change();
- assert.equal(h.element('niche').value,'tiktok niche');
- assert.equal(h.element('minutes').value,'20');
- assert.equal(h.settings().limits.follow,4);assert.equal(h.settings().weights.like,2);
+ assert.deepEqual(h.saved().profiles.tiktok,archived);
+ h.edit('minutes','20');
  const reopened=dashboard(false,h.saved());
- assert.equal(reopened.settings().platform,'tiktok');
+ assert.equal(reopened.settings().platform,'instagram');
  assert.deepEqual(reopened.settings(),h.settings());
- reopened.element('platform').value='instagram';reopened.element('platform').listeners.change();
  assert.equal(reopened.settings().limits.follow,0);assert.equal(reopened.settings().limits.comment,7);
 });
 
-test('legacy tiktok settings migrate only to tiktok and preserve explicit zero',()=>{
+test('legacy tiktok settings are retained without becoming instagram preferences',()=>{
  const h=dashboard(false,{version:2,platform:'tiktok',niche:'photography',minutes:'15',customLimits:{follow:'0',comment:'2'}});
  assert.equal(h.saved().version,3);
- assert.equal(h.settings().platform,'tiktok');assert.equal(h.settings().limits.follow,0);
- h.element('platform').value='instagram';h.element('platform').listeners.change();
+ assert.equal(h.settings().platform,'instagram');
  assert.equal(h.settings().limits.follow,9);
- h.element('platform').value='tiktok';h.element('platform').listeners.change();
- assert.equal(h.settings().terms[0],'photography');assert.equal(h.settings().minutes,15);
- assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,2);
+ assert.equal(h.settings().terms[0],'personal branding');assert.equal(h.settings().minutes,10);
+ assert.equal(h.saved().profiles.tiktok.niche,'photography');
+ assert.deepEqual(h.saved().profiles.tiktok.customLimits,{follow:'0',comment:'2'});
 });
 
-test('tiktok results keep their actual targets after controls return to another platform',()=>{
+test('results keep their actual targets after controls return to the saved draft',()=>{
  const h=dashboard();
  h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
- h.context.live=publicState({phase:'running',tabId:8,settings:validateSettings({platform:'tiktok',niche:'branding',minutes:10,enableComments:true,customLimits:{like:3,follow:2,comment:1}}),stats:{scroll:7,like:3,follow:1,comment:1},unconfirmed:{follow:1},activity:[],message:'watching'});
+ h.context.live=publicState({phase:'running',tabId:8,settings:validateSettings({platform:'instagram',niche:'branding',minutes:10,enableComments:true,customLimits:{like:3,follow:2,comment:1}}),stats:{scroll:7,like:3,follow:1,comment:1},unconfirmed:{follow:1},activity:[],message:'watching'});
  vm.runInContext('render(live)',h.context);
  assert.equal(h.element('stat-follow').textContent,'1 / 2');
- assert.equal(h.element('activity-heading').textContent,'tiktok session');
+ assert.equal(h.element('activity-heading').textContent,'instagram session');
  vm.runInContext('render({...live,running:false,phase:"complete"})',h.context);
  assert.equal(h.element('platform').value,'instagram');
  assert.equal(h.element('limit-follow').value,'0');
  assert.equal(h.element('stat-follow').textContent,'1 / 2');
  assert.equal(h.element('stat-comment').textContent,'1 / 1');
- assert.equal(h.element('activity-heading').textContent,'tiktok results');
+ assert.equal(h.element('activity-heading').textContent,'instagram results');
  assert.equal(h.element('session-results-note').textContent,'1 follow not confirmed.');
  h.edit('minutes','20');
  assert.equal(h.element('stat-follow').textContent,'1 / 2');
@@ -217,6 +204,8 @@ test('warm-up markup has no comments toggle, instructional hints or footer links
  const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
  assert.doesNotMatch(html.slice(html.indexOf('<form id="session-form"')),/enable-comments|class="hint"|pace-help|pacing &amp; engagement mix|id="pace"|id="mix-|how comments work|plan-mode|<footer>|report a problem|>privacy</);
  assert.match(html,/session targets/);
+ assert.match(html,/<input id="platform" type="hidden" value="instagram">/);
+ assert.doesNotMatch(html,/tiktok|<select id="platform"/i);
  for(const action of ['like','follow','comment']) {
   const tag=html.match(new RegExp(`<input id="limit-${action}"[^>]*>`))[0];
   assert.match(tag,/type="number"/);assert.match(tag,/required/);assert.doesNotMatch(tag,/placeholder|disabled/);
@@ -260,7 +249,7 @@ async function settleDashboard() {
   for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve));
 }
 
-test('idle discovery finds a tiktok tab opened after the panel connected', async () => {
+test('idle discovery finds an instagram tab despite a saved tiktok selection', async () => {
   let availableTabs = [];
   const h = dashboard(true, { platform: 'tiktok' }, (message, data) => message.type === 'tabs' ? availableTabs : data);
   await settleDashboard();
@@ -268,11 +257,11 @@ test('idle discovery finds a tiktok tab opened after the panel connected', async
   assert.equal(h.element('instagram-tab').value, '');
   assert.equal(h.element('start').disabled, true);
 
-  availableTabs = [{ id: 8, title: 'TikTok' }];
+  availableTabs = [{ id: 8, title: 'Instagram' }];
   await h.poll();
   assert.equal(h.element('instagram-tab').value, '8');
   assert.equal(h.element('start').disabled, false);
-  assert.equal(h.requests.at(-1).platform, 'tiktok');
+  assert.equal(h.requests.at(-1).platform, 'instagram');
   assert.equal(h.requests.some(request => request.type === 'start'), false);
 });
 
@@ -282,9 +271,9 @@ test('the open-platform action recovers when its new tab has not loaded yet', as
     const h = dashboard(true, { platform }, (message, data) => message.type === 'tabs' ? availableTabs : data);
     await settleDashboard();
     await h.element('open-instagram').listeners.click();
-    assert.equal(h.requests.find(request => request.type === 'open-platform').platform, platform);
+    assert.equal(h.requests.find(request => request.type === 'open-platform').platform, 'instagram');
     assert.equal(h.element('start').disabled, true);
-    availableTabs = [{ id: 12, title: platform }];
+    availableTabs = [{ id: 12, title: 'instagram' }];
     await h.poll();
     assert.equal(h.element('instagram-tab').value, '12');
     assert.equal(h.element('start').disabled, false);
@@ -292,7 +281,7 @@ test('the open-platform action recovers when its new tab has not loaded yet', as
 });
 
 test('idle discovery preserves an explicit choice and never silently replaces a closed selected tab', async () => {
-  let availableTabs = [{ id: 8, title: 'TikTok one' }, { id: 9, title: 'TikTok two' }];
+  let availableTabs = [{ id: 8, title: 'Instagram one' }, { id: 9, title: 'Instagram two' }];
   const h = dashboard(true, { platform: 'tiktok' }, (message, data) => message.type === 'tabs' ? availableTabs : data);
   await settleDashboard();
   assert.equal(h.element('instagram-tab').value, '');
@@ -301,17 +290,17 @@ test('idle discovery preserves an explicit choice and never silently replaces a 
   const unchangedOptions = h.element('instagram-tab').options;
   await h.poll();
   assert.equal(h.element('instagram-tab').options, unchangedOptions);
-  availableTabs = [...availableTabs, { id: 10, title: 'TikTok three' }];
+  availableTabs = [...availableTabs, { id: 10, title: 'Instagram three' }];
   await h.poll();
   assert.equal(h.element('instagram-tab').value, '9');
-  availableTabs = [{ id: 8, title: 'TikTok one' }];
+  availableTabs = [{ id: 8, title: 'Instagram one' }];
   await h.poll();
   await h.poll();
   assert.equal(h.element('instagram-tab').value, '');
   assert.equal(h.element('start').disabled, true);
 });
 
-test('rapid platform changes discard old responses even after switching back to the same platform', async () => {
+test('rapid refreshes discard older discovery responses', async () => {
   const pendingTabs = [];
   let defer = false;
   const h = dashboard(true, null, (message, data) => {
@@ -320,19 +309,15 @@ test('rapid platform changes discard old responses even after switching back to 
   });
   await settleDashboard();
   defer = true;
-  for (const platform of ['tiktok', 'instagram', 'tiktok']) {
-    h.element('platform').value = platform;
-    h.element('platform').listeners.change();
-    assert.deepEqual(Array.from(h.element('instagram-tab').options, option => option.value), ['']);
-  }
-  assert.deepEqual(pendingTabs.map(request => request.platform), ['tiktok', 'instagram', 'tiktok']);
-  pendingTabs[2].resolve([{ id: 10, title: 'new TikTok' }]);
+  for (let attempt = 0; attempt < 3; attempt++) h.element('refresh-tabs').listeners.click();
+  assert.deepEqual(pendingTabs.map(request => request.platform), ['instagram', 'instagram', 'instagram']);
+  pendingTabs[2].resolve([{ id: 7, title: 'new Instagram' }]);
   await settleDashboard();
-  pendingTabs[1].resolve([{ id: 7, title: 'Instagram' }]);
-  pendingTabs[0].resolve([{ id: 8, title: 'old TikTok' }]);
+  pendingTabs[1].resolve([{ id: 8, title: 'earlier Instagram' }]);
+  pendingTabs[0].resolve([{ id: 9, title: 'old Instagram' }]);
   await settleDashboard();
-  assert.equal(h.element('instagram-tab').value, '10');
-  assert.deepEqual(Array.from(h.element('instagram-tab').options, option => option.value), ['', '10']);
+  assert.equal(h.element('instagram-tab').value, '7');
+  assert.deepEqual(Array.from(h.element('instagram-tab').options, option => option.value), ['', '7']);
   assert.equal(h.element('start').disabled, false);
 });
 
@@ -363,7 +348,7 @@ test('active sessions retain their exact tab and do not poll discovery', async (
   await settleDashboard();
   defer = true;
   const refresh = h.element('refresh-tabs').listeners.click();
-  liveState = publicState({ phase: 'running', tabId: 42, settings: validateSettings({ platform: 'tiktok', niche: 'branding', minutes: 10 }), activity: [], message: 'watching' });
+  liveState = publicState({ phase: 'running', tabId: 42, settings: validateSettings({ platform: 'instagram', niche: 'branding', minutes: 10 }), activity: [], message: 'watching' });
   h.context.liveState = liveState;
   vm.runInContext('render(liveState)', h.context);
   resolveTabs([{ id: 12, title: 'Instagram' }]);
@@ -372,7 +357,7 @@ test('active sessions retain their exact tab and do not poll discovery', async (
   await h.poll();
   assert.equal(h.requests.filter(request => request.type === 'tabs').length, discoveryCount);
   assert.equal(h.element('instagram-tab').value, '42');
-  assert.equal(h.element('platform').value, 'tiktok');
+  assert.equal(h.element('platform').value, 'instagram');
   assert.equal(h.element('start').disabled, true);
 });
 
@@ -389,7 +374,7 @@ test('a transient discovery failure stays connected and recovers on the next idl
   assert.equal(h.element('connection').textContent, 'connected');
   failed = false;
   await h.poll();
-  assert.equal(h.element('instagram-tab').value, '8');
+  assert.equal(h.element('instagram-tab').value, '7');
   assert.equal(h.element('start').disabled, false);
   assert.equal(h.element('form-error').hidden, true);
 });

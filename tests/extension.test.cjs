@@ -48,7 +48,7 @@ test('manifest limits permissions and contains no remote code or cookie access',
  assert.deepEqual(manifest.permissions,['storage','scripting','sidePanel']);
  assert.deepEqual(manifest.content_scripts[0].matches,[origin+'/*']);
  assert.equal(manifest.content_scripts[0].all_frames,false);
- assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns,...platforms.tiktok.patterns]);
+ assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns]);
  for(const file of ['plan.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
  const ctx=vm.createContext({setTimeout,clearTimeout,AbortController});
  for(const file of ['plan.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
@@ -75,10 +75,10 @@ test('start validates settings, creates a dedicated runner and blocks duplicate 
  assert.equal(h.created.length,1);assert.equal(h.created[0].active,false);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,false);
 });
-test('website and side-panel sessions create an inactive runner in the selected platform tab’s window', async () => {
+test('website and side-panel sessions create an inactive runner in the selected Instagram tab’s window', async () => {
  const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
  for (const source of [sender, panel]) {
-   for (const [platform, tabId, windowId] of [['instagram', 7, 31], ['tiktok', 8, 42]]) {
+   for (const [platform, tabId, windowId] of [['instagram', 7, 31], ['instagram', 7, 42]]) {
      const h = background();
      const get = h.chrome.tabs.get;
      h.chrome.tabs.get = async id => ({ ...await get(id), windowId });
@@ -92,20 +92,31 @@ test('website and side-panel sessions create an inactive runner in the selected 
    }
  }
 });
-test('tiktok tabs can start warm-up with likes, follows and comments',async()=>{
- const h=background();
- const tabs=await h.message({type:'tabs',platform:'tiktok'});
- assert.deepEqual(tabs.data.map(tab=>tab.id),[8]);
- const response=await h.message({type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',enableComments:true,customLimits:{like:4,follow:1,comment:2}}});
- assert.equal(response.ok,true);
- assert.equal(h.job().settings.platform,'tiktok');
- assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:2});
- assert.equal((await h.message({type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}})).ok,false);
+test('website and side panel reject TikTok listing, opening and starting without touching browser tabs',async()=>{
+ const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
+ for (const source of [sender, panel]) {
+  const h=background();
+  const tabCalls=[];
+  for (const method of ['query','get','create','update','remove']) h.chrome.tabs[method]=async()=>{tabCalls.push(method);throw new Error('TikTok must not access browser tabs');};
+  for (const request of [
+   {type:'tabs',platform:'tiktok'},
+   {type:'open-platform',platform:'tiktok'},
+   {type:'open-instagram',platform:'tiktok'},
+   {type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',enableComments:true,customLimits:{like:4,follow:1,comment:2}}},
+   {type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}}
+  ]) {
+   const response=await h.message(request,source);
+   assert.equal(response.ok,false);
+   assert.match(response.error,/instagram only/);
+  }
+  assert.deepEqual(tabCalls,[]);
+  assert.equal(h.job(),undefined);
+ }
 });
-test('the public web bridge lists and opens the requested platform through the real background handler', async () => {
+test('the public web bridge lists and opens Instagram through the real background handler', async () => {
   const h = background();
   const bridge = webBridge(h);
-  for (const [platform, tabId] of [['instagram', 7], ['tiktok', 8]]) {
+  for (const [platform, tabId] of [['instagram', 7]]) {
     await bridge.request({ type: 'tabs', platform });
     assert.equal(bridge.forwarded.at(-1).platform, platform);
     assert.equal(bridge.responses.at(-1).data.ok, true);
@@ -119,17 +130,28 @@ test('the public web bridge lists and opens the requested platform through the r
   assert.equal(h.created.at(-1).url, platforms.instagram.home);
   assert.equal(h.job(), undefined);
 });
-test('the public bridge rejects malformed platforms without querying or opening another destination', async () => {
+test('the public bridge rejects TikTok and malformed platforms without querying or opening another destination', async () => {
   const h = background();
   const bridge = webBridge(h);
-  for (const platform of ['https://evil.example/', 'youtube', '__proto__', null, [], ['tiktok'], { platform: 'tiktok' }, 8]) {
+  for (const platform of ['tiktok', 'https://evil.example/', 'youtube', '__proto__', null, [], ['tiktok'], { platform: 'tiktok' }, 8]) {
     for (const type of ['tabs', 'open-platform']) {
       await bridge.request({ type, platform });
       assert.equal(bridge.responses.at(-1).data.ok, false);
-      assert.match(bridge.responses.at(-1).data.error, /choose instagram or tiktok/);
+      assert.match(bridge.responses.at(-1).data.error, /instagram only/);
     }
   }
   assert.equal(bridge.forwarded.length, 0);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.job(), undefined);
+});
+test('the public bridge cannot start TikTok through either platform field', async () => {
+  const h = background();
+  const bridge = webBridge(h);
+  for (const platform of [undefined, 'instagram', 'tiktok']) {
+    await bridge.request({ type: 'start', platform, tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'branding' } });
+    assert.equal(bridge.responses.at(-1).data.ok, false);
+    assert.match(bridge.responses.at(-1).data.error, /instagram only/);
+  }
   assert.equal(h.created.length, 0);
   assert.equal(h.job(), undefined);
 });
@@ -172,7 +194,7 @@ test('public bridge routing keeps its exact origin, frame, command and field bou
   for (const type of ['signup-start', 'runner-job', 'runner-update', 'signup-runner-stop', 'arbitrary-command']) await bridge.request({ type, platform: 'tiktok' });
   assert.equal(bridge.forwarded.length, 0);
   assert.equal(h.created.length, 0);
-  await bridge.request({ type: 'tabs', platform: 'tiktok', token: 'must-not-forward', url: 'https://evil.example', capability: 'must-not-forward', patch: { phase: 'running' } });
+  await bridge.request({ type: 'tabs', platform: 'instagram', token: 'must-not-forward', url: 'https://evil.example', capability: 'must-not-forward', patch: { phase: 'running' } });
   assert.deepEqual(Object.keys(bridge.forwarded[0]).sort(), ['platform', 'settings', 'tabId', 'type']);
   assert.equal(bridge.responses.at(-1).data.ok, true);
   assert.equal(h.job(), undefined);
@@ -190,12 +212,12 @@ test('stop blocks replacement until runner acknowledges and preserves uncertain 
  assert.equal(h.job().phase,'error');assert.match(h.job().message,/may have gone through/);
  assert.equal((await h.message({type:'start',tabId:7,settings:{minutes:10,niche:'branding'}})).ok,true);
 });
-test('TikTok outcomes survive Stop, completion and worker restart without replacing the stopping message', async () => {
+test('Instagram outcomes survive Stop, completion and worker restart without replacing the stopping message', async () => {
  const h = background();
- await h.message({ type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'study tips', enableComments: true } });
+ await h.message({ type: 'start', tabId: 7, settings: { platform: 'instagram', minutes: 10, niche: 'study tips', enableComments: true } });
  const job = h.job();
  const runner = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: 90 } };
- const comment = { text: 'small daily reps, got it', url: 'https://www.tiktok.com/@creator/video/123/', author: 'creator', time: Date.now(), status: 'uncertain' };
+ const comment = { text: 'small daily reps, got it', url: 'https://www.instagram.com/p/example/', author: 'creator', time: Date.now(), status: 'uncertain' };
  await h.message({ type: 'stop' });
  const stoppedMessage = h.job().message;
  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'running', stats: { like: 2, follow: 1, comment: 0 }, unconfirmed: { like: 0, follow: 1, comment: 1 }, pausedActions: ['comment'], comments: [comment], nextActionAt: Date.now() + 10000, message: 'must not overwrite stop' } }, runner);
@@ -223,7 +245,7 @@ test('session outcome normalization bounds counts, rejects invalid values and ex
  assert.deepEqual(publicState().unconfirmed, { like: 0, follow: 0, comment: 0 });
  assert.deepEqual(publicState({ stats: {}, settings: { platform: 'tiktok' } }).pausedActions, []);
  const h = background();
- await h.message({ type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'study tips', enableComments: true, customLimits: { like: 4, follow: 2, comment: 1 } } });
+ await h.message({ type: 'start', tabId: 7, settings: { platform: 'instagram', minutes: 10, niche: 'study tips', enableComments: true, customLimits: { like: 4, follow: 2, comment: 1 } } });
  const job = h.job();
  const runner = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: 90 } };
  for (const [unconfirmed, expected] of [
