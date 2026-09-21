@@ -1,5 +1,6 @@
-name the public page instagram warm-up tool
+make instagram warm-up comments sound more natural
 
 misc:
-- make instagram support clear in the setup heading, browser title and description
-- keep the current extension download and install steps unchanged
+- replace canned questions and forced slang with short conversational replies
+- keep caption matching, repeat protection and comment behavior intact
+- package extension 0.6.55 and update download and install metadata

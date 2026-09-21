@@ -1,13 +1,9 @@
 {
-  "version": "0.6.55",
   "releasedAt": "2026-09-21",
   "summary": "more natural instagram comments",
   "changes": [
     "replaced stock questions and forced slang with simpler, more natural comments.",
     "comments still need a matching caption and keep the existing repeat protection.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up to use this version."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.55.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
