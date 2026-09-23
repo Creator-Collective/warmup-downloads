@@ -1,3 +1,13 @@
+# 0.6.57 reach warm-up targets and write instagram comments
+
+instagram comments now come from a local reply writer with 274 short, fixed replies and 12 keyword templates, picked by the student's niche and the post format. replies never copy caption text, never include links, mentions, hashtags or calls to action, and never repeat within a session. posts that bait for comments, look like instructions to the tool, or cover sensitive or heated topics are skipped.
+
+default targets now match what a session can show: at auto pace a 40 minute session aims for 60 likes, 18 follows and 7 comments. posts from the student's current keyword search results count as on-niche for likes and follows even when the caption does not repeat the keyword. a post can get a second, different action after a short pause (never more than 2), no more than 6 actions start in any minute, and full video watches and keyword re-searches happen less often. minimum spacing between actions is unchanged.
+
+a comment box problem before any text is typed is now a clean skip. if a draft may remain but post was never clicked, comments can come back once after two read-only checks on a different post find no leftover text. uncertain submits and interrupted resumes still keep comments off for the session. own-profile and comment box detection work in more instagram layouts, and repeated skip messages are throttled.
+
+tiktok stays off. replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up. the website update alone does not update an installed extension. no new extension permissions.
+
 # 0.6.56 resume stopped instagram sessions
 
 Stopped sessions can resume with their remaining time, original targets, completed counts and action history. Paused time does not consume the session. Uncertain attempts remain reserved, and retained comment drafts keep comments paused. Starting a new session remains available separately. Resume requires a checkpoint from this version and is available while the browser retains the session; older sessions and browser restarts cannot be recovered.

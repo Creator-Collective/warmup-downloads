@@ -166,7 +166,7 @@ test('a real engine checkpoint survives background validation, stop, and resumed
   const started = await h.message({ type: 'start', tabId: 7, settings: { minutes: 3, niche: 'study tips', customLimits: { like: 1, follow: 0, comment: 0 } } });
   assert.equal(started.ok, true);
   const engine = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
-  for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(root, 'browser-extension', file), 'utf8'), engine);
+  for (const file of ['plan.js', 'comment-writer.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(root, 'browser-extension', file), 'utf8'), engine);
   const controller = new AbortController(), token = h.job().token;
   let index = 0, saves = 0;
   const adapter = {

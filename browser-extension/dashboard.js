@@ -95,12 +95,23 @@ function plan() {
     const result = sessionPlan.validateSettings(input());
     // Polling and recalculation must not replace a number while it is edited.
     for (const action of actions) if (editingLimit !== action) $(`limit-${action}`).value = String(result.limits[action]);
+    const reach = sessionPlan.usualReach(result);
+    renderLimitHint(actions.some(action => result.limits[action] > reach[action]));
     showError(requestError); valid = true;
-  } catch (e) { showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message); }
+  } catch (e) {
+    renderLimitHint(false);
+    showError(editingLimit && $(`limit-${editingLimit}`).value === '' ? requestError : e.message);
+  }
   validPlan = valid;
   $('start').disabled = !connected || running || busy || !valid || !$('instagram-tab').value;
   saveDraft();
   renderFocus();
+}
+function renderLimitHint(show) {
+  const hint = $('limit-hint');
+  if (!hint) return;
+  hint.textContent = show ? "more than this pace usually fits. the session stops when time runs out, it won't rush." : '';
+  hint.hidden = !show;
 }
 function renderResume() {
   const available = !running && currentState?.canResume === true;

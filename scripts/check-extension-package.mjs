@@ -10,7 +10,7 @@ const read = file => readFileSync(path.join(root, file));
 const manifest = JSON.parse(read('browser-extension/manifest.json'));
 const version = manifest.version;
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('invalid extension release version');
-const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','select-ui.js','dashboard.css','comment-history.js','session-results.js','inter.woff2','cc-logo.webp','platform-instagram.svg','platform-tiktok.svg','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
+const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','comment-writer.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','select-ui.js','dashboard.css','comment-history.js','session-results.js','inter.woff2','cc-logo.webp','platform-instagram.svg','platform-tiktok.svg','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
 const errors = [];
 const equal = (actual, expected, message) => { if (!actual.equals(expected)) errors.push(message); };
 const setup = read('setup.html').toString();

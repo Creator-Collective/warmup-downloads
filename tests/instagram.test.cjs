@@ -229,3 +229,15 @@ test('a manual composer interaction revokes draft ownership even when its text s
     assert.equal(h.field.value, h.request.comment);
   }
 });
+
+test('a trusted input in any other textarea revokes draft ownership before posting', () => {
+  const h = commentComposer(); h.prepare();
+  const other = { tagName: 'TEXTAREA', closest: () => null };
+  h.interact('input', false, other);
+  assert.ok(h.inspect('comment-submit').point);
+  h.interact('input', true, other);
+  const result = h.inspect('comment-submit');
+  assert.equal(result.point, null);
+  assert.equal(result.reason, 'manual-edit-detected');
+  assert.equal(h.field.value, h.request.comment);
+});

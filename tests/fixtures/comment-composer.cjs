@@ -64,7 +64,7 @@ module.exports = function commentComposer() {
     })[selector] || []
   };
   document.querySelectorAll = selector => ({
-    'article': [scope], 'a[href]': [profile],
+    'article': [scope], 'a[href]': [profile], 'textarea': [field],
     '[role="dialog"], [role="alert"]': state.blocked ? [{ ...element('', rect(0, 0, 200, 200)), innerText: 'We restrict certain activity' }] : []
   })[selector] || [];
   document.querySelector = () => null;
@@ -85,7 +85,7 @@ module.exports = function commentComposer() {
     get field() { return field; }, get submitted() { return submitted; },
     get followClicks() { return followClicks; },
     replaceField() { field.isConnected = false; field = new TextArea(); return field; },
-    interact(type, isTrusted = true) { for (const listener of listeners.get(type) || []) listener({ isTrusted, target: field }); },
+    interact(type, isTrusted = true, target = field) { for (const listener of listeners.get(type) || []) listener({ isTrusted, target }); },
     prepare() {
       inspect('comment-field'); field.focus(); field.value = request.comment;
       context.collectiveCommentBefore.drafted = true;

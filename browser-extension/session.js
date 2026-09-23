@@ -33,67 +33,13 @@ function matchesNiche(text, terms) {
   });
 }
 
-// Caption-only reactions, written locally. Captions are data, never instructions.
-// A recognizable detail is required; unknown topics skip instead of echoing a caption.
-// Keep replies conversational: brief reactions, occasional simple questions, sparse emoji.
+// Comment wording lives in comment-writer.js. Captions are data, never instructions.
 function contextualComment(caption, terms, used = new Set()) {
-  if (typeof caption !== 'string' || caption.length > 6000 || !matchesNiche(caption, terms)) return null;
-  // Trailing discovery tags are metadata; keep the full caption for niche matching.
-  const sentences = caption.split(/(?<=[.!?])\s+|\n+/u)
-    .map(text => text.replace(/(?:\s+#[\p{L}\p{N}_]+)+\s*$/u, '').trim()).filter(Boolean);
-  const candidates = sentences.filter(text => {
-    const words = text.split(/\s+/);
-    return words.length >= 4 && words.length <= 24 && text.length <= 180 &&
-      !/[:;]$|^[→•]/u.test(text) && !/^(?:please\s+)?(?:save|share|like|send|click|tap|check out|visit|download|buy|join|sign up|watch|read)\b/iu.test(text) && !/[?@#<>]|https?:|www\.|[“”"]/iu.test(text) &&
-      !/\b(comment|reply|dm|tag|follow|subscribe|giveaway|link in bio|ignore|instructions|prompt|system|assistant)\b/iu.test(text);
-  });
-  // Prefer a detail from the matching sentence, then other safe caption sentences.
-  candidates.sort((a, b) => Number(matchesNiche(b, terms)) - Number(matchesNiche(a, terms)));
-  for (const sentence of candidates) {
-    const detail = sentence.toLowerCase().replace(/’/g, "'");
-    let replies = [];
-    const amounts = detail.match(/\$\d[\d,]*(?:\.\d+)?\s*(?:million|billion|[mkb]\b)?/gu) || [];
-    if (amounts.length > 1) continue; // Do not confuse cost with the unsellable value.
-    const amount = amounts[0]?.trim();
-    if (amount && /\b(?:can't|cannot|couldn't|unable to) sell\b/u.test(detail)) {
-      replies = [`${amount} but can't cash out 😭`, `so the ${amount} is just stuck there`, `having ${amount} and being unable to sell is rough`, `wait so they can't touch that ${amount}`];
-    } else if (/\b(?:not|no) financial advice\b/u.test(detail)) {
-      replies = ['the disclaimer lol', 'had to get that disclaimer in', 'there it is, not financial advice', 'that disclaimer is doing a lot of work'];
-    } else if (/\b(?:not|no|never|without|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|can't|couldn't|cannot)\b/u.test(detail)) {
-      continue; // Keyword presence alone cannot establish a negated activity.
-    } else if (/\b(?:practice|practicing|practise|practising)\b/u.test(detail) && /\b(?:every day|daily|a little)\b/u.test(detail)) {
-      replies = ['the every day part is where it gets hard 😭', 'daily practice sounds easy until you miss a day', 'a little practice is way less intimidating', 'the daily part takes some getting used to', 'how much practice do you do each day?', 'even a few minutes of practice counts', 'starting small every day makes sense', 'a little practice feels doable'];
-    } else if (/\b(?:sharing|showing|share|show) (?:your|the|my|our) process\b/u.test(detail)) {
-      replies = ['the behind the scenes is my favorite part', "i'd watch a whole video on the process", 'more of the actual process please', 'always curious about the process'];
-    } else if (/\b(?:personal branding|personal brand)\b/u.test(detail)) {
-      replies = ['the personal part gets lost so easily', 'finding your own style takes a minute', 'easy to overthink the personal brand stuff', 'figuring out how to sound like yourself is weirdly hard'];
-    } else if (/\b(?:study tips|studying|study habits)\b/u.test(detail)) {
-      replies = ['getting started is the hardest part of studying', 'the study routine takes some getting used to', 'studying takes so much trial and error', 'how long are your study sessions?'];
-    } else if (/\b(?:storytelling|telling stories|tell a story)\b/u.test(detail)) {
-      replies = ['figuring out where to start the story is tricky', 'the story is what keeps me watching', 'a good story makes such a difference', 'cutting parts of the story is the hard part'];
-    } else if (/\b(?:editing|video edits|video editing)\b/u.test(detail)) {
-      replies = ['could watch the editing process all day', 'would watch the whole editing process', 'always curious how people edit', 'what do you edit on?'];
-    } else if (/\b(?:ugc rates|pricing|setting (?:your |my )?rates)\b/u.test(detail)) {
-      replies = ['pricing is such a guessing game at first', 'the rates part is always awkward', 'figuring out what to charge takes a minute', 'how did you pick your starting rate?'];
-    } else if (/\b(?:cooking|baking)\b/u.test(detail) || (/\b(?:recipe|ingredients)\b/u.test(detail) && /\b(?:pasta|cake|bread|chicken|rice|soup|cookies|flour|butter|oven|sauce)\b/u.test(detail))) {
-      replies = ['how long does this take to make?', 'would this keep in the fridge?', 'curious what goes into the prep', 'curious how this turns out the next day'];
-    } else if (/\b(?:workout|training routine|gym routine)\b/u.test(detail)) {
-      replies = ['how long is the whole workout?', 'getting started is half the workout', 'finding a workout routine that sticks takes a while', 'how often do you do this routine?'];
-    } else if (/\b(?:posting consistently|consistent posting|post every day|posting every day)\b/u.test(detail)) {
-      replies = ['coming up with ideas every day is the hard part', 'posting every day takes so much planning', 'do you make a few posts at once?', 'some days the ideas just disappear'];
-    }
-    if (!replies.length) continue;
-    let hash = 0;
-    for (const character of detail) hash = (Math.imul(hash, 31) + character.codePointAt(0)) >>> 0;
-    for (let offset = 0; offset < replies.length; offset++) {
-      const reply = replies[(hash + offset) % replies.length];
-      if (!used.has(reply)) return reply;
-    }
-  }
-  return null;
+  const writer = globalThis.commentWriter;
+  return writer ? writer.writeComment({ caption, text: caption, terms, used }).text : null;
 }
 
-function engagementMessage(action, post, comment, result) {
+function engagementMessage(action, post, comment, result, permanent = true) {
   let account = typeof post.author === 'string' ? post.author.match(/^\/?@?([\w.]{1,30})\/?$/)?.[1] : null;
   let reference = 'this post';
   try {
@@ -112,7 +58,8 @@ function engagementMessage(action, post, comment, result) {
   if (result === 'confirmed') return `${{ like: 'liked', follow: 'followed', comment: 'commented on' }[action]} ${subject}${details || '.'}`;
   if (action === 'comment' && result === 'uncertain-draft') return `couldn't confirm commenting on ${subject}${details}. a draft may remain; comments are off for this session. continuing warm-up.`;
   if (result === 'uncertain') return `couldn't confirm ${pending}${details || '. continuing.'}`;
-  if (action === 'comment' && result === 'draft-retained') return `comment skipped for ${subject}. a draft may remain; comments are off for this session. continuing warm-up.`;
+  if (action === 'comment' && result === 'draft-retained') return permanent ? `comment skipped for ${subject}. a draft may remain; comments are off for this session. continuing warm-up.`
+    : `comment skipped for ${subject}. a draft may remain, so comments are paused until the comment box is clear. continuing warm-up.`;
   return `${action} skipped for ${subject}. the post changed or its control wasn't available.`;
 }
 
@@ -191,12 +138,44 @@ function targetAction(eligible, settings, stats, elapsedMs, focus = 'balanced') 
   return debts[0].action;
 }
 
+const SAME_POST_GAP_MS = [2500, 6000];
+const MAX_ACTIONS_PER_POST = 2;
+const SAME_POST_HOLD_MS = 8000;
+const BURST_WINDOW_MS = 60000;
+const MAX_ACTIONS_PER_WINDOW = 6;
+const DRAFT_LIFT_MIN_MS = 90000;
+const DRAFT_CHECK_GAP_MS = 15000;
+const DRAFT_LIFT_COOLDOWN_MS = 120000;
+const MAX_DRAFT_LIFTS = 1;
+const SKIP_REPEAT_MS = 180000;
+const REVISIT_GRACE_MS = 120000;
+const DISCOVERY_GRACE_MS = 30000;
+const COMMENT_SKIP_COPY = Object.freeze({
+  'off-niche': "this post doesn't mention your keywords.",
+  bait: 'this post asks for a keyword reply or giveaway entry.',
+  suspicious: 'this caption looks like spam.',
+  sensitive: 'this post looks sensitive or heated.',
+  exhausted: 'the relevant comment wording has already been used.',
+  invalid: "this caption can't be read safely."
+});
+const COMMENT_BLOCKER_COPY = Object.freeze({
+  account: "couldn't find your instagram account link, so comments are skipped.",
+  language: "instagram isn't in english, so the comment box can't be found. switch instagram to english for comments.",
+  composer: "couldn't find one clear comment box on this post."
+});
+const WRITER_MISSING = 'comments are unavailable in this version. reinstall the extension from the setup page.';
+const ONCE_PER_SESSION_REASONS = new Set([COMMENT_BLOCKER_COPY.account, COMMENT_BLOCKER_COPY.language, WRITER_MISSING]);
+
 // One awaited action at a time. No action begins after cancellation or the deadline.
 async function runSession(settings, adapter, signal, options = {}) {
   const platform = settings.platform || 'instagram';
+  const writer = typeof globalThis.commentWriter?.writeComment === 'function' ? globalThis.commentWriter : null;
+  const nicheMatch = text => writer ? writer.looseNicheMatch(text, settings.terms) : matchesNiche(text, settings.terms);
+  const keyOf = text => writer ? writer.commentKey(text) : text.toLocaleLowerCase();
   const now = options.now || Date.now;
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
+  const commentSalt = typeof options.commentSalt === 'string' ? options.commentSalt.slice(0, 64) : '';
   const checkpoint = options.checkpoint?.version === 1 ? options.checkpoint : null;
   const nonnegative = (value, fallback = 0) => Number.isFinite(value) && value >= 0 ? value : fallback;
   const resumedAt = now();
@@ -210,7 +189,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   ]));
   let nextEngagement = resumedAt + nonnegative(checkpoint?.cooldowns?.engagement, nextAllowed.like - resumedAt);
   let nextBreak = resumedAt + nonnegative(checkpoint?.cooldowns?.break, randomBetween(300000, 540000, random));
-  const termWindowMs = Math.max(10000, Math.min(120000, settings.minutes * 60000 / settings.terms.length));
+  const termWindowMs = Math.max(10000, Math.min(platform === 'instagram' ? 360000 : 120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
   let termIndex = Math.floor(nonnegative(checkpoint?.termIndex));
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
@@ -228,7 +207,16 @@ async function runSession(settings, adapter, signal, options = {}) {
   // Search membership belongs to one requested query in this run. A viewer's
   // recommendations cannot grant themselves eligibility through hidden tiles.
   const searchResults = new Set();
+  let searchGridOwned = false;
+  const searchedTerms = new Set();
+  let revisitedTerm = false;
+  let sequenceHigh = 0;
+  let gridProgressAt = resumedAt;
   const reportedSkips = new Set();
+  const reasonReportedAt = new Map();
+  const reasonAllowed = reason => ONCE_PER_SESSION_REASONS.has(reason) ? !reasonReportedAt.has(reason) : !(now() - (reasonReportedAt.get(reason) ?? -Infinity) < SKIP_REPEAT_MS);
+  let samePost = null, samePostReadyAt = 0, samePostCount = 0;
+  const engagementStarts = [];
   let currentSearchTerm = settings.terms.includes(checkpoint?.currentSearchTerm) ? checkpoint.currentSearchTerm : null;
   let stalled = 0;
   let retrySearch = false;
@@ -243,11 +231,29 @@ async function runSession(settings, adapter, signal, options = {}) {
   let lastWatchWasFull = false;
   let consecutiveSkims = 0;
   let videosSinceFullWatch = 0;
-  const fullWatchInterval = () => platform === 'instagram' ? randomBetween(3, 6, random) : randomBetween(16, 24, random);
+  const fullWatchInterval = () => platform === 'instagram' ? randomBetween(5, 9, random) : randomBetween(16, 24, random);
   let nextFullWatchAfter = fullWatchInterval();
   const running = () => !signal.aborted && now() < deadline;
   const comments = Array.isArray(checkpoint?.comments) ? checkpoint.comments.map(item => ({ ...item })) : [];
   let inFlight = checkpoint?.inFlight && checkpoint.inFlight.action in done ? { ...checkpoint.inFlight } : null;
+  const savedHold = checkpoint?.draftHold;
+  let draftHold = savedHold && typeof savedHold === 'object' ? {
+    comment: typeof savedHold.comment === 'string' ? savedHold.comment : '', postId: typeof savedHold.postId === 'string' ? savedHold.postId : '',
+    since: startedAt + nonnegative(savedHold.sinceMs), lastCheckAt: startedAt + nonnegative(savedHold.lastCheckMs),
+    checks: Number.isInteger(savedHold.checks) ? savedHold.checks : 0, lifts: Number.isInteger(savedHold.lifts) ? savedHold.lifts : MAX_DRAFT_LIFTS,
+    reason: ['draft-retained', 'permanent', 'lifted'].includes(savedHold.reason) ? savedHold.reason : 'permanent'
+  } : null;
+  // Only an instagram draft-retained result (no Post click) can later be lifted, once,
+  // after two read-only checks on another post show no copy of the text.
+  const pauseComments = (result, comment, postKey) => {
+    pausedActions.add('comment');
+    const lifts = draftHold?.lifts || 0;
+    const liftable = result === 'draft-retained' && platform === 'instagram' && typeof adapter.draftState === 'function' &&
+      lifts < MAX_DRAFT_LIFTS && typeof comment === 'string' && comment.trim().length > 0;
+    draftHold = { comment: typeof comment === 'string' ? comment.slice(0, 500) : '', postId: typeof postKey === 'string' ? postKey.slice(0, 2048) : '',
+      since: now(), lastCheckAt: now(), checks: 0, lifts, reason: liftable ? 'draft-retained' : 'permanent' };
+    return liftable;
+  };
   const settleInterrupted = () => {
     if (!inFlight) return;
     const { action, key, comment, post, time } = inFlight;
@@ -255,9 +261,9 @@ async function runSession(settings, adapter, signal, options = {}) {
     unconfirmed[action] += 1;
     stats.skipped += 1;
     if (action === 'comment') {
-      pausedActions.add('comment');
+      pauseComments('permanent', comment, key);
       if (typeof comment === 'string') {
-        usedComments.add(comment.toLocaleLowerCase());
+        usedComments.add(keyOf(comment));
         comments.push({ text: comment, url: post?.id, author: post?.author, time, status: 'uncertain' });
       }
     }
@@ -282,7 +288,9 @@ async function runSession(settings, adapter, signal, options = {}) {
       usedComments: [...usedComments], termIndex, currentSearchTerm,
       elapsedMs: Math.min(totalMs, Math.max(0, at - startedAt)), remainingMs: Math.max(0, deadline - at),
       cooldowns: Object.fromEntries([...Object.entries(nextAllowed), ['engagement', nextEngagement], ['break', nextBreak]].map(([action, until]) => [action, Math.max(0, until - at)])),
-      inFlight: inFlight ? { ...inFlight, post: { ...inFlight.post } } : null
+      inFlight: inFlight ? { ...inFlight, post: { ...inFlight.post } } : null,
+      draftHold: draftHold ? { comment: draftHold.comment, postId: draftHold.postId, sinceMs: Math.min(totalMs, Math.max(0, draftHold.since - startedAt)),
+        lastCheckMs: Math.min(totalMs, Math.max(0, draftHold.lastCheckAt - startedAt)), checks: Math.min(10, draftHold.checks), lifts: draftHold.lifts, reason: draftHold.reason } : null
     });
   };
   const update = message => adapter.update({
@@ -303,7 +311,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     // longer watch must never create a catch-up burst through the next posts.
     const previousWasFull = lastWatchWasFull;
     lastWatchWasFull = false;
-    if (!previousWasFull && (videosSinceFullWatch >= nextFullWatchAfter || (videosSinceFullWatch >= 2 && random() < .23))) {
+    if (!previousWasFull && (videosSinceFullWatch >= nextFullWatchAfter || (videosSinceFullWatch >= 3 && random() < .12))) {
       consecutiveSkims = 0;
       lastWatchWasFull = true;
       videosSinceFullWatch = 0;
@@ -400,6 +408,11 @@ async function runSession(settings, adapter, signal, options = {}) {
     const term = resumeCurrent && currentSearchTerm ? currentSearchTerm : settings.terms[termIndex % settings.terms.length];
     currentSearchTerm = term;
     searchResults.clear();
+    searchGridOwned = false;
+    revisitedTerm = searchedTerms.has(term) || Boolean(resumeCurrent && checkpoint);
+    searchedTerms.add(term);
+    sequenceHigh = 0;
+    gridProgressAt = now();
     if (!resumeCurrent || !checkpoint?.currentSearchTerm) termIndex += 1;
     nextTermAt = settings.terms.length > 1 ? now() + termWindowMs : Infinity;
     update(`searching for ${term}…`);
@@ -477,8 +490,36 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (identity && searchResults.size < 1000) searchResults.add(identity);
       }
     }
+    // Instagram membership comes only from the grid of the query this run loaded.
+    if (platform === 'instagram' && currentSearchTerm !== null && page.search && Array.isArray(page.search.posts)) {
+      const sameTerm = typeof page.search.term === 'string' && page.search.term.normalize('NFKC').trim().toLocaleLowerCase() === currentSearchTerm.normalize('NFKC').trim().toLocaleLowerCase();
+      if (sameTerm) searchGridOwned = true;
+      else if (page.search.behindViewer !== true) searchGridOwned = false;
+      if (sameTerm || (page.search.behindViewer === true && page.post?.viewer && searchGridOwned)) {
+        for (const id of page.search.posts) {
+          const identity = postIdentity(id);
+          if (typeof identity === 'string' && identity.startsWith('instagram:') && searchResults.size < 1000) searchResults.add(identity);
+        }
+      }
+    } else if (platform === 'instagram' && !page.post && !page.search) searchGridOwned = false;
+    if (platform === 'instagram' && pausedActions.has('comment') && draftHold?.reason === 'draft-retained' && draftHold.lifts < MAX_DRAFT_LIFTS &&
+        typeof adapter.draftState === 'function' && page.post?.id && postIdentity(page.post.id) !== draftHold.postId &&
+        now() - draftHold.since >= DRAFT_LIFT_MIN_MS * settings.pauseScale && now() - draftHold.lastCheckAt >= DRAFT_CHECK_GAP_MS) {
+      const state = await adapter.draftState(draftHold.comment, signal);
+      if (!running()) break;
+      draftHold.lastCheckAt = now();
+      draftHold.checks = state === 'absent' ? draftHold.checks + 1 : 0;
+      if (draftHold.checks >= 2) {
+        pausedActions.delete('comment');
+        draftHold = { ...draftHold, checks: 0, lifts: draftHold.lifts + 1, reason: 'lifted' };
+        nextAllowed.comment = Math.max(nextAllowed.comment, now() + DRAFT_LIFT_COOLDOWN_MS * settings.pauseScale);
+        update('the comment box is clear again. comments are back on.');
+      }
+    }
     const candidates = [...new Set([...(page.sequence || []), ...(page.posts || [])])].filter(id => !hasSeen(id));
-    const discoveryStalled = now() - discoveryWindowStartedAt >= 30000 &&
+    if (!page.post && Array.isArray(page.sequence) && page.sequence.length > sequenceHigh) { sequenceHigh = page.sequence.length; gridProgressAt = now(); }
+    const discoveryGraceMs = revisitedTerm && now() - gridProgressAt < DISCOVERY_GRACE_MS ? REVISIT_GRACE_MS : DISCOVERY_GRACE_MS;
+    const discoveryStalled = now() - discoveryWindowStartedAt >= discoveryGraceMs &&
       ((!page.post && !candidates.length) || stalled >= 2);
     if (retrySearch || discoveryStalled) {
       // Allow delayed results to arrive before replacing the current search.
@@ -508,26 +549,35 @@ async function runSession(settings, adapter, signal, options = {}) {
       pauseAfter = viewerPause();
     } else {
       const post = page.post;
-      const commentText = post && settings.limits.comment ? contextualComment(post.caption, settings.terms, usedComments) : null;
       const eligible = [];
+      const waiting = [];
       let canLike = false;
+      let commentText = null;
+      let commentTemplateKey = null;
+      let burstOpen = false;
       if (post) {
-        const captionMatches = matchesNiche(typeof post.text === 'string' ? post.text : '', settings.terms);
-        const fromSearch = platform === 'tiktok' && searchResults.has(tiktokPostIdentity(post.id));
+        const postKey = postIdentity(post.id);
+        const textMatches = nicheMatch(typeof post.text === 'string' ? post.text : '');
+        const fromSearch = platform === 'tiktok' ? searchResults.has(tiktokPostIdentity(post.id)) : searchResults.has(postKey);
+        const wantsComment = Boolean(settings.weights.comment && stats.comment + unconfirmed.comment < settings.limits.comment && !pausedActions.has('comment') && !done.comment.has(postKey));
+        const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt }) : null;
+        const burstFree = engagementStarts.filter(time => now() - time < BURST_WINDOW_MS * settings.pauseScale).length < MAX_ACTIONS_PER_WINDOW;
+        const onSame = samePost === postKey;
         const skipReasons = new Map();
         for (const action of ['like', 'follow', 'comment']) {
-          const key = action === 'follow' ? post.author : postIdentity(post.id);
+          const key = action === 'follow' ? post.author : postKey;
           if (!settings.weights[action] || pausedActions.has(action) || deadline - now() < confirmationBudgetMs[action] ||
               stats[action] + unconfirmed[action] >= settings.limits[action] || (key && done[action].has(key))) continue;
           let reason;
-          if (!captionMatches && !(action !== 'comment' && fromSearch)) reason = action === 'comment'
-            ? 'comments need a matching caption.' : platform === 'tiktok'
-              ? 'this post does not match your keywords or current search results.' : 'this post does not match your keywords.';
-          else if (!key || !post[action]) reason = 'its control is not available on this post.';
-          else if (action === 'comment' && (!commentText || usedComments.has(commentText.toLocaleLowerCase()))) reason = contextualComment(post.caption, settings.terms)
-            ? 'the relevant comment wording has already been used.' : 'no safe comment fits this caption.';
+          if (!textMatches && !(action !== 'comment' && fromSearch)) reason = action === 'comment'
+            ? COMMENT_SKIP_COPY['off-niche'] : platform === 'tiktok'
+              ? 'this post does not match your keywords or current search results.' : "this post isn't from your search and doesn't mention your keywords.";
+          else if (action === 'comment' && !writer) reason = WRITER_MISSING;
+          else if (!key || !post[action]) reason = action === 'comment' && typeof post.commentBlocker === 'string' && Object.hasOwn(COMMENT_BLOCKER_COPY, post.commentBlocker)
+            ? COMMENT_BLOCKER_COPY[post.commentBlocker] : 'its control is not available on this post.';
+          else if (action === 'comment' && !written?.text) reason = Object.hasOwn(COMMENT_SKIP_COPY, written?.reason) ? COMMENT_SKIP_COPY[written.reason] : COMMENT_SKIP_COPY.exhausted;
           if (reason) {
-            if (!reportedSkips.has(postIdentity(post.id)) && now() >= nextEngagement && now() >= nextAllowed[action] &&
+            if (!reportedSkips.has(postKey) && reasonAllowed(reason) && now() >= nextEngagement && now() >= nextAllowed[action] &&
                 expectedActions(settings, action, now() - startedAt) > stats[action] + unconfirmed[action]) {
               const actions = skipReasons.get(reason) || [];
               actions.push(action);
@@ -535,16 +585,37 @@ async function runSession(settings, adapter, signal, options = {}) {
             }
             continue;
           }
+          if (onSame && samePostCount >= MAX_ACTIONS_PER_POST) continue;
           if (action === 'like') canLike = true;
-          if (now() >= nextEngagement && now() >= nextAllowed[action]) eligible.push(action);
+          const gateAt = onSame ? samePostReadyAt : nextEngagement;
+          if (burstFree && now() >= gateAt && now() >= nextAllowed[action]) eligible.push(action);
+          else if (burstFree && onSame && post.viewer && expectedActions(settings, action, now() - startedAt) > stats[action] + unconfirmed[action]) {
+            waiting.push({ action, at: Math.max(gateAt, nextAllowed[action]) });
+          }
         }
         if (skipReasons.size) {
-          reportedSkips.add(postIdentity(post.id));
+          reportedSkips.add(postKey);
+          for (const reason of skipReasons.keys()) reasonReportedAt.set(reason, now());
           update([...skipReasons].map(([reason, actions]) => `${actions.join(' / ')} skipped: ${reason}`).join(' '));
         }
+        commentText = written?.text || null;
+        commentTemplateKey = written?.templateKey || null;
+        burstOpen = burstFree;
+      }
+      // A second, different action on the same post waits in place only for a due
+      // action whose own spacing is nearly over. The post is inspected again first.
+      const hold = waiting.filter(item => item.at > now() && item.at - now() <= SAME_POST_HOLD_MS * settings.pauseScale && item.at + confirmationBudgetMs[item.action] <= deadline)
+        .sort((a, b) => a.at - b.at)[0];
+      if (!needsSearchScroll && post?.viewer && !eligible.length && hold) {
+        const until = Math.min(hold.at, nextTermAt, deadline);
+        update('watching this post...');
+        adapter.update({ phase: 'pause', nextActionAt: until });
+        await sleep(Math.max(0, until - now()), signal);
+        if (running()) adapter.update({ phase: 'action', nextActionAt: null });
+        continue;
       }
       const likeReadyAt = Math.max(nextEngagement, nextAllowed.like);
-      if (!needsSearchScroll && post?.viewer && canLike && nextLikeAt() <= now() && likeReadyAt > now() &&
+      if (!needsSearchScroll && post?.viewer && canLike && burstOpen && nextLikeAt() <= now() && likeReadyAt > now() &&
           likeReadyAt - now() <= 12000 * settings.pauseScale && likeReadyAt + confirmationBudgetMs.like <= deadline) {
         // Keep a suitable unliked post during a short cooldown; inspect it again
         // before acting so changed posts, restrictions and Stop remain binding.
@@ -576,6 +647,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (post && (!inViewer || !moved)) await adapter.leavePost(post, signal);
         if (inViewer && moved) pauseAfter = viewerPause();
         if (!post && !moved && stalled >= 2) pauseAfter = 'exhausted';
+        else if (!post && moved && !candidates.length && revisitedTerm) pauseAfter = 'transition';
         update(inViewer ? (moved ? 'watching the next post.' : 'continuing from your search results...') : (moved ? 'scrolled to more content.' : 'scrolling made no progress. waiting for results...'));
       } else {
         const key = action === 'follow' ? post.author : postIdentity(post.id);
@@ -587,10 +659,18 @@ async function runSession(settings, adapter, signal, options = {}) {
           action === 'comment' ? [10000, 22000] : [20000, 45000];
         nextEngagement = now() + randomBetween(...engagementSpacing, random) * settings.pauseScale * shortSessionScale(settings);
         nextAllowed[action] = now() + randomBetween(...actionSpacing(settings, action), random) * settings.pauseScale;
+        if (samePost !== postIdentity(post.id)) { samePost = postIdentity(post.id); samePostCount = 0; }
+        samePostCount += 1;
+        samePostReadyAt = now() + randomBetween(...SAME_POST_GAP_MS, random) * settings.pauseScale;
+        engagementStarts.push(now());
+        if (engagementStarts.length > MAX_ACTIONS_PER_WINDOW) engagementStarts.shift();
         let comment;
+        let templateKey = null;
         if (action === 'comment') {
           comment = commentText;
-          usedComments.add(comment.toLocaleLowerCase());
+          templateKey = commentTemplateKey;
+          usedComments.add(keyOf(comment));
+          if (templateKey) usedComments.add(templateKey);
         }
         inFlight = { action, key, comment: comment || null, post: { id: post.id, ...(typeof post.author === 'string' ? { author: post.author } : {}) }, time: now() };
         // Persist the reservation before the adapter can click or type. A lost
@@ -602,7 +682,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         const result = await adapter.engage(action, post, comment, signal);
         // A definitive skip guarantees no submission or remaining draft. Keep
         // its wording available for another post, but retain this post's guard.
-        if (action === 'comment' && result === 'skipped') usedComments.delete(comment.toLocaleLowerCase());
+        if (action === 'comment' && result === 'skipped') { usedComments.delete(keyOf(comment)); if (templateKey) usedComments.delete(templateKey); }
         if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
           comments.push({ text: comment, url: post.id, author: typeof post.author === 'string' ? post.author : undefined, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }
@@ -613,12 +693,11 @@ async function runSession(settings, adapter, signal, options = {}) {
           stats.skipped += 1;
         }
         else stats.skipped += 1;
-        if (action === 'comment' && ['draft-retained', 'uncertain-draft'].includes(result)) {
-          pausedActions.add('comment');
-        }
+        let liftable = false;
+        if (action === 'comment' && ['draft-retained', 'uncertain-draft'].includes(result)) liftable = pauseComments(result, comment, postIdentity(post.id));
         inFlight = null;
         await saveCheckpoint();
-        update(engagementMessage(action, post, comment, result));
+        update(engagementMessage(action, post, comment, result, !liftable));
       }
     }
     await pause(pauseAfter);

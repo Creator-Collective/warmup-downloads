@@ -1,5 +1,5 @@
 {
-  "version": "0.6.56",
+  "version": "0.6.57",
   "files": [
     "manifest.json",
     "features.js",
@@ -16,6 +16,7 @@
     "signup-runner.html",
     "signup-ui.js",
     "plan.js",
+    "comment-writer.js",
     "session.js",
     "instagram.js",
     "tiktok.js",

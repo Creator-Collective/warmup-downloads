@@ -99,6 +99,7 @@ function completeFlow({ mixedFailures = false, stopAt = Infinity, seed = 23 } = 
     'execute', 'inspect', 'recoverCommentDraft', 'verifyEngagementOnFreshPost', 'engage', 'performEngagement'
   ].map(functionSource).join('\n'), context);
   const engineContext = vm.createContext({ URL, console });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension/comment-writer.js'), 'utf8'), engineContext);
   vm.runInContext(session, engineContext);
   const adapter = {
     update: state => { snapshots.push({ ...state, time }); },
