@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { validateSettings, validateFocus } = require('../plan.js');
 const context = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
-vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension/comment-writer.js'), 'utf8'), context);
+{ const filename = path.join(__dirname, '../browser-extension/comment-writer.js'); vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename }); }
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension/session.js'), 'utf8'), context);
 const { runSession, targetAction, expectedActions } = vm.runInContext('({ runSession, targetAction, expectedActions })', context);
 const base = { minutes: 10, platform: 'tiktok', niche: 'study tips', enableComments: true };

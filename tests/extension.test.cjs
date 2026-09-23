@@ -1597,3 +1597,26 @@ test('a stopped runner keeps its stopped result when final acknowledgement passe
  assert.ok(h.calls.some(call=>call.patch?.phase==='stopped'));
  assert.ok(!h.calls.some(call=>call.patch?.phase==='complete'));
 });
+
+test('a draft check stopped by a blocked page still warns that a comment draft may remain', async () => {
+ const composer = commentComposer();
+ const h = runnerContext('starting', async (settings, adapter) => {
+   await adapter.engage('comment', { ...composer.request, viewer: true }, composer.request.comment);
+ });
+ h.job.settings.platform = 'instagram';
+ h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   if (request.files) { composer.load(); return [{ result: null }]; }
+   if (request.args?.[0] === 'comment') throw new Error('Frame with ID 0 was removed.');
+   if (request.args?.[1]?.action === 'draft-state') return [{ result: { blocked: 'instagram needs your attention.' } }];
+   return [{ result: await composer.inject(request.func, request.args) }];
+ };
+ h.start();
+ const settled = () => h.calls.find(call => call.patch && ['complete', 'stopped', 'error'].includes(call.patch.phase));
+ for (let i = 0; i < 400 && !settled(); i++) await new Promise(resolve => setTimeout(resolve, 2));
+ assert.ok(h.calls.some(call => call.injection?.args?.[1]?.action === 'draft-state'), 'the draft check must run');
+ assert.equal(settled().patch.phase, 'error');
+ assert.match(settled().patch.message, /a comment draft may remain in instagram/);
+ assert.equal(composer.submitted, 0);
+});

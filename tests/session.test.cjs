@@ -132,7 +132,7 @@ test('on-niche captions without a topic get a safe niche reply', () => {
   assert.deepEqual([bait.text, bait.reason], [null, 'bait']);
 });
 
-test('ambiguous money amounts, figurative recipes and negated activities skip reactions', () => {
+test('ambiguous money amounts, figurative recipes and negated activities never get their topic reply', () => {
   for (const [caption, terms] of [
     ["I paid $10 for memecoins worth $12M but couldn't sell.", ['memecoins']],
     ["He woke up to $12M in memecoins but couldn't sell", ['memecoins']],

@@ -22,7 +22,7 @@ test('unconfirmed actions and retained drafts remain distinct from confirmed cou
   const document = view();
   render(document,{phase:'stopped',settings:{platform:'tiktok',limits:{like:4,follow:2,comment:2}},stats:{like:2,follow:0,comment:1},unconfirmed:{like:2,follow:1},pausedActions:['comment']});
   assert.equal(document.getElementById('stat-follow').textContent,'0 / 2');
-  assert.equal(document.getElementById('session-results-note').textContent,'2 likes not confirmed. 1 follow not confirmed. comments paused after a draft problem. check the comment box in your platform tab.');
+  assert.equal(document.getElementById('session-results-note').textContent,'2 likes not confirmed. 1 follow not confirmed. comments paused to be safe. check the comment box in your platform tab.');
   assert.equal(document.getElementById('session-results-note').hidden,false);
   render(document,{phase:'running',settings:{platform:'instagram',limits:{like:0,follow:0,comment:0}},stats:{}});
   assert.equal(document.getElementById('session-results-note').hidden,true);

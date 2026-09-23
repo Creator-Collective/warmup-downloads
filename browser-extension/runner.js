@@ -470,15 +470,18 @@ async function engage(action, post, comment) {
     // A lost action result is never replayed. Keep browsing and suspend comments
     // if an unsent draft could remain in the replaced document.
     const draft = pendingDraft, engaged = pendingEngagement;
-    pendingDraft = false; pendingEngagement = false;
+    pendingEngagement = false;
     if (draft && !engaged) {
       // Post was never clicked. Only a read-only check showing no copy of the
-      // text anywhere in the tab turns this into a definitive skip.
+      // text anywhere in the tab turns this into a definitive skip. The draft
+      // flag stays set during the check, so a stop mid-check still warns.
       let state = 'unknown';
       try { state = await draftStateWithRetry({ comment }); }
       catch (probeError) { if (controller.signal.aborted) throw probeError; }
+      pendingDraft = false;
       return state === 'absent' ? 'skipped' : 'draft-retained';
     }
+    pendingDraft = false;
     return draft && engaged ? 'uncertain-draft' : engaged ? 'uncertain' : 'skipped';
   }
 }
