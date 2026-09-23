@@ -84,6 +84,17 @@ function normalizeCheckpoint(value, settings) {
         (pending.action === 'comment' && !pending.comment?.trim())) return null;
     inFlight = { action: pending.action, key: pending.key, post: { id: pending.post.id, ...(pending.post.author ? { author: pending.post.author } : {}) }, comment: pending.comment || null, time: pending.time };
   }
+  let draftHold = null;
+  if (value.draftHold != null) {
+    const hold = value.draftHold;
+    const within = number => Number.isFinite(number) && number >= 0 && number <= duration;
+    if (typeof hold !== 'object' || typeof hold.comment !== 'string' || hold.comment.length > 500 ||
+        typeof hold.postId !== 'string' || hold.postId.length > 2048 || !within(hold.sinceMs) || !within(hold.lastCheckMs) ||
+        !Number.isInteger(hold.checks) || hold.checks < 0 || hold.checks > 10 || !Number.isInteger(hold.lifts) || hold.lifts < 0 || hold.lifts > 1 ||
+        !['draft-retained', 'permanent', 'lifted'].includes(hold.reason) ||
+        (hold.reason === 'draft-retained' && (!hold.comment.trim() || !hold.postId))) return null;
+    draftHold = { comment: hold.comment, postId: hold.postId, sinceMs: hold.sinceMs, lastCheckMs: hold.lastCheckMs, checks: hold.checks, lifts: hold.lifts, reason: hold.reason };
+  }
   return {
     version: 1,
     stats: Object.fromEntries(statNames.map(name => [name, value.stats[name]])),
@@ -92,7 +103,7 @@ function normalizeCheckpoint(value, settings) {
     seen: [...value.seen], done: Object.fromEntries(actionNames.map(name => [name, [...value.done[name]]])), usedComments: [...value.usedComments],
     termIndex: value.termIndex, currentSearchTerm: value.currentSearchTerm,
     elapsedMs: value.elapsedMs, remainingMs: value.remainingMs,
-    cooldowns: Object.fromEntries(['like', 'follow', 'comment', 'engagement', 'break'].map(name => [name, value.cooldowns[name]])), inFlight
+    cooldowns: Object.fromEntries(['like', 'follow', 'comment', 'engagement', 'break'].map(name => [name, value.cooldowns[name]])), inFlight, ...(draftHold ? { draftHold } : {})
   };
 }
 function remainingTime(job) {

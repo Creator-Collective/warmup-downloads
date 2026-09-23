@@ -16,7 +16,10 @@
       const unconfirmed = count(state.unconfirmed?.[action]);
       if (unconfirmed) notes.push(`${unconfirmed} ${action}${unconfirmed === 1 ? '' : 's'} not confirmed`);
     }
-    if (state.pausedActions?.includes('comment')) notes.push('comments paused; review the draft in your platform tab');
+    if (state.pausedActions?.includes('comment')) notes.push('comments paused to be safe. check the comment box in your platform tab');
+    if (state.phase === 'complete' && actions.some(action => Number.isSafeInteger(state.settings?.limits?.[action]) && count(state.stats?.[action]) < state.settings.limits[action])) {
+      notes.push('targets are upper limits. pacing and matching posts come first');
+    }
     const note = document.getElementById('session-results-note');
     note.textContent = notes.length ? `${notes.join('. ')}.` : '';
     note.hidden = !notes.length;

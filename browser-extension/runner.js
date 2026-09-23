@@ -115,6 +115,11 @@ async function navigateViewer(target, operation) {
     } finally { if (viewerNavigation === navigation) viewerNavigation = null; }
   }
 }
+function sessionSalt() {
+  const values = globalThis.crypto?.getRandomValues ? globalThis.crypto.getRandomValues(new Uint32Array(2)) : [Math.random() * 2 ** 32 >>> 0, Math.random() * 2 ** 32 >>> 0];
+  return Array.from(values, value => value.toString(36)).join('');
+}
+
 function transientPageError(error) {
   return error?.transientPage === true || /frame (?:with id .*|.*was )removed|no frame with id|document (?:was )?unloaded|execution context (?:was )?destroyed|cannot find context/i.test(error?.message || '');
 }
@@ -356,26 +361,48 @@ async function scroll() {
     return false;
   }
 }
+// Read-only check for any copy of this comment text in the platform tab.
+// TikTok has no verified clear path yet, so its state is always unknown.
+async function draftStateWithRetry(request) {
+  if (currentPlatform() !== 'instagram' || typeof request?.comment !== 'string' || !request.comment.trim()) return 'unknown';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await sleep(500);
+    const state = await inspect({ action: 'draft-state', comment: request.comment });
+    if (state.blocked) { controller.abort(new Error(state.blocked)); controller.signal.throwIfAborted(); }
+    if (state.known === true) return state.holding ? 'present' : 'absent';
+  }
+  return 'unknown';
+}
 async function recoverCommentDraft(request) {
-  await execute((request, deadline) => {
-    if (Date.now() >= deadline) return;
-    // Never delete native DOM from TikTok's controlled editor. If submission
-    // was unavailable, preserve the draft and let the session pause comments.
-    if (location.hostname.includes('tiktok')) return;
-    const target = globalThis.inspectInstagram({ ...request, action: 'comment-clear' });
-    if (target.blocked) throw new Error(target.blocked);
-    if (!target.point) return;
-    const field = document.elementFromPoint(target.point.x, target.point.y);
-    if (!(field instanceof HTMLTextAreaElement) || field !== globalThis.collectiveCommentBefore?.composer || field.value !== request.comment) return;
-    globalThis.collectiveCommentBefore.clearing = true;
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '');
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-  }, [request, job.deadline]);
-  await sleep(250);
-  const result = await inspect({ ...request, action: 'comment-cleared' });
-  if (result.blocked) throw new Error(result.blocked);
+  try {
+    await execute((request, deadline) => {
+      if (Date.now() >= deadline) return;
+      // Never delete native DOM from TikTok's controlled editor. If submission
+      // was unavailable, preserve the draft and let the session pause comments.
+      if (location.hostname.includes('tiktok')) return;
+      const target = globalThis.inspectInstagram({ ...request, action: 'comment-clear' });
+      if (target.blocked) throw new Error(target.blocked);
+      if (!target.point) return;
+      const field = document.elementFromPoint(target.point.x, target.point.y);
+      if (!(field instanceof HTMLTextAreaElement) || field !== globalThis.collectiveCommentBefore?.composer || field.value !== request.comment) return;
+      globalThis.collectiveCommentBefore.clearing = true;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, '');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }, [request, job.deadline]);
+  } catch (error) {
+    assertRunning();
+    if (!transientPageError(error)) throw error;
+  }
+  let cleared = false;
+  for (let attempt = 0; attempt < 5 && !cleared; attempt++) {
+    await sleep(attempt ? 400 : 250);
+    const result = await inspect({ ...request, action: 'comment-cleared' });
+    if (result.blocked) throw new Error(result.blocked);
+    cleared = result.cleared === true;
+  }
+  const outcome = cleared || await draftStateWithRetry(request) === 'absent' ? 'skipped' : 'draft-retained';
   pendingDraft = false;
-  return result.cleared ? 'skipped' : 'draft-retained';
+  return outcome;
 }
 async function verifyEngagementOnFreshPost(action, request) {
   assertRunning();
@@ -442,9 +469,20 @@ async function engage(action, post, comment) {
     if (!transientPageError(error)) throw error;
     // A lost action result is never replayed. Keep browsing and suspend comments
     // if an unsent draft could remain in the replaced document.
-    const result = pendingDraft && pendingEngagement ? 'uncertain-draft' : pendingDraft ? 'draft-retained' : pendingEngagement ? 'uncertain' : 'skipped';
-    pendingDraft = false; pendingEngagement = false;
-    return result;
+    const draft = pendingDraft, engaged = pendingEngagement;
+    pendingEngagement = false;
+    if (draft && !engaged) {
+      // Post was never clicked. Only a read-only check showing no copy of the
+      // text anywhere in the tab turns this into a definitive skip. The draft
+      // flag stays set during the check, so a stop mid-check still warns.
+      let state = 'unknown';
+      try { state = await draftStateWithRetry({ comment }); }
+      catch (probeError) { if (controller.signal.aborted) throw probeError; }
+      pendingDraft = false;
+      return state === 'absent' ? 'skipped' : 'draft-retained';
+    }
+    pendingDraft = false;
+    return draft && engaged ? 'uncertain-draft' : engaged ? 'uncertain' : 'skipped';
   }
 }
 async function performEngagement(action, post, comment) {
@@ -471,6 +509,25 @@ async function performEngagement(action, post, comment) {
       await sleep(400);
     }
     if (!ready) return 'skipped';
+  }
+  if (action === 'comment' && currentPlatform() === 'instagram') {
+    // Phase one only takes ownership and focuses the empty composer. Nothing is
+    // typed, so a lost frame here is a definitive skip, never a possible draft.
+    pendingDraft = false; pendingEngagement = false;
+    const focused = await execute((request, deadline) => {
+      if (Date.now() >= deadline) return false;
+      const target = globalThis.inspectInstagram({ ...request, action: 'comment-field' });
+      if (target.blocked) throw new Error(target.blocked);
+      if (!target.point) return false;
+      const hit = document.elementFromPoint(target.point.x, target.point.y);
+      if (!(hit instanceof HTMLTextAreaElement) || hit.value.trim() || hit !== globalThis.collectiveCommentBefore?.composer) return false;
+      hit.focus();
+      const ready = globalThis.inspectInstagram({ ...request, action: 'comment-ready' });
+      if (ready.blocked) throw new Error(ready.blocked);
+      return ready.ready === true ? 'focused' : false;
+    }, [request, job.deadline]);
+    if (focused !== 'focused') return 'skipped';
+    assertRunning();
   }
   pendingDraft = action === 'comment';
   pendingEngagement = action !== 'comment';
@@ -505,20 +562,23 @@ async function performEngagement(action, post, comment) {
       if (target.blocked) throw new Error(target.blocked);
       return target.clicked === true;
     }
-    const target = inspector({ ...request, action: action === 'comment' ? 'comment-field' : action });
+    if (action === 'comment') {
+      // Phase two: the composer focused in phase one must still be ours, empty and focused.
+      const before = globalThis.collectiveCommentBefore;
+      const field = before?.composer;
+      if (!(field instanceof HTMLTextAreaElement) || !field.isConnected || field.value !== '' || document.activeElement !== field) return false;
+      const ready = inspector({ ...request, action: 'comment-ready' });
+      if (ready.blocked) throw new Error(ready.blocked);
+      if (!ready.ready) return false;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, request.comment);
+      before.drafted = true;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      return 'draft';
+    }
+    const target = inspector({ ...request, action });
     if (target.blocked) throw new Error(target.blocked);
     if (!target.point) return false;
     const hit = document.elementFromPoint(target.point.x, target.point.y);
-    if (action === 'comment') {
-      if (!(hit instanceof HTMLTextAreaElement) || hit.value.trim()) return false;
-      hit.focus();
-      const ready = inspector({ ...request, action: 'comment-ready' });
-      if (!ready.ready) return false;
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(hit, request.comment);
-      globalThis.collectiveCommentBefore.drafted = true;
-      hit.dispatchEvent(new Event('input', { bubbles: true }));
-      return 'draft';
-    }
     const button = hit?.closest('button,[role="button"]');
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
     button.click();
@@ -552,7 +612,7 @@ async function performEngagement(action, post, comment) {
     if (!submitted) return recoverCommentDraft(request);
     pendingDraft = false;
   }
-  const confirmationAttempts = { like: 6, follow: 10, comment: 8 }[action] || 6;
+  const confirmationAttempts = { like: 6, follow: 10, comment: 12 }[action] || 6;
   let confirmationReason;
   for (let i = 0; i < confirmationAttempts; i++) {
     await sleep(750);
@@ -654,8 +714,9 @@ async function start() {
       advance: (post, signal, hasSeen) => recoverPageStep(() => advanceViewer(post, hasSeen)),
       search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
       open: target => recoverPageStep(() => openViewer(target)),
-      leavePost: post => recoverPageStep(() => returnToResults(post, searchURL))
-    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()) });
+      leavePost: post => recoverPageStep(() => returnToResults(post, searchURL)),
+      draftState: comment => recoverPageStep(() => draftStateWithRetry({ comment })).then(state => state || 'unknown')
+    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt() });
     await messageQueue;
     controller.signal.throwIfAborted();
     await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });

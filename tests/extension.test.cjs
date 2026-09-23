@@ -49,9 +49,9 @@ test('manifest limits permissions and contains no remote code or cookie access',
  assert.deepEqual(manifest.content_scripts[0].matches,[origin+'/*']);
  assert.equal(manifest.content_scripts[0].all_frames,false);
  assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns]);
- for(const file of ['plan.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
+ for(const file of ['plan.js','comment-writer.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
  const ctx=vm.createContext({setTimeout,clearTimeout,AbortController});
- for(const file of ['plan.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
+ for(const file of ['plan.js','comment-writer.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
  assert.equal(typeof ctx.sessionEngine.runSession,'function');
 });
 test('release keeps warm-up and excludes unfinished signup and phone controls',()=>{
@@ -233,7 +233,7 @@ test('Instagram outcomes survive Stop, completion and worker restart without rep
  const state = (await restarted.message({ type: 'state' })).data;
  assert.equal(state.running, false);
  assert.equal(state.stats.follow, 1);
- assert.equal(state.settings.limits.follow, 9);
+ assert.equal(state.settings.limits.follow, 5);
  assert.deepEqual({ ...state.unconfirmed }, { like: 0, follow: 1, comment: 1 });
  assert.deepEqual(Array.from(state.pausedActions), ['comment']);
  assert.equal(state.comments.length, 1);
@@ -263,6 +263,27 @@ test('session outcome normalization bounds counts, rejects invalid values and ex
  assert.deepEqual(h.job().pausedActions, []);
  assert.deepEqual(publicState({ unconfirmed: { like: 1000, follow: 1000, comment: 1000 } }).unconfirmed, { like: 180, follow: 60, comment: 20 });
 });
+test('checkpoint normalization keeps a valid draft hold and rejects malformed ones', () => {
+ const { normalizeCheckpoint } = require('../browser-extension/guards.js');
+ const settings = { minutes: 10, terms: ['study tips'], limits: { like: 15, follow: 5, comment: 2 } };
+ const base = {
+   version: 1, stats: { scroll: 3, read: 0, search: 1, open: 1, like: 1, follow: 0, comment: 0, skipped: 1 },
+   unconfirmed: { like: 0, follow: 0, comment: 0 }, pausedActions: ['comment'], comments: [], seen: ['instagram:a'],
+   done: { like: ['instagram:a'], follow: [], comment: ['instagram:a'] }, usedComments: ['okay this is great'],
+   termIndex: 1, currentSearchTerm: 'study tips', elapsedMs: 120000, remainingMs: 480000,
+   cooldowns: { like: 0, follow: 0, comment: 0, engagement: 0, break: 90000 }, inFlight: null
+ };
+ const hold = { comment: 'okay this is great', postId: 'instagram:a', sinceMs: 100000, lastCheckMs: 110000, checks: 1, lifts: 0, reason: 'draft-retained' };
+ assert.deepEqual(normalizeCheckpoint({ ...base, draftHold: hold }, settings).draftHold, hold);
+ for (const reason of ['permanent', 'lifted']) assert.equal(normalizeCheckpoint({ ...base, draftHold: { ...hold, reason } }, settings).draftHold.reason, reason);
+ for (const value of [base, { ...base, draftHold: null }]) assert.equal(Object.hasOwn(normalizeCheckpoint(value, settings), 'draftHold'), false);
+ for (const change of [
+   { reason: 'other' }, { lifts: 2 }, { checks: 11 }, { checks: -1 }, { comment: 'x'.repeat(501) }, { sinceMs: 600001 }, { lastCheckMs: -1 },
+   { reason: 'draft-retained', comment: '' }, { reason: 'draft-retained', comment: '   ' }, { reason: 'draft-retained', postId: '' }, { postId: 'x'.repeat(2049) }
+ ]) assert.equal(normalizeCheckpoint({ ...base, draftHold: { ...hold, ...change } }, settings), null, JSON.stringify(change).slice(0, 60));
+ assert.equal(normalizeCheckpoint({ ...base, draftHold: 'held' }, settings), null);
+});
+
 test('untrusted senders and wrong runner tokens cannot change session state',async()=>{
  const h=background();
  assert.equal(await h.message({type:'start'},{url:'https://evil.example',frameId:0,tab:{id:1}}),undefined);
@@ -927,6 +948,111 @@ test('a lost draft result pauses only comments without filling or submitting aga
  assert.equal(continued, true);
 });
 
+const frameRemoved = () => new Error('Frame with ID 0 was removed.');
+const readAction = request => request.args?.[1]?.action;
+
+test('losing the page while only focusing the empty composer is a clean skip', async () => {
+ let phaseOne = 0;
+ const { composer, h, result, continued } = await runComment((composer, h) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     // Phase one is the injected function that takes the composer and returns 'focused'.
+     if (request.func && String(request.func).includes("action: 'comment-field'") && String(request.func).includes("'focused'")) { phaseOne++; throw frameRemoved(); }
+     return execute(request);
+   };
+ });
+ assert.equal(phaseOne, 1);
+ assert.equal(result, 'skipped');
+ assert.deepEqual(composer.inputs, []);
+ assert.equal(composer.submitted, 0);
+ assert.equal(continued, true);
+ assert.ok(h.calls.some(call => call.patch?.phase === 'complete'));
+});
+
+test('a lost frame after typing is a skip only when no copy of the text remains', async () => {
+ const { composer, result, continued } = await runComment((composer, h) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     const result = await execute(request);
+     if (request.args?.[0] === 'comment') { composer.replaceField(); throw frameRemoved(); }
+     return result;
+   };
+ });
+ assert.equal(result, 'skipped');
+ assert.deepEqual(composer.inputs, [composer.request.comment]);
+ assert.equal(composer.field.value, '');
+ assert.equal(composer.submitted, 0);
+ assert.equal(continued, true);
+});
+
+test('an unreadable draft check after a lost frame keeps the draft result', async () => {
+ let checks = 0;
+ const { composer, result, continued } = await runComment((composer, h) => {
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (readAction(request) === 'draft-state') { checks++; return [{ result: null }]; }
+     const result = await execute(request);
+     if (request.args?.[0] === 'comment') { composer.replaceField(); throw frameRemoved(); }
+     return result;
+   };
+ });
+ assert.equal(result, 'draft-retained');
+ assert.ok(checks >= 3, `draft checks: ${checks}`);
+ assert.equal(composer.submitted, 0);
+ assert.equal(continued, true);
+});
+
+test('a clear check that is briefly unreadable is retried before keeping the draft', async () => {
+ let unreadable = 0;
+ const { composer, result, continued } = await runComment((composer, h) => {
+   composer.submit.disabled = true;
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (readAction(request) === 'comment-cleared' && unreadable < 3) { unreadable++; return [{ result: null }]; }
+     return execute(request);
+   };
+ });
+ assert.equal(unreadable, 3, 'the first clear check came back unavailable');
+ assert.equal(result, 'skipped');
+ assert.equal(composer.field.value, '');
+ assert.equal(composer.submitted, 0);
+ assert.equal(continued, true);
+});
+
+test('comment confirmation polls twelve times before it is uncertain', async () => {
+ let verifies = 0;
+ const { composer, result } = await runComment((composer, h) => {
+   composer.state.confirm = false;
+   const execute = h.chrome.scripting.executeScript;
+   h.chrome.scripting.executeScript = async request => {
+     if (readAction(request) === 'verify-comment') verifies++;
+     return execute(request);
+   };
+ });
+ assert.equal(result, 'uncertain');
+ assert.equal(verifies, 12);
+ assert.equal(composer.submitted, 1);
+});
+
+test('the runner loads the comment writer before the engine and both archives ship it', () => {
+ const html = fs.readFileSync(path.join(extension, 'runner.html'), 'utf8');
+ const order = ['src="plan.js"', 'src="comment-writer.js"', 'src="session.js"'].map(item => html.indexOf(item));
+ assert.ok(order.every(index => index >= 0), 'all three scripts are loaded');
+ assert.ok(order[0] < order[1] && order[1] < order[2], 'plan, writer, then engine');
+ for (const script of ['package-extension.mjs', 'check-extension-package.mjs']) {
+   const source = fs.readFileSync(path.join(root, 'scripts', script), 'utf8');
+   const files = JSON.parse(source.match(/const files = (\[[^\]]+\]);/)[1].replace(/'/g, '"'));
+   assert.equal(files[files.indexOf('plan.js') + 1], 'comment-writer.js', script);
+   assert.equal(files.filter(file => file === 'comment-writer.js').length, 1, script);
+   assert.doesNotMatch(source, /path\.join\(root,\s*'comment-writer\.js'\)/, `${script} has no root mirror of the writer`);
+ }
+ const check = fs.readFileSync(path.join(root, 'scripts/check-extension-package.mjs'), 'utf8');
+ const mirrors = JSON.parse(check.match(/for \(const file of (\[[^\]]+\])\) \{\s*equal\(read\(file\), read\(`browser-extension\//)[1].replace(/'/g, '"'));
+ assert.ok(mirrors.includes('plan.js'));
+ assert.equal(mirrors.includes('comment-writer.js'), false);
+ assert.equal(fs.existsSync(path.join(root, 'comment-writer.js')), false);
+});
+
 test('Stop and the deadline during comment readiness prevent submission and cleanup', async () => {
  for (const expired of [false, true]) {
    const { composer, h, continued } = await runComment((composer, h) => {
@@ -1470,4 +1596,27 @@ test('a stopped runner keeps its stopped result when final acknowledgement passe
  await finishRunner(h);
  assert.ok(h.calls.some(call=>call.patch?.phase==='stopped'));
  assert.ok(!h.calls.some(call=>call.patch?.phase==='complete'));
+});
+
+test('a draft check stopped by a blocked page still warns that a comment draft may remain', async () => {
+ const composer = commentComposer();
+ const h = runnerContext('starting', async (settings, adapter) => {
+   await adapter.engage('comment', { ...composer.request, viewer: true }, composer.request.comment);
+ });
+ h.job.settings.platform = 'instagram';
+ h.ctx.setTimeout = (fn, ms) => setTimeout(fn, ms >= 3000 ? 100 : 0);
+ h.chrome.scripting.executeScript = async request => {
+   h.calls.push({ injection: request });
+   if (request.files) { composer.load(); return [{ result: null }]; }
+   if (request.args?.[0] === 'comment') throw new Error('Frame with ID 0 was removed.');
+   if (request.args?.[1]?.action === 'draft-state') return [{ result: { blocked: 'instagram needs your attention.' } }];
+   return [{ result: await composer.inject(request.func, request.args) }];
+ };
+ h.start();
+ const settled = () => h.calls.find(call => call.patch && ['complete', 'stopped', 'error'].includes(call.patch.phase));
+ for (let i = 0; i < 400 && !settled(); i++) await new Promise(resolve => setTimeout(resolve, 2));
+ assert.ok(h.calls.some(call => call.injection?.args?.[1]?.action === 'draft-state'), 'the draft check must run');
+ assert.equal(settled().patch.phase, 'error');
+ assert.match(settled().patch.message, /a comment draft may remain in instagram/);
+ assert.equal(composer.submitted, 0);
 });

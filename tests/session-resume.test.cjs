@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController, URL });
-for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
+for (const file of ['plan.js', 'comment-writer.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), ctx);
 const { runSession } = ctx.sessionEngine;
 const plain = value => JSON.parse(JSON.stringify(value));
 const settings = (patch = {}) => plain(ctx.sessionPlan.validateSettings({ minutes: 3, niche: 'study tips', enableComments: true, ...patch }));
@@ -199,4 +199,75 @@ test('a thrown engagement is checkpointed as uncertain before returning its erro
   assert.equal(h.last().inFlight, null);
   assert.equal(h.last().comments.length, 1);
   assert.equal(h.last().comments[0].status, 'uncertain');
+});
+
+const { normalizeCheckpoint } = require('../browser-extension/guards.js');
+const LIFTED = 'the comment box is clear again. comments are back on.';
+const draftChecks = (h, state) => {
+  const checks = [];
+  h.adapter.draftState = async comment => { checks.push({ comment, time: h.time() }); return typeof state === 'function' ? state(checks.length) : state; };
+  return checks;
+};
+
+test('a retained draft hold survives stop and resume, then lifts after two clear checks', async () => {
+  const plan = settings({ minutes: 10, customLimits: { like: 0, follow: 0, comment: 3 } });
+  const first = harness({ stopAt: 240000 });
+  first.options.random = () => 0.5;
+  first.adapter.engage = async (action, post, comment) => { first.calls.push([action, post.id, comment, first.time()]); return 'draft-retained'; };
+  const firstChecks = draftChecks(first, 'present');
+  await runSession(plan, first.adapter, first.controller.signal, first.options);
+  const [draft] = first.calls.filter(call => call[0] === 'comment');
+  assert.ok(draft);
+  assert.ok(firstChecks.length > 0, 'a present draft was checked before the stop');
+  const saved = normalizeCheckpoint(first.last(), plan);
+  assert.ok(saved);
+  assert.deepEqual(saved.pausedActions, ['comment']);
+  assert.equal(saved.draftHold.reason, 'draft-retained');
+  assert.equal(saved.draftHold.comment, draft[2]);
+  assert.equal(saved.draftHold.checks, 0);
+  assert.equal(saved.draftHold.lifts, 0);
+
+  const second = harness({ checkpoint: saved, start: 900000 });
+  second.options.random = () => 0.5;
+  second.adapter.engage = async (action, post, comment) => { second.calls.push([action, post.id, comment, second.time()]); return 'confirmed'; };
+  const secondChecks = draftChecks(second, 'absent');
+  await runSession(plan, second.adapter, second.controller.signal, second.options);
+  assert.deepEqual(Array.from(second.updates[0].pausedActions), ['comment'], 'comments stay paused on resume');
+  assert.equal(secondChecks.length, 2);
+  assert.ok(secondChecks[1].time - secondChecks[0].time >= 15000);
+  const lift = second.updates.findIndex(update => update.message === LIFTED);
+  assert.ok(lift >= 0);
+  assert.equal(second.last().draftHold.reason, 'lifted');
+  assert.equal(second.last().draftHold.lifts, 1);
+  const later = second.calls.filter(call => call[0] === 'comment');
+  assert.ok(later.every(call => call[3] - secondChecks[1].time >= 120000));
+  assert.ok(later.every(call => call[2] !== draft[2]));
+});
+
+test('an older checkpoint with paused comments and no draft hold never lifts', async () => {
+  const plan = settings({ minutes: 10, customLimits: { like: 0, follow: 0, comment: 3 } });
+  const checkpoint = saved({ pausedActions: ['comment'], usedComments: ['a little practice feels doable'], elapsedMs: 60000, remainingMs: 540000 });
+  assert.equal(Object.hasOwn(normalizeCheckpoint(checkpoint, plan), 'draftHold'), false);
+  const h = harness({ checkpoint });
+  h.options.random = () => 0.5;
+  const checks = draftChecks(h, 'absent');
+  await runSession(plan, h.adapter, h.controller.signal, h.options);
+  assert.equal(checks.length, 0);
+  assert.equal(h.updates.some(update => update.message === LIFTED), false);
+  assert.equal(h.calls.some(call => call[0] === 'comment'), false);
+  assert.deepEqual(h.last().pausedActions, ['comment']);
+});
+
+test('an interrupted comment on resume holds comments permanently', async () => {
+  const plan = settings({ minutes: 10, customLimits: { like: 0, follow: 0, comment: 3 } });
+  const checkpoint = saved({ elapsedMs: 60000, remainingMs: 540000, inFlight: { action: 'comment', key: 'instagram:stopped-comment', comment: 'a little practice feels doable', post: { id: 'https://www.instagram.com/p/stopped-comment/', author: 'creator' }, time: 59000 } });
+  const h = harness({ checkpoint });
+  h.options.random = () => 0.5;
+  const checks = draftChecks(h, 'absent');
+  await runSession(plan, h.adapter, h.controller.signal, h.options);
+  assert.equal(h.last().draftHold.reason, 'permanent');
+  assert.equal(checks.length, 0);
+  assert.equal(h.updates.some(update => update.message === LIFTED), false);
+  assert.equal(h.calls.some(call => call[0] === 'comment'), false);
+  assert.deepEqual(h.last().pausedActions, ['comment']);
 });

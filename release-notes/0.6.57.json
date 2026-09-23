@@ -1,5 +1,4 @@
 {
-  "version": "0.6.57",
   "releasedAt": "2026-09-23",
   "summary": "reach warm-up targets and write instagram comments",
   "changes": [
@@ -8,8 +7,5 @@
     "default targets now match what a session can really do, for example 60 likes, 18 follows and 7 comments in 40 minutes.",
     "one comment box hiccup no longer turns comments off for the rest of the session.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.57.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

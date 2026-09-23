@@ -1,8 +1,9 @@
-resume stopped warm-up sessions and recover page transitions
+reach warm-up targets and write instagram comments
 
 misc:
-- resume with frozen time, original targets and saved action history
-- preserve uncertain attempts and comment pauses without replaying actions
-- handle expected instagram post and search transitions without false stops
-- package extension 0.6.56 and update install and release notes
-- cover resume ownership, navigation, timing and archive integrity
+- add a local instagram comment writer with safe replies by niche and post format
+- set default targets a session can reach and count keyword search results for likes and follows
+- let comments resume once after a verified-clear draft problem
+- widen own-profile and comment box detection and throttle repeat skip messages
+- package extension 0.6.57 and update install and release notes
+- cover writer safety, goals, draft recovery and detection with new tests

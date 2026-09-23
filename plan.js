@@ -5,6 +5,14 @@ const paces = Object.freeze({
   relaxed: { label: 'relaxed', scale: 1.5, description: 'lighter skim bursts, slower watches, and occasional full-video watches when they fit. occasional 30-68 second breaks. rotates keywords in order.' },
   slow: { label: 'slow', scale: 2, description: 'mostly slower watches with fewer skim bursts and occasional full-video watches when they fit. occasional 40-90 second breaks. rotates keywords in order.' }
 });
+// Default targets sit well under what a session's viewing pace can show.
+const DEFAULT_RATES = Object.freeze({ like: 1.5, follow: 0.45, commentEveryMinutes: 6 });
+// Per active minute. Above this, a session usually runs out of time first.
+const USUAL_REACH = Object.freeze({ like: 2.25, follow: 0.75, comment: 0.2 });
+function usualReach(settings) {
+  const active = settings.minutes / settings.pauseScale;
+  return { like: Math.min(180, Math.ceil(active * USUAL_REACH.like)), follow: Math.min(60, Math.ceil(active * USUAL_REACH.follow)), comment: Math.min(20, Math.ceil(active * USUAL_REACH.comment)) };
+}
 function validateFocus(value = 'balanced') {
   if (!['balanced', 'like', 'follow', 'comment'].includes(value)) throw new Error('choose a session focus.');
   return value;
@@ -27,9 +35,9 @@ function validateSettings(input) {
   if (!Object.hasOwn(paces, pace)) throw new Error('choose auto, relaxed, or slow pacing.');
   const activeMinutes = minutes / paces[pace].scale;
   const limits = {
-    like: Math.min(180, Math.ceil(activeMinutes * 3)),
-    follow: Math.min(60, Math.ceil(activeMinutes * .9)),
-    comment: input.enableComments === true ? Math.min(20, Math.ceil(activeMinutes / 4)) : 0
+    like: Math.min(180, Math.ceil(activeMinutes * DEFAULT_RATES.like)),
+    follow: Math.min(60, Math.ceil(activeMinutes * DEFAULT_RATES.follow)),
+    comment: input.enableComments === true ? Math.min(20, Math.ceil(activeMinutes / DEFAULT_RATES.commentEveryMinutes)) : 0
   };
   const weights = { like: 2, follow: 1, comment: 1 };
   for (const action of Object.keys(weights)) {
@@ -47,5 +55,5 @@ function validateSettings(input) {
   return { platform, minutes, terms, limits, weights, pace, pauseScale: paces[pace].scale, focus: validateFocus(input.focus) };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { validateSettings, validateFocus, paces };
-else globalThis.sessionPlan = { validateSettings, validateFocus, paces };
+if (typeof module !== 'undefined' && module.exports) module.exports = { validateSettings, validateFocus, usualReach, paces };
+else globalThis.sessionPlan = { validateSettings, validateFocus, usualReach, paces };

@@ -138,6 +138,7 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 .switch input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 3px; }
 .plan-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 .plan-footer > span { font-size: 11px; color: var(--muted); }
+.limit-hint { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
 details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 summary { cursor: pointer; font-weight: 500; font-size: 13px; padding: 4px 0; }
 details[open] > summary { padding-bottom: 14px; }

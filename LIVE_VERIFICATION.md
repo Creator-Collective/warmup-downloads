@@ -1,3 +1,11 @@
+## 0.6.57 reach warm-up targets and write instagram comments, September 23
+
+All 685 automated checks pass. Both 36-file archives and packaged dashboard mirrors match source. Independent code and security/account-safety reviews ran; their findings were fixed before packaging: each session now uses its own random comment salt so different students do not post identical wording on the same post, three replies that assumed a video were reworded, business closure and burnout captions are skipped as sensitive, and hidden zero-width characters are stripped before the suspicious-caption check. The pull request reviewer's findings were also fixed: a stop during the leftover-draft check still shows the draft warning, and the paused-comments note uses neutral wording.
+
+Simulation (real plan, writer and engine via vm, fake instagram, 12 seeds, 40 min auto pace): before 21.9-69.5/120 likes, 6.2-19.3/36 follows, 2.1-5.0/10 comments depending on how often captions repeat the keyword; after 58.2-58.5/60 likes, 16.9-17.2/18 follows, 5.8-5.9/7 comments in every scenario. At most 2 actions per post, at most 5 action starts in any minute at 40 min, 0 repeated comments, about 7 searches instead of about 20. Comment corpus of 255 realistic captions across 15 niches: 11 replies (4.3%) before, 158 (62%) after, no niche at zero, no caption text echoed.
+
+No Chrome control, installed-extension reload, Instagram session, or social action was performed. Real Instagram layouts, search results and comment confirmation were not retested live; detection fixes are checked against jsdom layouts only. TikTok stays off. Existing unpacked installations require replacing files and reloading; the website deployment alone does not update them.
+
 # warm-up verification record
 
 ## 0.6.56 resume and instagram page transitions, September 21

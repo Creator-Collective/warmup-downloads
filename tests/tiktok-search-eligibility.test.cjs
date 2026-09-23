@@ -5,14 +5,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const context = vm.createContext({ URL, setTimeout, clearTimeout });
-for (const file of ['plan.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), context);
+for (const file of ['plan.js', 'comment-writer.js', 'session.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../browser-extension', file), 'utf8'), context);
 const { runSession, matchesNiche } = vm.runInContext('({ runSession, matchesNiche })', context);
 const settings = patch => JSON.parse(JSON.stringify(context.sessionPlan.validateSettings({
   platform: 'tiktok', minutes: 3, niche: 'personal brand', enableComments: true,
   customLimits: { like: 3, follow: 2, comment: 1 }, ...patch
 })));
 const url = number => `https://www.tiktok.com/@creator${number}/video/${9000000000000000000n + BigInt(number)}`;
-const variant = 'Sharing your process helps people understand your work #personalbranding';
+const variant = 'Sharing your process helps people understand your work #brandbuilding';
 
 // A real session timeline, with separate search grids and viewer-only
 // recommendations. Time advances for loading, watching and confirmations.
@@ -111,14 +111,15 @@ async function run(options = {}, patch = {}) {
   return h;
 }
 
-test('a captured personal-brand search result can be liked and followed despite its #personalbranding caption variant', async () => {
+test("a captured personal-brand search result can be liked and followed despite a caption that doesn't use the keyword", async () => {
   assert.equal(matchesNiche(variant, ['personal brand']), false);
+  assert.equal(context.commentWriter.looseNicheMatch(variant, ['personal brand']), false);
   const h = await run();
   assert.equal(h.stats.like, 3);
   assert.equal(h.stats.follow, 2);
   assert.equal(h.stats.comment, 0, 'search membership does not grant permission to generate a comment');
   assert.ok(h.attempts.every(attempt => attempt.listed));
-  assert.ok(h.updates.some(update => /comments need a matching caption/.test(update.message)));
+  assert.ok(h.updates.some(update => /this post doesn't mention your keywords/.test(update.message)));
 });
 
 test('viewer recommendations outside the captured grid never become eligible, including forged viewer metadata', async () => {
@@ -196,16 +197,18 @@ test('skip explanations appear once per post without counting an attempt or logg
   assert.ok(skips.every(update => !/cooldown|waiting/.test(update.message)));
 });
 
-test('safe-comment skips distinguish unsupported captions from already-used wording', async () => {
-  const unsupported = await run({ caption: () => 'A different way to keep track of recent changes #personalbrand' });
-  assert.equal(unsupported.stats.comment, 0);
-  assert.ok(unsupported.updates.some(update => /no safe comment fits this caption/.test(update.message)));
-  const exhausted = await run({ caption: () => 'Sharing your process makes a personal brand more concrete.' }, {
+test('safe-comment skips name keyword-bait captions, and on-niche captions keep getting distinct wording', async () => {
+  const bait = await run({ caption: () => 'Comment GUIDE below for my personal brand checklist' });
+  assert.equal(bait.stats.comment, 0);
+  assert.equal(bait.attempts.filter(attempt => attempt.action === 'comment').length, 0);
+  assert.ok(bait.updates.some(update => /asks for a keyword reply or giveaway entry/.test(update.message)));
+  const repeated = await run({ caption: () => 'Sharing your process makes a personal brand more concrete.' }, {
     minutes: 30, customLimits: { like: 0, follow: 0, comment: 8 }
   });
-  assert.equal(exhausted.stats.comment, 4);
-  assert.ok(exhausted.updates.some(update => /relevant comment wording has already been used/.test(update.message)));
-  assert.equal(new Set(exhausted.attempts.map(attempt => attempt.comment)).size, 4);
+  assert.equal(repeated.stats.comment, 8);
+  const texts = repeated.attempts.filter(attempt => attempt.action === 'comment').map(attempt => attempt.comment);
+  assert.equal(texts.length, 8);
+  assert.equal(new Set(texts).size, 8);
 });
 
 test('Instagram still requires caption relevance even when TikTok-shaped search metadata is present', async () => {

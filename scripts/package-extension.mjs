@@ -5,7 +5,7 @@ import path from 'node:path';
 import { releaseMetadata } from './release-metadata.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const extension = path.join(root, 'browser-extension');
-const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','select-ui.js','dashboard.css','comment-history.js','session-results.js','inter.woff2','cc-logo.webp','platform-instagram.svg','platform-tiktok.svg','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
+const files = ['manifest.json','features.js','background.js','bridge.js','version-bridge.js','guards.js','signup.js','signup-fields.js','signup-phone.js','smspool.js','phone-ui.js','signup-runner.js','signup-runner.html','signup-ui.js','plan.js','comment-writer.js','session.js','instagram.js','tiktok.js','runner.js','runner.html','sidepanel.html','dashboard.js','select-ui.js','dashboard.css','comment-history.js','session-results.js','inter.woff2','cc-logo.webp','platform-instagram.svg','platform-tiktok.svg','INTER-LICENSE.txt','icon-16.png','icon-32.png','icon-48.png','icon-128.png'];
 await copyFile(path.join(root,'comment-history.js'),path.join(extension,'comment-history.js'));
 await copyFile(path.join(root,'session-results.js'),path.join(extension,'session-results.js'));
 await copyFile(path.join(root,'dashboard.js'),path.join(extension,'dashboard.js'));
