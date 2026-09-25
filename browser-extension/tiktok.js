@@ -50,6 +50,12 @@ function inspectTikTok(request = {}) {
   if (/\/(?:login|signup)\b/.test(location.pathname) || all(document, 'input[type="password"], #loginModalContentContainer, #loginContainer, #login-modal').some(visible)) {
     return { blocked: 'finish tiktok sign-in or account check, then start a new session.', blockReason: 'sign-in' };
   }
+  // Warning, captcha and rate-limit detection below reads English text. A page
+  // that declares another language could hide a warning, so stop instead.
+  const pageLanguage = (document.documentElement?.getAttribute('lang') || '').trim();
+  if (pageLanguage && !/^en(?:[-_]|$)/i.test(pageLanguage)) {
+    return { blocked: "tiktok isn't in english, so the session can't read its warnings. switch tiktok to english, then start a new session.", blockReason: 'language' };
+  }
   // TikTok also serves full-page denials and plain banners, without a dialog.
   // Inspect visible warning text, excluding video captions and comments.
   const warningNodes = all(document, 'h1, h2, h3, p, div, span, [role="alert"], [role="dialog"]')
@@ -67,6 +73,21 @@ function inspectTikTok(request = {}) {
   }
   if (warnings.some(text => /couldn.t post (?:your |the )?comment|failed to post (?:your |the )?comment|unable to post (?:your |the )?comment/.test(text))) {
     return { blocked: 'tiktok could not post the comment. the session has stopped; check tiktok before trying again.', blockReason: 'comment-failed' };
+  }
+  // Read-only: is any copy of this extension's comment text still in an editor?
+  // It never edits or clears anything, and works after the post changed, so it
+  // runs before post identity checks. Hidden editors count too.
+  if (request.action === 'draft-state') {
+    const plain = value => String(value || '').replace(/\xa0/g, ' ');
+    const text = typeof request.comment === 'string' ? request.comment.trim() : '';
+    if (!text) return { known: false };
+    const before = globalThis.collectiveCommentBefore;
+    const owned = Boolean(before?.platform === 'tiktok' && before.drafted && !before.submitted && before.composer?.isConnected === true &&
+      (before.interrupted || plain(before.composer.textContent).trim() !== ''));
+    const holding = owned || all(document, '[contenteditable="true"]').some(field => plain(field.textContent).includes(text)) ||
+      all(document, 'textarea').some(field => plain(field.value).includes(text));
+    if (!holding) before?.release?.();
+    return { known: true, holding };
   }
   const links = all(document, 'a[href]');
   // Keep rendered offscreen results in order, but never select hidden preload anchors.
@@ -111,6 +132,26 @@ function inspectTikTok(request = {}) {
       });
       search = { term, posts: unique(resultIds).slice(0, 500) };
     }
+  } else if (viewer) {
+    // Result cards stay mounted behind the search viewer, and more load there
+    // while it advances. Report them without a term: the engine counts them only
+    // after it saw this query's own grid in the same run. A modal can mark the
+    // background aria-hidden, so require layout here, not accessibility.
+    const laidOut = element => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+      }
+      return true;
+    };
+    const cards = all(document, '[data-e2e="search_top-item"], [data-e2e="search_video-item"]').filter(card => !viewer.contains(card) && laidOut(card) && !excluded(card));
+    const resultIds = cards.flatMap(card => {
+      const ids = unique(all(card, 'a[href]').filter(link => laidOut(link) && !excluded(link)).map(link => postURL(link.href)).filter(Boolean));
+      return ids.length === 1 ? ids : [];
+    });
+    if (resultIds.length) search = { term: null, behindViewer: true, posts: unique(resultIds).slice(0, 500) };
   }
   const failureText = viewer ? warningNodes.filter(element => viewer.contains(element))
     .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
@@ -219,12 +260,29 @@ function inspectTikTok(request = {}) {
   const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(element => visible(element) && !excluded(element));
   const textNodes = (descriptions.length ? descriptions : all(scope, 'h1, h2, p, a[href*="/tag/"]').filter(element => visible(element) && !excluded(element)))
     .map(element => element.innerText || element.textContent || '').filter(Boolean);
-  const caption = (textNodes.join(' ') || (pageId ? document.querySelector('meta[property="og:description"]')?.content : '') || '').slice(0, 6000);
+  // Single-page navigation can leave meta tags from an earlier video; use the
+  // page description only when its og:url names this exact post.
+  const ogURL = document.querySelector('meta[property="og:url"]')?.content;
+  const ogCaption = pageId && ogURL && postURL(ogURL) === pageId ? document.querySelector('meta[property="og:description"]')?.content : '';
+  const caption = (textNodes.join(' ') || ogCaption || '').slice(0, 6000);
   // A permalink's comments panel can sit beside the video card. A browse
   // dialog contains its own panel; never inspect another card's composer.
   const commentRoot = viewer || (pageId ? document : scope);
-  const ownProfiles = unique(all(document, 'a[data-e2e="nav-profile"][href]').filter(visible).map(profileAuthor).filter(Boolean));
-  const ownProfile = ownProfiles.length === 1 ? ownProfiles[0] : null;
+  // The student's own profile: TikTok's nav-profile link, a link labelled
+  // Profile in site navigation, or the signed-in avatar in the comment bar
+  // (outside comment rows). Visible links are preferred; two accounts fail closed.
+  const commentBarAvatar = link => Boolean(link.closest('[class*="DivCommentBarContainer"], [class*="DivEnhancedBottomCommentContainer"]')) &&
+    !link.closest('[data-e2e="comment-list"], [data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [class*="DivCommentItemContainer"], [class*="DivCommentContentContainer"]') &&
+    all(link, 'img').length > 0;
+  const ownCandidates = links.flatMap(link => {
+    const user = profileAuthor(link);
+    if (!user) return [];
+    const marked = link.matches('[data-e2e="nav-profile"]');
+    const labelled = Boolean(link.closest('nav, aside, header, [role="navigation"]')) && label(link).normalize('NFKC') === 'profile';
+    return marked || labelled || commentBarAvatar(link) ? [{ user, shown: visible(link) }] : [];
+  });
+  const ownUsers = unique((ownCandidates.some(item => item.shown) ? ownCandidates.filter(item => item.shown) : ownCandidates).map(item => item.user));
+  const ownProfile = ownUsers.length === 1 ? ownUsers[0] : null;
   const inputContainers = all(commentRoot, '[data-e2e="comment-input"]').filter(visible);
   const fields = unique(inputContainers.flatMap(container => all(container, '[contenteditable="true"][role="textbox"]')
     .filter(field => visible(field) && container.contains(field.closest('[data-e2e="comment-text"]')))));
@@ -263,7 +321,9 @@ function inspectTikTok(request = {}) {
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
     like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
-  if (!request.action) return { posts, sequence, post };
+  // Why comments can't run here, as a fixed code for the session's message.
+  if (!post.comment) post.commentBlocker = ownProfile ? 'composer' : 'account';
+  if (!request.action) return { posts, sequence, post, ...(search ? { search } : {}) };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false,
     ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : {}) };
   if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {
@@ -329,7 +389,14 @@ function inspectTikTok(request = {}) {
   if (request.action === 'comment-submit' || request.action === 'click-comment-submit') {
     const ready = owned && before.caption === caption && before.drafted && !before.submitted && composerValue(composer) === request.comment && submit && point(submit);
     if (request.action === 'comment-submit') return { point: ready || null };
-    if (!ready || typeof submit.click !== 'function') return { clicked: false };
+    if (!ready || typeof submit.click !== 'function') {
+      // A fixed readiness code, never the editor text. 'composer-empty' means the
+      // typed text never reached this owned editor (for example an ignored paste).
+      const value = owned ? composerValue(composer) : null;
+      const reason = !owned || before.caption !== caption || !before.drafted || before.submitted ? 'not-owned'
+        : value === '' ? 'composer-empty' : value !== request.comment ? 'text-mismatch' : 'submit-unavailable';
+      return { clicked: false, reason };
+    }
     before.submitted = true;
     before.inputtingUntil = Date.now() + 1000;
     submit.click();

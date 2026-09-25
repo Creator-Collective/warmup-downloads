@@ -1485,11 +1485,15 @@ test('a fresh TikTok like cannot confirm or close a tab that moves during inspec
  assert.deepEqual(f.removed, []);
 });
 
+// Updated for TikTok draft-state parity: with no copy of the text anywhere the ignored
+// paste is no longer a kept draft but 'not-typed', which the session counts and caps.
 test('TikTok ignored paste is not submitted or counted and does not use native DOM editing', async () => {
  const f = await runTikTokComment(composer => { composer.state.ignorePaste = true; });
- assert.equal(f.result, 'draft-retained');
+ assert.equal(f.result, 'not-typed');
  assert.equal(f.composer.submitted, 0);
  assert.deepEqual(f.composer.inputs, []);
+ assert.equal(f.composer.field.textContent, '');
+ assert.equal(f.continued, true);
 });
 
 function instagramNavigationFixture(nextDestination) {

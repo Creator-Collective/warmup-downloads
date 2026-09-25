@@ -88,12 +88,21 @@ function sameDestination(actual, expected) {
     return a.origin === b.origin && !a.search && !b.search && !a.hash && !b.hash && Boolean(post(a)) && post(a) === post(b);
   } catch { return false; }
 }
+// Any TikTok post permalink, with or without TikTok's tracking query.
+function tiktokPostPage(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.port && !u.username && !u.password && ['www.tiktok.com', 'tiktok.com'].includes(u.hostname) &&
+      /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(u.pathname);
+  } catch { return false; }
+}
 function allowedViewerDestination(url) {
   return viewerNavigation && Date.now() < viewerNavigation.deadline &&
-    viewerNavigation.destinations.some(destination => sameDestination(url, destination));
+    (viewerNavigation.destinations.some(destination => sameDestination(url, destination)) || (viewerNavigation.anyPost === true && tiktokPostPage(url)));
 }
-async function navigateViewer(target, operation) {
-  if (currentPlatform() !== 'instagram') { expectedDestination = target; return operation(); }
+// anyPost: TikTok's Next can land on a different post than the predicted one.
+// During its bounded allowance any TikTok post is accepted as the new current post.
+async function navigateViewer(target, operation, { anyPost = false } = {}) {
   const tab = await chrome.tabs.get(job.tabId);
   assertRunning();
   if (expectedDestination && !sameDestination(tab.url, expectedDestination)) {
@@ -101,7 +110,8 @@ async function navigateViewer(target, operation) {
   }
   const navigation = {
     destinations: [tab.url, target, currentSearchURL].filter(Boolean),
-    deadline: Math.min(Date.now() + 16000, job.deadline)
+    deadline: Math.min(Date.now() + 16000, job.deadline),
+    anyPost: anyPost && currentPlatform() === 'tiktok'
   };
   viewerNavigation = navigation;
   expectedDestination = target;
@@ -111,7 +121,8 @@ async function navigateViewer(target, operation) {
     // Adopt only one of those known destinations before ending the allowance.
     try {
       const settled = await chrome.tabs.get(job.tabId);
-      if (!controller.signal.aborted && !settled.pendingUrl && navigation.destinations.some(destination => sameDestination(settled.url, destination))) expectedDestination = settled.url;
+      if (!controller.signal.aborted && !settled.pendingUrl && (navigation.destinations.some(destination => sameDestination(settled.url, destination)) ||
+          (navigation.anyPost && tiktokPostPage(settled.url)))) expectedDestination = settled.url;
     } finally { if (viewerNavigation === navigation) viewerNavigation = null; }
   }
 }
@@ -178,6 +189,7 @@ async function navigate(url) {
   }
   expectedDestination = url;
   if (config.platform === 'instagram' && /^\/explore\/search\/keyword\/?$/.test(new URL(url).pathname)) currentSearchURL = url;
+  if (config.platform === 'tiktok' && /^\/search(?:\/video)?\/?$/.test(new URL(url).pathname)) currentSearchURL = url;
   await chrome.tabs.update(job.tabId, { url });
   const until = Math.min(Date.now() + 25000, job.deadline);
   while (Date.now() < until) {
@@ -195,13 +207,13 @@ async function navigate(url) {
   }
   return false;
 }
-async function waitForPost(target) {
+async function waitForPost(target, accept = id => sameDestination(id, target)) {
   const until = Math.min(Date.now() + 15000, job.deadline);
   while (Date.now() < until) {
     assertRunning();
     const page = await inspect();
     if (page.blocked) throw new Error(page.blocked);
-    if (sameDestination(page.post?.id, target) && page.post?.viewer) return true;
+    if (accept(page.post?.id) && page.post?.viewer) return true;
     await sleep(400);
   }
   return false;
@@ -259,6 +271,10 @@ async function advanceViewer(post, hasSeen = () => false) {
   const target = index >= 0 ? viewerSequence[index + 1] : null;
   if (!target || hasSeen(target)) return false;
   assertRunning();
+  // TikTok's Next follows its own feed order, which can differ from the links on
+  // the page. Any other post it lands on becomes the current post.
+  const tiktok = currentPlatform() === 'tiktok';
+  const arrived = tiktok ? id => tiktokPostPage(id) && !sameDestination(id, post.id) : undefined;
   return navigateViewer(target, async () => {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
@@ -275,8 +291,8 @@ async function advanceViewer(post, hasSeen = () => false) {
     button.click(); return true;
   }, [post.id, job.deadline]);
   if (!clicked) return false;
-  return waitForPost(target);
-  });
+  return waitForPost(target, arrived);
+  }, { anyPost: tiktok });
 }
 async function returnToResults(post, searchURL) {
   if (!searchURL) return false;
@@ -362,9 +378,9 @@ async function scroll() {
   }
 }
 // Read-only check for any copy of this comment text in the platform tab.
-// TikTok has no verified clear path yet, so its state is always unknown.
+// Both readers answer it without editing anything.
 async function draftStateWithRetry(request) {
-  if (currentPlatform() !== 'instagram' || typeof request?.comment !== 'string' || !request.comment.trim()) return 'unknown';
+  if (typeof request?.comment !== 'string' || !request.comment.trim()) return 'unknown';
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await sleep(500);
     const state = await inspect({ action: 'draft-state', comment: request.comment });
@@ -374,6 +390,13 @@ async function draftStateWithRetry(request) {
   return 'unknown';
 }
 async function recoverCommentDraft(request) {
+  // TikTok drafts are never cleared (its editor owns the DOM), so no clear poll
+  // can succeed there. Go straight to the read-only check.
+  if (currentPlatform() === 'tiktok') {
+    const outcome = await draftStateWithRetry(request) === 'absent' ? 'skipped' : 'draft-retained';
+    pendingDraft = false;
+    return outcome;
+  }
   try {
     await execute((request, deadline) => {
       if (Date.now() >= deadline) return;
@@ -587,17 +610,18 @@ async function performEngagement(action, post, comment) {
   if (!clicked) { pendingDraft = false; pendingEngagement = false; return 'skipped'; }
   if (clicked === 'draft') {
     let submitted = false;
+    const notReady = new Set();
     // Wait for the platform's composer, but never retry a submitted comment.
     for (let attempt = 0; attempt < 8 && !submitted; attempt++) {
       await sleep(400);
       assertRunning();
       pendingEngagement = true;
-      submitted = await execute((request, deadline) => {
+      const answer = await execute((request, deadline) => {
         if (Date.now() >= deadline) return false;
         if (location.hostname.includes('tiktok')) {
           const target = globalThis.inspectTikTok({ ...request, action: 'click-comment-submit' });
           if (target.blocked) throw new Error(target.blocked);
-          return target.clicked === true;
+          return target.clicked === true || (typeof target.reason === 'string' ? target.reason : false);
         }
         const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
         if (target.blocked) throw new Error(target.blocked);
@@ -607,9 +631,16 @@ async function performEngagement(action, post, comment) {
         globalThis.collectiveCommentBefore.submitted = true;
         button.click(); return true;
       }, [request, job.deadline]);
-      if (!submitted) pendingEngagement = false;
+      submitted = answer === true;
+      if (!submitted) { pendingEngagement = false; notReady.add(typeof answer === 'string' ? answer : 'unknown'); }
     }
-    if (!submitted) return recoverCommentDraft(request);
+    if (!submitted) {
+      const outcome = await recoverCommentDraft(request);
+      // TikTok's editor stayed empty on every check and no copy of the text is
+      // anywhere: the typed text never arrived. The session counts these so an
+      // ignored paste turns comments off instead of skipping silently each time.
+      return outcome === 'skipped' && currentPlatform() === 'tiktok' && notReady.size === 1 && notReady.has('composer-empty') ? 'not-typed' : outcome;
+    }
     pendingDraft = false;
   }
   const confirmationAttempts = { like: 6, follow: 10, comment: 12 }[action] || 6;
