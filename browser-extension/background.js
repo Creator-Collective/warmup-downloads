@@ -16,12 +16,13 @@ function freezeJob(job, patch = {}) {
 }
 async function closeOwnedRunner(job) {
   if (!job?.runnerTabId) return;
-  const tabs = await chrome.tabs.query({});
-  const runner = tabs.find(tab => tab.id === job.runnerTabId);
-  if (!runner) return;
+  // Without the tabs permission Chrome hides every tab URL, even this
+  // extension's own pages, so ask for the runner's live document instead.
+  // A tab without one (navigated elsewhere, discarded or reopening) can no
+  // longer act: its old token is rejected once this session changes.
   const expected = chrome.runtime.getURL(`runner.html#${job.token}`);
-  if (runner.url === expected) await chrome.tabs.remove(runner.id);
-  else if (!runner.url || runner.pendingUrl === expected) throw new Error('the previous session tab is still loading. close it before continuing.');
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'], tabIds: [job.runnerTabId] });
+  if (contexts.some(context => context.frameId === 0 && context.documentUrl === expected)) await chrome.tabs.remove(job.runnerTabId);
 }
 function enabledPlatform(value) {
   const platform = validPlatform(value);

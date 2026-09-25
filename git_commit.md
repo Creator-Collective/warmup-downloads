@@ -1,9 +1,7 @@
-reach warm-up targets and write instagram comments
+fix: start a new warm-up session right after one finishes
 
 misc:
-- add a local instagram comment writer with safe replies by niche and post format
-- set default targets a session can reach and count keyword search results for likes and follows
-- let comments resume once after a verified-clear draft problem
-- widen own-profile and comment box detection and throttle repeat skip messages
-- package extension 0.6.57 and update install and release notes
-- cover writer safety, goals, draft recovery and detection with new tests
+- find the old session tab with chrome.runtime.getContexts, since chrome hides tab urls without the tabs permission
+- stop blocking a new session when the old session tab has no live page
+- make test harnesses hide non-platform tab urls like real chrome and add regression tests
+- package extension 0.6.59 and update install and release notes

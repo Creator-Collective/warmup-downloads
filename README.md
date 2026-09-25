@@ -1,3 +1,9 @@
+# 0.6.59 start a new session right after one finishes
+
+starting a new session while the finished session tab was still open always failed with "the previous session tab is still loading. close it before continuing." the extension has no tabs permission, so chrome hides every tab address from it, including its own session tab, and the check read that as a tab still loading. the old session tab is now found through chrome.runtime.getContexts, which lists the extension's own pages without extra permissions, and is closed before the new session opens. a tab without a live session page (navigated elsewhere, discarded or reopening) is left alone and no longer blocks a new session; its old session key is rejected once the session changes. the same fix lets a stop that timed out close its unresponsive session tab.
+
+no new extension permissions. replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.57 reach warm-up targets and write instagram comments
 
 instagram comments now come from a local reply writer with 274 short, fixed replies and 12 keyword templates, picked by the student's niche and the post format. replies never copy caption text, never include links, mentions, hashtags or calls to action, and never repeat within a session. posts that bait for comments, look like instructions to the tool, or cover sensitive or heated topics are skipped.

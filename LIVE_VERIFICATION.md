@@ -1,3 +1,9 @@
+## 0.6.59 start a new session right after one finishes, September 25
+
+Reported by a student: after a completed Instagram session, start session showed "the previous session tab is still loading. close it before continuing." Reproduced in Chrome for Testing with the unpacked 0.6.57 extension: chrome.tabs.query and chrome.tabs.get return the session tab with no url, so the old check always failed while the finished session tab stayed open. chrome.runtime.getContexts in the same browser returned the tab id and the full runner.html#token address, and nothing for other tabs. Test harnesses now hide non-platform tab URLs the way Chrome does; with that change the existing completion and stop recovery tests failed before the fix and pass after it.
+
+Version 0.6.58 is taken by the TikTok test build in pull request 68, so this release is 0.6.59. No Instagram session or social action was performed. Existing unpacked installations require replacing files and reloading; the website deployment alone does not update them.
+
 ## 0.6.57 reach warm-up targets and write instagram comments, September 23
 
 All 685 automated checks pass. Both 36-file archives and packaged dashboard mirrors match source. Independent code and security/account-safety reviews ran; their findings were fixed before packaging: each session now uses its own random comment salt so different students do not post identical wording on the same post, three replies that assumed a video were reworded, business closure and burnout captions are skipped as sensitive, and hidden zero-width characters are stripped before the suspicious-caption check. The pull request reviewer's findings were also fixed: a stop during the leftover-draft check still shows the draft warning, and the paused-comments note uses neutral wording.

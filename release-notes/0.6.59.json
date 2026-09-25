@@ -1,13 +1,9 @@
 {
-  "version": "0.6.59",
   "releasedAt": "2026-09-25",
   "summary": "start a new session right after one finishes",
   "changes": [
     "starting a new session after one finishes no longer says the previous session tab is still loading. the old session tab now closes on its own.",
     "stopping a session that stopped responding closes its tab again instead of asking you to close it yourself.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.59.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

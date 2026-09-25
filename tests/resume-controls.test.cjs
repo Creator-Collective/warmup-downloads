@@ -25,15 +25,18 @@ function savedJob() {
   };
   return { sessionId: 'saved-session', token: 'old-token', runnerTabId: 90, tabId: 7, settings, checkpoint, remainingMs: 480000, deadline: 700000, phase: 'stopped', stopRequested: true, nextActionAt: null, stats: checkpoint.stats, unconfirmed: checkpoint.unconfirmed, pausedActions: [], comments: checkpoint.comments, activity: [{ time: 1000, message: 'watching your post.' }], message: 'session stopped.' };
 }
+// Chrome hides non-platform tab URLs from this extension, including its own pages.
+const visibleTab = tab => /^https:\/\/(www\.)?(instagram|tiktok)\.com\//.test(tab.url || '') ? { ...tab } : { ...tab, url: undefined, pendingUrl: undefined, title: undefined };
 function background(initial = savedJob()) {
   let job = structuredClone(initial), time = 1000000, id = 90;
   const created = [], removed = [];
   const allTabs = [{ id: 7, title: 'instagram', url: 'https://www.instagram.com/', windowId: 3 }, { id: 8, title: 'tiktok', url: 'https://www.tiktok.com/', windowId: 3 }];
   if (job?.runnerTabId) allTabs.push({ id: job.runnerTabId, url: `chrome-extension://extension-id/runner.html#${job.token}` });
   class Clock extends Date { static now() { return time; } }
-  const chrome = { sidePanel: { setPanelBehavior: async () => {} }, runtime: { id: 'extension-id', getURL: p => `chrome-extension://extension-id/${p.replace(/^\//, '')}`, getManifest: () => ({ version: 'test' }), onMessage: event() },
+  const chrome = { sidePanel: { setPanelBehavior: async () => {} }, runtime: { id: 'extension-id', getURL: p => `chrome-extension://extension-id/${p.replace(/^\//, '')}`, getManifest: () => ({ version: 'test' }), onMessage: event(),
+      getContexts: async ({ tabIds = [] } = {}) => allTabs.filter(tab => tabIds.includes(tab.id) && tab.url?.startsWith('chrome-extension://extension-id/')).map(tab => ({ contextType: 'TAB', tabId: tab.id, frameId: 0, documentUrl: tab.url })) },
     storage: { session: { get: async () => ({ job: structuredClone(job) }), set: async value => { job = structuredClone(value.job); } } },
-    tabs: { query: async () => allTabs, get: async tabId => allTabs.find(tab => tab.id === tabId), create: async options => { created.push(options); const tab = { id: ++id, ...options }; allTabs.push(tab); return tab; }, remove: async tabId => { removed.push(tabId); allTabs.splice(allTabs.findIndex(tab => tab.id === tabId), 1); }, update: async () => {}, onRemoved: event(), onUpdated: event() } };
+    tabs: { query: async () => allTabs.map(visibleTab), get: async tabId => { const tab = allTabs.find(item => item.id === tabId); return tab && visibleTab(tab); }, create: async options => { created.push(options); const tab = { id: ++id, ...options }; allTabs.push(tab); return tab; }, remove: async tabId => { removed.push(tabId); allTabs.splice(allTabs.findIndex(tab => tab.id === tabId), 1); }, update: async () => {}, onRemoved: event(), onUpdated: event() } };
   const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, structuredClone, Date: Clock });
   ctx.importScripts = (...files) => files.forEach(file => vm.runInContext(fs.readFileSync(path.join(root, 'browser-extension', file), 'utf8'), ctx));
   vm.runInContext(fs.readFileSync(path.join(root, 'browser-extension/background.js'), 'utf8'), ctx);
