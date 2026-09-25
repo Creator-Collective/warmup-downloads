@@ -11,6 +11,14 @@ const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn);
 const settings = { minutes: 10, niche: 'personal branding', customLimits: { like: 0, follow: 0, comment: 0 } };
 const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
 
+// Without the tabs permission, Chrome reports only platform tab URLs. It hides
+// every other address, including this extension's own session tab.
+const visibleTab = tab => /^https:\/\/(www\.)?(instagram|tiktok)\.com\//.test(tab.url || '') ? { ...tab } : { ...tab, url: undefined, pendingUrl: undefined, title: undefined };
+// Extension pages with a live document, as chrome.runtime.getContexts lists them.
+const ownContexts = (tabs, { tabIds = [] } = {}) => [...tabs.values()]
+  .filter(tab => tabIds.includes(tab.id) && !tab.discarded && tab.url?.startsWith('chrome-extension://extension-id/'))
+  .map(tab => ({ contextType: 'TAB', tabId: tab.id, frameId: 0, documentUrl: tab.url, documentOrigin: 'chrome-extension://extension-id' }));
+
 function background(initial, platform = initial?.settings?.platform || 'instagram') {
   let job = structuredClone(initial);
   let now = 100000;
@@ -19,11 +27,11 @@ function background(initial, platform = initial?.settings?.platform || 'instagra
   const removed = [];
   let nextTabId = 90;
   const chrome = {
-    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: 'test' }), onMessage: event() },
+    runtime: { id: 'extension-id', getURL: value => `chrome-extension://extension-id/${value.replace(/^\//, '')}`, getManifest: () => ({ version: 'test' }), onMessage: event(), getContexts: async filter => ownContexts(tabs, filter) },
     storage: { session: { get: async () => ({ job: structuredClone(job) }), set: async value => { job = structuredClone(value.job); } } },
     sidePanel: { setPanelBehavior: async () => {} },
     tabs: {
-      query: async () => [...tabs.values()], get: async id => tabs.get(id),
+      query: async () => [...tabs.values()].map(visibleTab), get: async id => tabs.has(id) ? visibleTab(tabs.get(id)) : undefined,
       create: async options => { const tab = { id: nextTabId++, ...options }; tabs.set(tab.id, tab); return tab; },
       remove: async id => { removed.push(id); tabs.delete(id); },
       update: async () => {}, onRemoved: event(), onUpdated: event()
@@ -165,6 +173,31 @@ test('recovery does not close a runner tab that the user navigated elsewhere', a
   assert.equal((await h.message({ type: 'stop' })).data.running, false);
   assert.deepEqual(h.removed, []);
   assert.equal(h.tabs.has(90), true);
+});
+
+test('a new session closes the finished session tab even though Chrome hides its address', async () => {
+  const h = background(); await h.start();
+  const job = h.job();
+  const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+  await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'time’s up. your session is complete.' } }, sender);
+  assert.equal((await h.chrome.tabs.get(90)).url, undefined);
+  const result = await h.start();
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(h.removed, [90]);
+  assert.equal(h.job().phase, 'starting');
+});
+
+test('a session tab without a live page is left open and does not block a new session', async () => {
+  for (const change of [{ discarded: true }, { url: 'about:blank', pendingUrl: 'chrome-extension://extension-id/runner.html#x' }]) {
+    const h = background(); await h.start();
+    const job = h.job();
+    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } };
+    await h.message({ type: 'runner-update', token: job.token, patch: { phase: 'complete', message: 'done' } }, sender);
+    h.tabs.set(90, { ...h.tabs.get(90), ...change });
+    assert.equal((await h.start()).ok, true);
+    assert.deepEqual(h.removed, []);
+    assert.equal(h.tabs.has(90), true);
+  }
 });
 
 test('a finished runner cannot revive its session or replace its outcome', async () => {
