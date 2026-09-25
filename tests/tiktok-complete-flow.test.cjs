@@ -64,7 +64,7 @@ function completeFlow({ mixedFailures = false, stopAt = Infinity, seed = 23 } = 
   function random() { seed = Math.imul(seed, 1664525) + 1013904223 >>> 0; return seed / 4294967296; }
   const context = vm.createContext({
     URL, console, controller, job, Date: { now: () => time }, platforms, validPlatform, platformURL,
-    pendingDraft: false, pendingEngagement: false, messageQueue: Promise.resolve(), sleep: advanceTime,
+    pendingDraft: false, pendingEngagement: false, messageQueue: Promise.resolve(), sleep: advanceTime, diagnostics: null, lastBlock: null,
     chrome: {
       tabs: {
         get: async id => id === 7 ? { id, url: page.context.location.href, status: 'complete' } : freshTabs.get(id).tab,
@@ -95,7 +95,7 @@ function completeFlow({ mixedFailures = false, stopAt = Infinity, seed = 23 } = 
     }
   });
   vm.runInContext([
-    'currentPlatform', 'platformConfig', 'assertRunning', 'sameDestination', 'transientPageError',
+    'currentPlatform', 'platformConfig', 'assertRunning', 'sameDestination', 'transientPageError', 'countDiagnostic', 'noteBlock', 'blockError',
     'execute', 'inspect', 'recoverCommentDraft', 'verifyEngagementOnFreshPost', 'engage', 'performEngagement'
   ].map(functionSource).join('\n'), context);
   const engineContext = vm.createContext({ URL, console });

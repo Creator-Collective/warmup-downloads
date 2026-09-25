@@ -331,6 +331,43 @@ $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editing
 $('refresh-tabs').addEventListener('click', () => tabs({ reportError: true }));
 $('open-instagram').addEventListener('click', () => request('open-platform', { platform }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => { stateRevision += 1; if (currentState) currentState.canChangeFocus = false; renderFocus(); return request('stop').then(state => { stateRevision += 1; render(state); }).catch(e => error(e.message)); });
+// Test builds only (a side panel whose extension reports testTools): a read-only
+// check of the chosen tab and a copyable report of numbers and fixed labels.
+let lastProbe = null;
+function showTestTools() {
+  if ($('test-tools')) return;
+  const make = (tag, properties) => Object.assign(document.createElement(tag), properties);
+  const section = make('section', { id: 'test-tools', className: 'setup-strip test-tools' });
+  section.setAttribute('aria-label', 'test tools');
+  const check = make('button', { id: 'check-page', type: 'button', className: 'secondary', textContent: 'check this page' });
+  const copy = make('button', { id: 'copy-report', type: 'button', className: 'secondary', textContent: 'copy test report' });
+  const status = make('p', { id: 'test-status', className: 'results-note' });
+  status.setAttribute('role', 'status');
+  const output = make('textarea', { id: 'test-output', readOnly: true, rows: 8, hidden: true });
+  output.setAttribute('aria-label', 'test output');
+  section.append(make('h2', { textContent: 'test tools' }), check, copy);
+  $('form-error').after(section, status, output);
+  const show = text => { output.value = text; output.hidden = false; };
+  check.addEventListener('click', async () => {
+    check.disabled = true;
+    status.textContent = 'checking this page…';
+    try {
+      const result = await request('test-probe', $('instagram-tab').value ? { tabId: Number($('instagram-tab').value) } : {});
+      lastProbe = result.probe;
+      show(result.lines.join('\n'));
+      status.textContent = 'page checked. nothing was clicked or typed.';
+    } catch (e) { status.textContent = e.message; }
+    finally { check.disabled = false; }
+  });
+  copy.addEventListener('click', async () => {
+    try {
+      const { text } = await request('test-report', lastProbe ? { probe: lastProbe } : {});
+      show(text);
+      try { await navigator.clipboard.writeText(text); status.textContent = 'test report copied.'; }
+      catch { output.select(); status.textContent = 'select the report below and copy it.'; }
+    } catch (e) { status.textContent = e.message; }
+  });
+}
 async function connect() {
   try {
     const hello = await request('hello');
@@ -342,6 +379,7 @@ async function connect() {
       const offered = hello.platforms.find(name => knownPlatforms.includes(name));
       if (offered) usePlatform(offered);
     }
+    if (inPanel && hello.testTools === true) showTestTools();
     error(''); connection(true); render(hello.state); await tabs({ reportError: true });
   }
   catch { connection(false); }
