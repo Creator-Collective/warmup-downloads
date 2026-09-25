@@ -5,7 +5,13 @@ const serial = operation => { const result = queue.then(operation); queue = resu
 const getJob = async () => (await chrome.storage.session.get('job')).job;
 const putJob = job => chrome.storage.session.set({ job });
 const extensionOrigin = chrome.runtime.getURL('/');
-const INSTAGRAM_ONLY = 'warm-up is instagram only for now.';
+// Each build lists the platforms it may drive in features.js. A build without
+// the list (0.6.57 and older feature files) stays instagram only.
+const enabledPlatforms = Object.freeze(Array.isArray(productFeatures.platforms)
+  ? productFeatures.platforms.filter(name => typeof name === 'string' && Object.hasOwn(platforms, name))
+  : ['instagram']);
+const PLATFORM_UNAVAILABLE = enabledPlatforms.length === 1 && enabledPlatforms[0] === 'tiktok' ? 'this test build runs tiktok only.' : 'warm-up is instagram only for now.';
+const testToolsEnabled = productFeatures.testTools === true;
 function freezeJob(job, patch = {}) {
   const frozen = job.stopRequested || ['stopped', 'error', 'complete'].includes(job.phase);
   const remainingMs = patch.phase === 'complete' ? 0 : frozen ? remainingTime(job) : Math.min(
@@ -25,13 +31,18 @@ async function closeOwnedRunner(job) {
 }
 function enabledPlatform(value) {
   const platform = validPlatform(value);
-  if (platform !== 'instagram') throw new Error(INSTAGRAM_ONLY);
+  if (!enabledPlatforms.includes(platform)) throw new Error(PLATFORM_UNAVAILABLE);
   return platform;
 }
 async function suspendDisabledJob() {
   const job = await getJob();
-  if (!job || job.settings?.platform !== 'tiktok' || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
-  const stopped = freezeJob(job, { phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}` });
+  if (!job || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
+  // A saved session without a platform is an instagram session, as everywhere else.
+  // An unrecognised platform is left as it is, which is what older builds did.
+  let platform;
+  try { platform = validPlatform(job.settings?.platform); } catch { return job; }
+  if (enabledPlatforms.includes(platform)) return job;
+  const stopped = freezeJob(job, { phase: 'stopped', stopRequested: true, nextActionAt: null, message: `${platforms[platform].label} session stopped. ${PLATFORM_UNAVAILABLE}` });
   await putJob(stopped);
   return stopped;
 }
@@ -62,8 +73,8 @@ async function dashboardCommand(message) {
     return { tabId: tab.id };
   }
   await suspendDisabledJob();
-  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, state: publicState(await recoverStoppingJob()) };
-  if (message.type === 'state') return publicState(await recoverStoppingJob());
+  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, platforms: [...enabledPlatforms], ...(testToolsEnabled ? { testTools: true } : {}), state: publicState(await recoverStoppingJob(), enabledPlatforms) };
+  if (message.type === 'state') return publicState(await recoverStoppingJob(), enabledPlatforms);
   if (message.type === 'set-focus') {
     const focus = sessionPlan.validateFocus(message.focus);
     const job = await getJob();
@@ -73,7 +84,7 @@ async function dashboardCommand(message) {
     }
     const next = { ...job, settings: { ...job.settings, focus } };
     await putJob(next);
-    return publicState(next);
+    return publicState(next, enabledPlatforms);
   }
   if (message.type === 'tabs') {
     const platform = enabledPlatform(message.platform);
@@ -88,14 +99,14 @@ async function dashboardCommand(message) {
   if (message.type === 'stop') {
     const wasStopping = (await getJob())?.phase === 'stopping';
     await stopJob();
-    return publicState(await recoverStoppingJob(wasStopping));
+    return publicState(await recoverStoppingJob(wasStopping), enabledPlatforms);
   }
   if (!['start', 'resume'].includes(message.type)) throw new Error('unknown dashboard action.');
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
   const current = await getJob();
   const resuming = message.type === 'resume';
-  if (resuming && (typeof message.sessionId !== 'string' || message.sessionId !== current?.sessionId || !resumableJob(current))) throw new Error('this session can’t be resumed. start a new session.');
+  if (resuming && (typeof message.sessionId !== 'string' || message.sessionId !== current?.sessionId || !resumableJob(current, enabledPlatforms))) throw new Error('this session can’t be resumed. start a new session.');
   const settings = resuming ? current.settings : sessionPlan.validateSettings(message.settings);
   const platform = enabledPlatform(settings.platform);
   if (!Number.isInteger(message.tabId)) throw new Error(`choose a ${platforms[platform].label} tab first.`);
@@ -118,7 +129,7 @@ async function dashboardCommand(message) {
     await putJob(freezeJob(job, { phase: 'error', stopRequested: true, message: 'couldn’t open the session. try again.' }));
     throw error;
   }
-  return publicState(job);
+  return publicState(job, enabledPlatforms);
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (!message || typeof message.type !== 'string') return false;

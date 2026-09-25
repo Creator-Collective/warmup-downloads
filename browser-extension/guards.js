@@ -111,14 +111,16 @@ function remainingTime(job) {
   if (job.stopRequested || ['stopped', 'error'].includes(job.phase)) return Number.isFinite(job.remainingMs) ? Math.max(0, job.remainingMs) : 0;
   return Number.isFinite(job.deadline) ? Math.max(0, job.deadline - Date.now()) : 0;
 }
-function resumableJob(job) {
-  return Boolean(job?.sessionId && job.settings?.platform === 'instagram' && ['stopped', 'error'].includes(job.phase) && remainingTime(job) > 0 && normalizeCheckpoint(job.checkpoint, job.settings));
+// enabled is the build's platform list. The saved platform must match it exactly:
+// a session saved without a platform predates resume and never resumes.
+function resumableJob(job, enabled = ['instagram']) {
+  return Boolean(job?.sessionId && Array.isArray(enabled) && typeof job.settings?.platform === 'string' && enabled.includes(job.settings.platform) && ['stopped', 'error'].includes(job.phase) && remainingTime(job) > 0 && normalizeCheckpoint(job.checkpoint, job.settings));
 }
-function publicState(job) {
+function publicState(job, enabled = ['instagram']) {
   if (!job) return { running: false, phase: 'ready', message: 'ready when you are.', stats: {}, unconfirmed: normalizeUnconfirmed(), pausedActions: [], activity: [], comments: [] };
   return { running: ['starting', 'running', 'stopping'].includes(job.phase), phase: job.phase, message: job.message, deadline: job.deadline, nextActionAt: job.nextActionAt, stats: job.stats, unconfirmed: normalizeUnconfirmed(job.unconfirmed, job.settings?.limits), pausedActions: normalizePausedActions(job.pausedActions), activity: job.activity, comments: sessionComments.normalize(job.comments), tabId: job.tabId,
     sessionId: typeof job.sessionId === 'string' ? job.sessionId : undefined,
-    canResume: resumableJob(job), remainingMs: remainingTime(job),
+    canResume: resumableJob(job, enabled), remainingMs: remainingTime(job),
     canChangeFocus: Boolean(job.sessionId && ['starting', 'running'].includes(job.phase) && !job.stopRequested && job.deadline > Date.now()),
     settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights, focus: ['like','follow','comment'].includes(job.settings.focus) ? job.settings.focus : 'balanced' } : undefined };
 }
