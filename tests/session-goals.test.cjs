@@ -317,8 +317,8 @@ test('instagram full-video watches come every five posts or more', async () => {
   }
 });
 
-test('instagram rotates keywords every six minutes and tiktok keeps two-minute rotation', async () => {
-  for (const [platform, expected] of [['instagram', 7], ['tiktok', 20]]) {
+test('instagram and tiktok both rotate keywords every six minutes', async () => {
+  for (const [platform, expected] of [['instagram', 7], ['tiktok', 7]]) {
     let index = 0;
     const searches = [];
     const h = harness({
@@ -430,21 +430,63 @@ test('a second retained draft after a lift keeps comments off for the session', 
   assert.deepEqual(h.updates.at(-1).pausedActions, ['comment']);
 });
 
-test('tiktok retained drafts never lift', async () => {
-  let index = 0;
-  const checks = [];
-  const h = harness({
-    inspect: async () => ({ post: { id: `https://www.tiktok.com/@creator${index}/video/${1000 + index}`, author: `creator${index}`, text: 'study tips', caption: MATCHING, viewer: true, next: true, comment: true } }),
-    advance: async () => { index++; return true; },
-    draftState: async () => { checks.push(h.time()); return 'absent'; },
-    engage: async (action, post, comment) => { h.calls.push([action, post.id, comment]); return action === 'comment' ? 'draft-retained' : 'confirmed'; }
-  });
-  h.options.random = () => .5;
-  await runSession(commentsOnly({ platform: 'tiktok' }), h.adapter, h.controller.signal, h.options);
-  assert.equal(h.calls.filter(call => call[0] === 'comment').length, 1);
-  assert.equal(checks.length, 0);
-  assert.ok(h.updates.some(update => /comments are off for this session/.test(update.message || '')));
-  assert.deepEqual(Array.from(h.updates.at(-1).pausedActions), ['comment']);
+// These four replace 'tiktok retained drafts never lift'. TikTok now answers the same
+// read-only draft check, so its retained drafts follow Instagram's one-time lift rules.
+const ttURL = (term, index) => `https://www.tiktok.com/@${term.replace(/\W/g, '')}${index}/video/${7000000000000000000n + BigInt(index)}/`;
+const tiktokWorld = config => world({ post: (term, index) => ({ id: ttURL(term, index), author: `@${term.replace(/\W/g, '')}${index}`, text: 'study tips', caption: MATCHING }), ...config });
+const tiktokCommentsOnly = () => commentsOnly({ platform: 'tiktok' });
+
+test('a tiktok retained draft is lifted once after two clear checks on another post', async () => {
+  const h = tiktokWorld({ outcome: commentResults(['draft-retained']), draftState: () => 'absent' });
+  const stats = await h.run(tiktokCommentsOnly());
+  const [draft, ...later] = commentAttempts(h);
+  assert.match(messages(h).find(update => /comment skipped for/.test(update.message)).message, /comments are paused until the comment box is clear/);
+  const [first, second] = h.drafts;
+  assert.ok(first && second);
+  assert.equal(first.comment, draft.comment);
+  assert.ok(first.time - draft.time >= 90000, `first check after ${first.time - draft.time} ms`);
+  assert.ok(h.drafts.every(check => check.id !== draft.id), 'checks run on a different post');
+  assert.ok(second.time - first.time >= 15000);
+  const lifts = messages(h).filter(update => update.message === LIFTED);
+  assert.equal(lifts.length, 1);
+  assert.ok(lifts[0].time >= second.time);
+  assert.equal(h.drafts.length, 2, 'no more checks after the lift');
+  assert.ok(later.length > 0, 'comments come back');
+  assert.ok(later[0].time - lifts[0].time >= 120000, `next comment ${later[0].time - lifts[0].time} ms after the lift`);
+  assert.ok(later.every(attempt => attempt.comment !== draft.comment), 'the retained wording is never reused');
+  assert.equal(stats.comment, later.length);
+  assert.deepEqual(h.updates.at(-1).pausedActions, []);
+});
+
+test('a present tiktok draft resets the clear-check count', async () => {
+  const h = tiktokWorld({ outcome: commentResults(['draft-retained']), draftState: count => ['absent', 'present', 'absent', 'absent'][count - 1] || 'absent' });
+  await h.run(tiktokCommentsOnly());
+  assert.equal(h.drafts.length, 4);
+  assert.ok(messages(h).find(update => update.message === LIFTED).time >= h.drafts[3].time, 'the lift waits for two clear checks in a row');
+  for (let i = 1; i < h.drafts.length; i++) assert.ok(h.drafts[i].time - h.drafts[i - 1].time >= 15000);
+});
+
+test('an uncertain tiktok submit with a possible draft never lifts', async () => {
+  const h = tiktokWorld({ outcome: commentResults(['uncertain-draft']), draftState: () => 'absent' });
+  await h.run(tiktokCommentsOnly());
+  assert.equal(commentAttempts(h).length, 1);
+  assert.equal(h.drafts.length, 0);
+  assert.equal(messages(h).some(update => update.message === LIFTED), false);
+  assert.ok(messages(h).some(update => /comments are off for this session/.test(update.message)));
+  assert.deepEqual(h.updates.at(-1).pausedActions, ['comment']);
+});
+
+test('a second retained tiktok draft after a lift keeps comments off for the session', async () => {
+  const h = tiktokWorld({ outcome: commentResults(['draft-retained', 'draft-retained']), draftState: () => 'absent' });
+  await h.run(tiktokCommentsOnly());
+  const attempts = commentAttempts(h);
+  assert.equal(attempts.length, 2);
+  assert.equal(messages(h).filter(update => update.message === LIFTED).length, 1);
+  const retained = messages(h).filter(update => /comment skipped for/.test(update.message));
+  assert.match(retained[0].message, /paused until the comment box is clear/);
+  assert.match(retained[1].message, /comments are off for this session/);
+  assert.ok(h.drafts.every(check => check.time < attempts[1].time), 'no checks after the second draft');
+  assert.deepEqual(h.updates.at(-1).pausedActions, ['comment']);
 });
 
 test('without a draft check, a retained draft keeps comments off for the session', async () => {

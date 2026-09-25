@@ -64,7 +64,7 @@ function completeFlow({ mixedFailures = false, stopAt = Infinity, seed = 23 } = 
   function random() { seed = Math.imul(seed, 1664525) + 1013904223 >>> 0; return seed / 4294967296; }
   const context = vm.createContext({
     URL, console, controller, job, Date: { now: () => time }, platforms, validPlatform, platformURL,
-    pendingDraft: false, pendingEngagement: false, messageQueue: Promise.resolve(), sleep: advanceTime,
+    pendingDraft: false, pendingEngagement: false, messageQueue: Promise.resolve(), sleep: advanceTime, diagnostics: null, lastBlock: null,
     chrome: {
       tabs: {
         get: async id => id === 7 ? { id, url: page.context.location.href, status: 'complete' } : freshTabs.get(id).tab,
@@ -95,7 +95,7 @@ function completeFlow({ mixedFailures = false, stopAt = Infinity, seed = 23 } = 
     }
   });
   vm.runInContext([
-    'currentPlatform', 'platformConfig', 'assertRunning', 'sameDestination', 'transientPageError',
+    'currentPlatform', 'platformConfig', 'assertRunning', 'sameDestination', 'transientPageError', 'countDiagnostic', 'noteBlock', 'blockError',
     'execute', 'inspect', 'recoverCommentDraft', 'verifyEngagementOnFreshPost', 'engage', 'performEngagement'
   ].map(functionSource).join('\n'), context);
   const engineContext = vm.createContext({ URL, console });
@@ -178,7 +178,12 @@ for (const mixedFailures of [false, true]) {
     assert.ok(stats.like >= 120, `likes continue over the hour: ${stats.like}`);
     assert.ok(stats.follow >= 35, `follows continue over the hour: ${stats.follow}`);
     assert.ok(stats.comment >= (mixedFailures ? 12 : 16), `comments keep using distinct supported captions: ${stats.comment}`);
-    assert.ok(h.searches.length >= 20);
+    // Keyword searches only: h.searches also records every return to the results (leavePost).
+    // Six-minute keyword windows over an hour with 2 keywords give 10, plus one per recovery.
+    const messages = h.snapshots.map(state => state.message).filter(message => typeof message === 'string');
+    const keywordSearches = messages.filter(message => message.startsWith('searching for ')).length;
+    const recoveries = messages.filter(message => message.startsWith('results stopped advancing') || message.startsWith('search is slow or empty')).length;
+    assert.ok(keywordSearches >= 10 && keywordSearches <= 10 + recoveries, `keyword searches: ${keywordSearches}, recoveries: ${recoveries}`);
     assert.deepEqual([...new Set(h.searches.map(item => item.term))], ['personal brand', 'storytelling']);
     assert.ok(h.attempts.some(item => Number(new URL(item.id).pathname.match(/creator(\d+)/)[1]) % 4 === 0 && item.action === 'like'), 'current search members are eligible despite the personalbrand/personalbranding mismatch');
     assert.deepEqual(h.removed, h.created.map(tab => tab.id));

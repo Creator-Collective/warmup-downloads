@@ -5,7 +5,13 @@ const serial = operation => { const result = queue.then(operation); queue = resu
 const getJob = async () => (await chrome.storage.session.get('job')).job;
 const putJob = job => chrome.storage.session.set({ job });
 const extensionOrigin = chrome.runtime.getURL('/');
-const INSTAGRAM_ONLY = 'warm-up is instagram only for now.';
+// Each build lists the platforms it may drive in features.js. A build without
+// the list (0.6.57 and older feature files) stays instagram only.
+const enabledPlatforms = Object.freeze(Array.isArray(productFeatures.platforms)
+  ? productFeatures.platforms.filter(name => typeof name === 'string' && Object.hasOwn(platforms, name))
+  : ['instagram']);
+const PLATFORM_UNAVAILABLE = enabledPlatforms.length === 1 && enabledPlatforms[0] === 'tiktok' ? 'this test build runs tiktok only.' : 'warm-up is instagram only for now.';
+const testToolsEnabled = productFeatures.testTools === true;
 function freezeJob(job, patch = {}) {
   const frozen = job.stopRequested || ['stopped', 'error', 'complete'].includes(job.phase);
   const remainingMs = patch.phase === 'complete' ? 0 : frozen ? remainingTime(job) : Math.min(
@@ -25,13 +31,18 @@ async function closeOwnedRunner(job) {
 }
 function enabledPlatform(value) {
   const platform = validPlatform(value);
-  if (platform !== 'instagram') throw new Error(INSTAGRAM_ONLY);
+  if (!enabledPlatforms.includes(platform)) throw new Error(PLATFORM_UNAVAILABLE);
   return platform;
 }
 async function suspendDisabledJob() {
   const job = await getJob();
-  if (!job || job.settings?.platform !== 'tiktok' || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
-  const stopped = freezeJob(job, { phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}` });
+  if (!job || !['starting', 'running', 'stopping'].includes(job.phase)) return job;
+  // A saved session without a platform is an instagram session, as everywhere else.
+  // An unrecognised platform is left as it is, which is what older builds did.
+  let platform;
+  try { platform = validPlatform(job.settings?.platform); } catch { return job; }
+  if (enabledPlatforms.includes(platform)) return job;
+  const stopped = freezeJob(job, { phase: 'stopped', stopRequested: true, nextActionAt: null, message: `${platforms[platform].label} session stopped. ${PLATFORM_UNAVAILABLE}` });
   await putJob(stopped);
   return stopped;
 }
@@ -62,8 +73,8 @@ async function dashboardCommand(message) {
     return { tabId: tab.id };
   }
   await suspendDisabledJob();
-  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, state: publicState(await recoverStoppingJob()) };
-  if (message.type === 'state') return publicState(await recoverStoppingJob());
+  if (message.type === 'hello') return { version: chrome.runtime.getManifest().version, supportsFocus: true, platforms: [...enabledPlatforms], ...(testToolsEnabled ? { testTools: true } : {}), state: publicState(await recoverStoppingJob(), enabledPlatforms) };
+  if (message.type === 'state') return publicState(await recoverStoppingJob(), enabledPlatforms);
   if (message.type === 'set-focus') {
     const focus = sessionPlan.validateFocus(message.focus);
     const job = await getJob();
@@ -73,7 +84,7 @@ async function dashboardCommand(message) {
     }
     const next = { ...job, settings: { ...job.settings, focus } };
     await putJob(next);
-    return publicState(next);
+    return publicState(next, enabledPlatforms);
   }
   if (message.type === 'tabs') {
     const platform = enabledPlatform(message.platform);
@@ -88,14 +99,14 @@ async function dashboardCommand(message) {
   if (message.type === 'stop') {
     const wasStopping = (await getJob())?.phase === 'stopping';
     await stopJob();
-    return publicState(await recoverStoppingJob(wasStopping));
+    return publicState(await recoverStoppingJob(wasStopping), enabledPlatforms);
   }
   if (!['start', 'resume'].includes(message.type)) throw new Error('unknown dashboard action.');
   await signupController.suspendIfDisabled();
   if (signupController.isActive(await signupController.read())) throw new Error('finish or stop account signup before starting warm-up.');
   const current = await getJob();
   const resuming = message.type === 'resume';
-  if (resuming && (typeof message.sessionId !== 'string' || message.sessionId !== current?.sessionId || !resumableJob(current))) throw new Error('this session can’t be resumed. start a new session.');
+  if (resuming && (typeof message.sessionId !== 'string' || message.sessionId !== current?.sessionId || !resumableJob(current, enabledPlatforms))) throw new Error('this session can’t be resumed. start a new session.');
   const settings = resuming ? current.settings : sessionPlan.validateSettings(message.settings);
   const platform = enabledPlatform(settings.platform);
   if (!Number.isInteger(message.tabId)) throw new Error(`choose a ${platforms[platform].label} tab first.`);
@@ -108,7 +119,9 @@ async function dashboardCommand(message) {
   const remainingMs = resuming ? remainingTime(current) : settings.minutes * 60000;
   const checkpoint = resuming ? { ...normalizeCheckpoint(current.checkpoint, settings), remainingMs, elapsedMs: settings.minutes * 60000 - remainingMs } : null;
   const job = { token, sessionId: resuming ? current.sessionId : crypto.randomUUID(), tabId: tab.id, runnerTabId: null, settings, phase: 'starting', stopRequested: false, deadline: Date.now() + remainingMs, remainingMs, checkpoint,
-    stats: resuming ? current.stats : {}, unconfirmed: resuming ? current.unconfirmed : normalizeUnconfirmed(), pausedActions: resuming ? current.pausedActions : [], activity: resuming ? current.activity : [], comments: resuming ? current.comments : [], message: resuming ? 'resuming your session…' : 'starting your session…', nextActionAt: null };
+    stats: resuming ? current.stats : {}, unconfirmed: resuming ? current.unconfirmed : normalizeUnconfirmed(), pausedActions: resuming ? current.pausedActions : [], activity: resuming ? current.activity : [], comments: resuming ? current.comments : [], message: resuming ? 'resuming your session…' : 'starting your session…', nextActionAt: null,
+    // Test builds carry numbers-only diagnostics, and a resumed session keeps them.
+    ...(testToolsEnabled ? { diagnostics: warmupDiagnostics.normalize(resuming ? current.diagnostics : null) } : {}) };
   await putJob(job);
   try {
     const runner = await chrome.tabs.create({ url: chrome.runtime.getURL(`runner.html#${token}`), active: false, windowId: tab.windowId });
@@ -118,7 +131,29 @@ async function dashboardCommand(message) {
     await putJob(freezeJob(job, { phase: 'error', stopRequested: true, message: 'couldn’t open the session. try again.' }));
     throw error;
   }
-  return publicState(job);
+  return publicState(job, enabledPlatforms);
+}
+// Test builds only, for the packaged side panel: a read-only check of the chosen
+// tiktok tab (never while a session runs), and the numbers-only test report.
+async function testToolCommand(message) {
+  const job = await suspendDisabledJob();
+  if (message.type === 'test-report') {
+    return { text: warmupDiagnostics.report({ version: chrome.runtime.getManifest().version, job, probe: message.probe }) };
+  }
+  if (job && ['starting', 'running', 'stopping'].includes(job.phase)) throw new Error('stop the session before checking a page.');
+  if (!enabledPlatforms.includes('tiktok')) throw new Error(PLATFORM_UNAVAILABLE);
+  const tab = Number.isInteger(message.tabId) ? await chrome.tabs.get(message.tabId).catch(() => null) : null;
+  if (!tab) throw new Error('choose a tiktok tab first.');
+  if (!platformURL(tab.url, 'tiktok')) throw new Error('that tab is no longer on tiktok. choose it again.');
+  if (tab.incognito) throw new Error('use a regular chrome window for this check.');
+  let results;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['tiktok.js'] });
+    results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => typeof globalThis.inspectTikTok === 'function' ? globalThis.inspectTikTok({ action: 'probe' }) : null });
+  } catch { results = null; }
+  const probe = warmupDiagnostics.normalizeProbe(results?.[0]?.result?.probe);
+  if (!probe) throw new Error('couldn’t read that page. let it finish loading, then check again.');
+  return { probe, lines: warmupDiagnostics.probeLines(probe) };
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (!message || typeof message.type !== 'string') return false;
@@ -136,6 +171,13 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const revision = signupController.revision();
     const operation = message.type === 'signup-stop' ? signupController.command(message) : serial(() => signupController.command(message, revision));
     operation.then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
+    return true;
+  }
+  // Only a test build answers these, and only its own side panel. Other builds
+  // treat them as unknown dashboard actions, as before.
+  if (testToolsEnabled && ['test-probe', 'test-report'].includes(message.type)) {
+    if (!panelSender(sender, extensionOrigin)) return false;
+    serial(() => testToolCommand(message)).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
     return true;
   }
   if (dashboardSender(sender) || panelSender(sender, extensionOrigin)) {
@@ -172,7 +214,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       stats,
       unconfirmed: normalizeUnconfirmed(patch.unconfirmed ?? job.unconfirmed, job.settings?.limits),
       pausedActions: normalizePausedActions(patch.pausedActions ?? job.pausedActions),
-      comments: Array.isArray(patch.comments) ? commentHistory.normalize(patch.comments) : job.comments || []
+      comments: Array.isArray(patch.comments) ? commentHistory.normalize(patch.comments) : job.comments || [],
+      // Test builds only. Kept with the outcomes, so counts survive Stop and the final update.
+      ...(testToolsEnabled && patch.diagnostics !== undefined ? { diagnostics: warmupDiagnostics.normalize(patch.diagnostics) } : {})
     };
     if (job.stopRequested && !['stopped','complete','error'].includes(patch.phase)) {
       // An action already sent can finish during Stop. Keep its outcome while

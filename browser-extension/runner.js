@@ -11,7 +11,37 @@ let pendingDraft = false;
 let messageQueue = Promise.resolve();
 let terminalResult;
 let terminalAcknowledgement;
+// Test builds keep numbers-only diagnostics on the job (warmupDiagnostics in
+// guards.js). A job without them, as in the instagram build, records nothing.
+let diagnostics = null;
+// The last page block seen. A session that ends with that same message ended on
+// that block, and only its fixed code is kept.
+let lastBlock = null;
 const el = id => document.getElementById(id);
+function countDiagnostic(event) {
+  if (diagnostics) diagnostics = warmupDiagnostics.record(diagnostics, event);
+}
+function noteBlock(result) {
+  if (typeof result?.blocked === 'string') lastBlock = { message: result.blocked, reason: typeof result.blockReason === 'string' ? result.blockReason : null };
+  return result;
+}
+// Page scripts return a block as data rather than throwing, so its code is kept.
+function blockError(result) {
+  noteBlock(result);
+  return new Error(result.blocked);
+}
+function sessionEnd(error, finished) {
+  const block = lastBlock && error?.message === lastBlock.message ? lastBlock.reason || 'unknown' : null;
+  const end = finished ? 'deadline' : block ? 'blocked' : error?.message === `session stopped because the ${currentPlatform()} page changed.` ? 'page-changed'
+    : controller.signal.aborted ? 'stopped' : 'error';
+  return { end, block: end === 'blocked' ? block : null };
+}
+// The terminal patch carries the diagnostics, because later updates are ignored.
+function withDiagnostics(patch, end, block = null) {
+  if (!diagnostics) return patch;
+  countDiagnostic({ type: 'end', code: end, block });
+  return { ...patch, diagnostics };
+}
 function currentPlatform() {
   return validPlatform(job?.settings?.platform);
 }
@@ -88,12 +118,21 @@ function sameDestination(actual, expected) {
     return a.origin === b.origin && !a.search && !b.search && !a.hash && !b.hash && Boolean(post(a)) && post(a) === post(b);
   } catch { return false; }
 }
+// Any TikTok post permalink, with or without TikTok's tracking query.
+function tiktokPostPage(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.port && !u.username && !u.password && ['www.tiktok.com', 'tiktok.com'].includes(u.hostname) &&
+      /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(u.pathname);
+  } catch { return false; }
+}
 function allowedViewerDestination(url) {
   return viewerNavigation && Date.now() < viewerNavigation.deadline &&
-    viewerNavigation.destinations.some(destination => sameDestination(url, destination));
+    (viewerNavigation.destinations.some(destination => sameDestination(url, destination)) || (viewerNavigation.anyPost === true && tiktokPostPage(url)));
 }
-async function navigateViewer(target, operation) {
-  if (currentPlatform() !== 'instagram') { expectedDestination = target; return operation(); }
+// anyPost: TikTok's Next can land on a different post than the predicted one.
+// During its bounded allowance any TikTok post is accepted as the new current post.
+async function navigateViewer(target, operation, { anyPost = false } = {}) {
   const tab = await chrome.tabs.get(job.tabId);
   assertRunning();
   if (expectedDestination && !sameDestination(tab.url, expectedDestination)) {
@@ -101,7 +140,8 @@ async function navigateViewer(target, operation) {
   }
   const navigation = {
     destinations: [tab.url, target, currentSearchURL].filter(Boolean),
-    deadline: Math.min(Date.now() + 16000, job.deadline)
+    deadline: Math.min(Date.now() + 16000, job.deadline),
+    anyPost: anyPost && currentPlatform() === 'tiktok'
   };
   viewerNavigation = navigation;
   expectedDestination = target;
@@ -111,7 +151,8 @@ async function navigateViewer(target, operation) {
     // Adopt only one of those known destinations before ending the allowance.
     try {
       const settled = await chrome.tabs.get(job.tabId);
-      if (!controller.signal.aborted && !settled.pendingUrl && navigation.destinations.some(destination => sameDestination(settled.url, destination))) expectedDestination = settled.url;
+      if (!controller.signal.aborted && !settled.pendingUrl && (navigation.destinations.some(destination => sameDestination(settled.url, destination)) ||
+          (navigation.anyPost && tiktokPostPage(settled.url)))) expectedDestination = settled.url;
     } finally { if (viewerNavigation === navigation) viewerNavigation = null; }
   }
 }
@@ -157,7 +198,7 @@ async function inspect(request = {}) {
     try {
       await chrome.scripting.executeScript({ target: { tabId: job.tabId }, files: [config.script] });
       const page = await execute((inspector, request) => typeof globalThis[inspector] === 'function' ? globalThis[inspector](request) : null, [config.inspector, request]);
-      if (page && typeof page === 'object') return page;
+      if (page && typeof page === 'object') return noteBlock(page);
     } catch (error) {
       assertRunning();
       if (!transientPageError(error)) throw error;
@@ -178,6 +219,7 @@ async function navigate(url) {
   }
   expectedDestination = url;
   if (config.platform === 'instagram' && /^\/explore\/search\/keyword\/?$/.test(new URL(url).pathname)) currentSearchURL = url;
+  if (config.platform === 'tiktok' && /^\/search(?:\/video)?\/?$/.test(new URL(url).pathname)) currentSearchURL = url;
   await chrome.tabs.update(job.tabId, { url });
   const until = Math.min(Date.now() + 25000, job.deadline);
   while (Date.now() < until) {
@@ -195,13 +237,13 @@ async function navigate(url) {
   }
   return false;
 }
-async function waitForPost(target) {
+async function waitForPost(target, accept = id => sameDestination(id, target)) {
   const until = Math.min(Date.now() + 15000, job.deadline);
   while (Date.now() < until) {
     assertRunning();
     const page = await inspect();
     if (page.blocked) throw new Error(page.blocked);
-    if (sameDestination(page.post?.id, target) && page.post?.viewer) return true;
+    if (accept(page.post?.id) && page.post?.viewer) return true;
     await sleep(400);
   }
   return false;
@@ -259,13 +301,17 @@ async function advanceViewer(post, hasSeen = () => false) {
   const target = index >= 0 ? viewerSequence[index + 1] : null;
   if (!target || hasSeen(target)) return false;
   assertRunning();
+  // TikTok's Next follows its own feed order, which can differ from the links on
+  // the page. Any other post it lands on becomes the current post.
+  const tiktok = currentPlatform() === 'tiktok';
+  const arrived = tiktok ? id => tiktokPostPage(id) && !sameDestination(id, post.id) : undefined;
   return navigateViewer(target, async () => {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     if (location.hostname.includes('tiktok')) {
       const result = inspector({ id, action: 'click-next' });
-      if (result.blocked) throw new Error(result.blocked);
+      if (result.blocked) return { blocked: result.blocked, blockReason: result.blockReason };
       return result.clicked === true;
     }
     const next = inspector({id, action:'next'});
@@ -274,9 +320,10 @@ async function advanceViewer(post, hasSeen = () => false) {
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
     button.click(); return true;
   }, [post.id, job.deadline]);
+  if (clicked?.blocked) throw blockError(clicked);
   if (!clicked) return false;
-  return waitForPost(target);
-  });
+  return waitForPost(target, arrived);
+  }, { anyPost: tiktok });
 }
 async function returnToResults(post, searchURL) {
   if (!searchURL) return false;
@@ -296,7 +343,7 @@ async function returnToResults(post, searchURL) {
     if (Date.now() >= deadline) return false;
     if (location.hostname.includes('tiktok')) {
       const target = globalThis.inspectTikTok({ id, action: 'click-close' });
-      if (target.blocked) throw new Error(target.blocked);
+      if (target.blocked) return { blocked: target.blocked, blockReason: target.blockReason };
       return target.clicked === true;
     }
     const target = globalThis.inspectInstagram({ id, action: 'close' });
@@ -306,6 +353,7 @@ async function returnToResults(post, searchURL) {
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
     button.click(); return true;
   }, [post.id, job.deadline]);
+  if (clicked?.blocked) throw blockError(clicked);
   if (!clicked) return false;
   const until = Math.min(Date.now() + 10000, job.deadline);
   while (Date.now() < until) {
@@ -322,10 +370,12 @@ async function returnToResults(post, searchURL) {
   });
 }
 async function scroll() {
-  try { return await execute(async deadline => {
+  try {
+    const moved = await execute(async deadline => {
     if (Date.now() >= deadline) return false;
     const inspector = location.hostname.includes('tiktok') ? globalThis.inspectTikTok : globalThis.inspectInstagram;
     const page = inspector();
+    if (page.blocked && location.hostname.includes('tiktok')) return { blocked: page.blocked, blockReason: page.blockReason };
     if (page.blocked) throw new Error(page.blocked);
     const resultLink = [...document.querySelectorAll('main a[href],[role="main"] a[href]')].find(link => {
       try {
@@ -355,6 +405,8 @@ async function scroll() {
     // elements or replacing their DOM nodes does not prove the results scrolled.
     return root.scrollTop > before;
   }, [job.deadline]);
+    if (moved?.blocked) throw blockError(moved);
+    return moved;
   } catch (error) {
     assertRunning();
     if (!transientPageError(error)) throw error;
@@ -362,9 +414,9 @@ async function scroll() {
   }
 }
 // Read-only check for any copy of this comment text in the platform tab.
-// TikTok has no verified clear path yet, so its state is always unknown.
+// Both readers answer it without editing anything.
 async function draftStateWithRetry(request) {
-  if (currentPlatform() !== 'instagram' || typeof request?.comment !== 'string' || !request.comment.trim()) return 'unknown';
+  if (typeof request?.comment !== 'string' || !request.comment.trim()) return 'unknown';
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await sleep(500);
     const state = await inspect({ action: 'draft-state', comment: request.comment });
@@ -374,6 +426,13 @@ async function draftStateWithRetry(request) {
   return 'unknown';
 }
 async function recoverCommentDraft(request) {
+  // TikTok drafts are never cleared (its editor owns the DOM), so no clear poll
+  // can succeed there. Go straight to the read-only check.
+  if (currentPlatform() === 'tiktok') {
+    const outcome = await draftStateWithRetry(request) === 'absent' ? 'skipped' : 'draft-retained';
+    pendingDraft = false;
+    return outcome;
+  }
   try {
     await execute((request, deadline) => {
       if (Date.now() >= deadline) return;
@@ -404,13 +463,19 @@ async function recoverCommentDraft(request) {
   pendingDraft = false;
   return outcome;
 }
-async function verifyEngagementOnFreshPost(action, request) {
+// note(outcome, read, blocked) is called once per check that ran to an outcome:
+// persisted, reverted (the page read not-liked / not-following), timed-out (no
+// read before the cap), moved, unreadable (no usable read or a script error) or
+// blocked. read is the last read's fixed code. The result is still true or false.
+async function verifyEngagementOnFreshPost(action, request, note = () => {}) {
   assertRunning();
   const config = platformConfig();
   if (action !== 'follow' && !(action === 'like' && config.platform === 'tiktok')) return false;
-  if (!request.author || !config.validPost(request.id)) return false;
+  if (!request.author || !config.validPost(request.id)) { note('unreadable', null); return false; }
   const matches = url => config.platform === 'tiktok' ? platformURL(url, 'tiktok') && sameDestination(url, request.id) : url === request.id;
   let tabId;
+  let lastRead = null;
+  let readFailed = false;
   const until = Math.min(Date.now() + 8000, job.deadline);
   try {
     // TikTok can show an optimistic like/follow that is lost on a fresh load.
@@ -421,8 +486,8 @@ async function verifyEngagementOnFreshPost(action, request) {
       assertRunning();
       const current = await chrome.tabs.get(tabId);
       assertRunning();
-      if (current.pendingUrl && !matches(current.pendingUrl)) return false;
-      if (!matches(current.url) && current.url !== 'about:blank' && current.url) return false;
+      if (current.pendingUrl && !matches(current.pendingUrl)) { note('moved', lastRead); return false; }
+      if (!matches(current.url) && current.url !== 'about:blank' && current.url) { note('moved', lastRead); return false; }
       if (current.status === 'complete' && matches(current.url) && !current.pendingUrl) {
         try {
           await chrome.scripting.executeScript({ target: { tabId }, files: [config.script] });
@@ -436,21 +501,25 @@ async function verifyEngagementOnFreshPost(action, request) {
           const result = results[0]?.result;
           const committed = await chrome.tabs.get(tabId);
           assertRunning();
-          if (!matches(committed.url) || committed.pendingUrl) return false;
-          if (result?.blocked) { controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
-          if (result?.confirmed) return true;
+          if (!matches(committed.url) || committed.pendingUrl) { note('moved', lastRead); return false; }
+          if (result?.blocked) { note('blocked', lastRead, result); controller.abort(new Error(result.blocked)); controller.signal.throwIfAborted(); }
+          if (result?.confirmed) { note('persisted', 'ok'); return true; }
+          lastRead = typeof result?.reason === 'string' ? result.reason : 'unread';
         } catch (error) {
           assertRunning();
           if (!transientPageError(error)) throw error;
+          readFailed = true;
           // A fresh document may replace its loading frame. Retry only this
           // read, within the same deadline, after checking its URL again.
         }
       }
       await sleep(500);
     }
+    note(['not-liked', 'not-following'].includes(lastRead) ? 'reverted' : lastRead || readFailed ? 'unreadable' : 'timed-out', lastRead);
     return false;
   } catch {
     assertRunning();
+    note('unreadable', lastRead);
     // An unavailable read-only confirmation never authorizes another click.
     return false;
   } finally {
@@ -496,9 +565,10 @@ async function performEngagement(action, post, comment) {
     const opened = await execute((request, deadline) => {
       if (Date.now() >= deadline) return false;
       const result = globalThis.inspectTikTok({ ...request, action: 'click-comment-open' });
-      if (result.blocked) throw new Error(result.blocked);
+      if (result.blocked) return { blocked: result.blocked, blockReason: result.blockReason };
       return result.opened === true;
     }, [request, job.deadline]);
+    if (opened?.blocked) throw blockError(opened);
     if (!opened) return 'skipped';
     let ready = false;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -537,13 +607,13 @@ async function performEngagement(action, post, comment) {
     if (location.hostname.includes('tiktok')) {
       if (action === 'comment') {
         const target = inspector({ ...request, action: 'comment-field' });
-        if (target.blocked) throw new Error(target.blocked);
+        if (target.blocked) return { blocked: target.blocked, blockReason: target.blockReason };
         const before = globalThis.collectiveCommentBefore;
         const field = before?.composer;
         if (!target.point || !field?.isConnected || !field.isContentEditable || field.textContent.trim()) return false;
         field.focus();
         const ready = inspector({ ...request, action: 'comment-ready' });
-        if (ready.blocked) throw new Error(ready.blocked);
+        if (ready.blocked) return { blocked: ready.blocked, blockReason: ready.blockReason };
         if (!ready.ready) return false;
         before.drafted = true;
         before.inputting = true;
@@ -559,7 +629,7 @@ async function performEngagement(action, post, comment) {
       }
       if (!['like', 'follow'].includes(action)) return false;
       const target = inspector({ ...request, action: `click-${action}` });
-      if (target.blocked) throw new Error(target.blocked);
+      if (target.blocked) return { blocked: target.blocked, blockReason: target.blockReason };
       return target.clicked === true;
     }
     if (action === 'comment') {
@@ -584,20 +654,23 @@ async function performEngagement(action, post, comment) {
     button.click();
     return true;
   }, [action, request, job.deadline]);
+  if (clicked?.blocked) throw blockError(clicked);
   if (!clicked) { pendingDraft = false; pendingEngagement = false; return 'skipped'; }
   if (clicked === 'draft') {
     let submitted = false;
+    const notReady = new Set();
+    let lastNotReady = 'unknown';
     // Wait for the platform's composer, but never retry a submitted comment.
     for (let attempt = 0; attempt < 8 && !submitted; attempt++) {
       await sleep(400);
       assertRunning();
       pendingEngagement = true;
-      submitted = await execute((request, deadline) => {
+      const answer = await execute((request, deadline) => {
         if (Date.now() >= deadline) return false;
         if (location.hostname.includes('tiktok')) {
           const target = globalThis.inspectTikTok({ ...request, action: 'click-comment-submit' });
-          if (target.blocked) throw new Error(target.blocked);
-          return target.clicked === true;
+          if (target.blocked) return { blocked: target.blocked, blockReason: target.blockReason };
+          return target.clicked === true || (typeof target.reason === 'string' ? target.reason : false);
         }
         const target = globalThis.inspectInstagram({ ...request, action: 'comment-submit' });
         if (target.blocked) throw new Error(target.blocked);
@@ -607,9 +680,22 @@ async function performEngagement(action, post, comment) {
         globalThis.collectiveCommentBefore.submitted = true;
         button.click(); return true;
       }, [request, job.deadline]);
-      if (!submitted) pendingEngagement = false;
+      if (answer?.blocked) throw blockError(answer);
+      submitted = answer === true;
+      if (!submitted) {
+        pendingEngagement = false;
+        lastNotReady = typeof answer === 'string' ? answer : 'unknown';
+        notReady.add(lastNotReady);
+      }
     }
-    if (!submitted) return recoverCommentDraft(request);
+    if (!submitted) {
+      countDiagnostic({ type: 'submit', code: lastNotReady });
+      const outcome = await recoverCommentDraft(request);
+      // TikTok's editor stayed empty on every check and no copy of the text is
+      // anywhere: the typed text never arrived. The session counts these so an
+      // ignored paste turns comments off instead of skipping silently each time.
+      return outcome === 'skipped' && currentPlatform() === 'tiktok' && notReady.size === 1 && notReady.has('composer-empty') ? 'not-typed' : outcome;
+    }
     pendingDraft = false;
   }
   const confirmationAttempts = { like: 6, follow: 10, comment: 12 }[action] || 6;
@@ -623,14 +709,22 @@ async function performEngagement(action, post, comment) {
       // TikTok can show a like or follow optimistically before rolling it back.
       // Require a separate loaded page before counting it as accepted.
       if (['like', 'follow'].includes(action) && currentPlatform() === 'tiktok') break;
+      if (action === 'comment') countDiagnostic({ type: 'confirm', code: 'confirmed' });
       pendingEngagement = false; pendingDraft = false; return 'confirmed';
     }
   }
+  if (action === 'comment') countDiagnostic({ type: 'confirm', code: confirmationReason || 'unknown' });
   if (action === 'comment' && currentPlatform() === 'tiktok') {
     console.warn('Warm-up comment confirmation:', confirmationReason || 'not-confirmed');
   }
+  // The in-place result (ok, or the last read's code) is kept beside the fresh
+  // page's outcome, so "shown, then undone" and "never shown" stay apart.
+  const inPlace = typeof confirmationReason === 'string' ? confirmationReason : 'unread';
   const needsFreshConfirmation = action === 'follow' || (action === 'like' && currentPlatform() === 'tiktok');
-  const confirmed = needsFreshConfirmation && await verifyEngagementOnFreshPost(action, request);
+  const confirmed = needsFreshConfirmation && await verifyEngagementOnFreshPost(action, request, (fresh, read, blocked) => {
+    if (blocked) noteBlock(blocked);
+    countDiagnostic({ type: 'engagement', action, inPlace, fresh, read });
+  });
   pendingEngagement = false;
   pendingDraft = false;
   if (confirmed) return 'confirmed';
@@ -652,7 +746,8 @@ function render(state) {
   }));
 }
 function update(patch) {
-  const next = { ...patch, phase: 'running' };
+  // Diagnostics ride with every update, so an action that finishes during Stop keeps them.
+  const next = { ...patch, phase: 'running', ...(diagnostics ? { diagnostics } : {}) };
   messageQueue = messageQueue.then(async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try { await send('runner-update', { patch: next }); return; }
@@ -686,10 +781,12 @@ async function start() {
   for (let attempt = 0; attempt < 8; attempt++) {
     try { job = await send('runner-job'); break; } catch (error) { if (attempt === 7) throw error; await sleep(250); }
   }
+  // Counts continue from the job, so a resumed or refreshed session keeps them.
+  diagnostics = job.diagnostics ? warmupDiagnostics.normalize(job.diagnostics) : null;
   if (['running','stopping'].includes(job.phase)) {
     controller.abort(new Error('session stopped after its tab refreshed.'));
     await send('runner-stop');
-    if (await finish({ phase: 'stopped', message: `session stopped after its tab refreshed. check ${currentPlatform()} before restarting.` })) {
+    if (await finish(withDiagnostics({ phase: 'stopped', message: `session stopped after its tab refreshed. check ${currentPlatform()} before restarting.` }, 'tab-refreshed'))) {
       el('message').textContent = 'session stopped after this tab refreshed. start a new session from the dashboard.';
       el('status').textContent = 'stopped'; el('stop').disabled = true;
     }
@@ -703,6 +800,7 @@ async function start() {
   const timer = setInterval(() => { remaining(); if (Date.now() >= job.deadline) controller.abort(new Error('time’s up. your session is complete.')); }, 250);
   remaining();
   let searchURL;
+  countDiagnostic({ type: 'run' });
   try {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
@@ -711,7 +809,10 @@ async function start() {
         await messageQueue;
         await send('runner-checkpoint', { checkpoint });
       },
-      advance: (post, signal, hasSeen) => recoverPageStep(() => advanceViewer(post, hasSeen)),
+      advance: (post, signal, hasSeen) => recoverPageStep(() => advanceViewer(post, hasSeen)).then(moved => {
+        if (moved === true) countDiagnostic({ type: 'advance' });
+        return moved;
+      }),
       search: async term => { searchURL = config.searchURL(term); return recoverPageStep(() => navigate(searchURL)); },
       open: target => recoverPageStep(() => openViewer(target)),
       leavePost: post => recoverPageStep(() => returnToResults(post, searchURL)),
@@ -719,17 +820,18 @@ async function start() {
     }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt() });
     await messageQueue;
     controller.signal.throwIfAborted();
-    await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });
+    await finish(withDiagnostics({ phase: 'complete', message: 'time’s up. your session is complete.' }, 'deadline'));
   } catch (error) {
     await messageQueue;
     const finished = !job.stopRequested && Date.now() >= job.deadline;
-    await finish({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `${error.message || 'session stopped.'} an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' });
+    const { end, block } = sessionEnd(error, finished);
+    await finish(withDiagnostics({ phase: pendingEngagement || pendingDraft ? 'error' : finished ? 'complete' : controller.signal.aborted ? 'stopped' : 'error', message: pendingEngagement ? `${error.message || 'session stopped.'} an action may have gone through. check ${currentPlatform()} before restarting.` : pendingDraft ? `a comment draft may remain in ${currentPlatform()}. review it before restarting.` : error.message || 'session stopped. try again.' }, end, block));
   } finally { clearInterval(timer); remaining(); }
 }
 start().catch(async error => {
   controller.abort(error);
   const message = `${error.message || 'session couldn’t start.'} check ${job ? currentPlatform() : 'the platform'} before restarting.`;
-  if (await finish({ phase: 'error', message })) {
+  if (await finish(withDiagnostics({ phase: 'error', message }, 'error'))) {
     el('message').textContent = message; el('status').textContent = 'couldn’t start'; el('stop').disabled = true;
   }
 });

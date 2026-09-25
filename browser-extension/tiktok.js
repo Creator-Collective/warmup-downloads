@@ -46,9 +46,20 @@ function inspectTikTok(request = {}) {
         ? `https://www.tiktok.com${url.pathname.replace(/\/?$/, '/')}` : null;
     } catch { return null; }
   };
-  if (!['www.tiktok.com', 'tiktok.com'].includes(location.hostname)) return { blocked: 'open tiktok before starting a niche session.' };
+  // The test build's read-only page check. It reports booleans, counts and fixed
+  // labels only, and never clicks, types, focuses or keeps state in the page.
+  const probing = request.action === 'probe';
+  if (!['www.tiktok.com', 'tiktok.com'].includes(location.hostname)) return probing ? { probe: { host: false, stage: 'blocked' } } : { blocked: 'open tiktok before starting a niche session.' };
+  const pageLanguage = (document.documentElement?.getAttribute('lang') || '').trim();
+  // A session stops on a block; the page check reports its code instead.
+  const stop = (blocked, blockReason) => probing ? { probe: { host: true, lang: pageLanguage.slice(0, 40), blockReason, stage: 'blocked' } } : { blocked, blockReason };
   if (/\/(?:login|signup)\b/.test(location.pathname) || all(document, 'input[type="password"], #loginModalContentContainer, #loginContainer, #login-modal').some(visible)) {
-    return { blocked: 'finish tiktok sign-in or account check, then start a new session.', blockReason: 'sign-in' };
+    return stop('finish tiktok sign-in or account check, then start a new session.', 'sign-in');
+  }
+  // Warning, captcha and rate-limit detection below reads English text. A page
+  // that declares another language could hide a warning, so stop instead.
+  if (pageLanguage && !/^en(?:[-_]|$)/i.test(pageLanguage)) {
+    return stop("tiktok isn't in english, so the session can't read its warnings. switch tiktok to english, then start a new session.", 'language');
   }
   // TikTok also serves full-page denials and plain banners, without a dialog.
   // Inspect visible warning text, excluding video captions and comments.
@@ -57,24 +68,42 @@ function inspectTikTok(request = {}) {
       (!element.children.length || /^(H1|H2|H3|P)$/.test(element.tagName) || element.getAttribute('role') === 'alert'));
   const warnings = warningNodes.map(element => (element.innerText || element.textContent || '').trim().toLowerCase()).filter(text => text.length < 2000);
   if (warnings.some(text => /^access denied\b|you (?:do not|don't) have permission to access|access to this page (?:has been|is) denied/.test(text))) {
-    return { blocked: 'tiktok denied access. the session has stopped; check tiktok before starting again.', blockReason: 'access-denied' };
+    return stop('tiktok denied access. the session has stopped; check tiktok before starting again.', 'access-denied');
   }
   if (all(document, '[id*="captcha"], [data-e2e*="captcha"], iframe[src*="captcha"]').some(visible) || warnings.some(text => /verify (?:that )?you(?:'re| are) (?:a )?human|verify to continue|complete (?:the|this) (?:puzzle|captcha)|drag the slider|unusual activity/.test(text))) {
-    return { blocked: 'tiktok needs an account check. the session has stopped; complete the check yourself.', blockReason: 'challenge' };
+    return stop('tiktok needs an account check. the session has stopped; complete the check yourself.', 'challenge');
   }
   if (warnings.some(text => /(?:you(?:'re| are) )?(?:tapping|following|commenting|liking) too fast|too many (?:requests|attempts)|^try again later[.!]?$|temporarily (?:blocked|restricted)|account (?:is |has been )?suspended/.test(text))) {
-    return { blocked: 'tiktok limited activity. the session has stopped; wait before starting another session.', blockReason: 'rate-limit' };
+    return stop('tiktok limited activity. the session has stopped; wait before starting another session.', 'rate-limit');
   }
   if (warnings.some(text => /couldn.t post (?:your |the )?comment|failed to post (?:your |the )?comment|unable to post (?:your |the )?comment/.test(text))) {
-    return { blocked: 'tiktok could not post the comment. the session has stopped; check tiktok before trying again.', blockReason: 'comment-failed' };
+    return stop('tiktok could not post the comment. the session has stopped; check tiktok before trying again.', 'comment-failed');
+  }
+  // Read-only: is any copy of this extension's comment text still in an editor?
+  // It never edits or clears anything, and works after the post changed, so it
+  // runs before post identity checks. Hidden editors count too.
+  if (request.action === 'draft-state') {
+    const plain = value => String(value || '').replace(/\xa0/g, ' ');
+    const text = typeof request.comment === 'string' ? request.comment.trim() : '';
+    if (!text) return { known: false };
+    const before = globalThis.collectiveCommentBefore;
+    const owned = Boolean(before?.platform === 'tiktok' && before.drafted && !before.submitted && before.composer?.isConnected === true &&
+      (before.interrupted || plain(before.composer.textContent).trim() !== ''));
+    const holding = owned || all(document, '[contenteditable="true"]').some(field => plain(field.textContent).includes(text)) ||
+      all(document, 'textarea').some(field => plain(field.value).includes(text));
+    if (!holding) before?.release?.();
+    return { known: true, holding };
   }
   const links = all(document, 'a[href]');
   // Keep rendered offscreen results in order, but never select hidden preload anchors.
   const sequence = unique(links.filter(rendered).map(link => postURL(link.href)).filter(Boolean));
   const posts = unique(links.filter(visible).map(link => postURL(link.href)).filter(Boolean));
   let search;
-  const empty = () => request.action ? { changed: true, point: null, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : {}) } : { posts, sequence, post: null, ...(search ? { search } : {}) };
+  // A like or follow check that can't find this post says so with a fixed code.
+  const verifying = ['verify-like', 'verify-follow'].includes(request.action);
+  // The page check names the step where post detection stopped (stage).
+  const empty = stage => probing ? { probe: { ...probeFacts(), stage } } : request.action ? { changed: true, point: null, clicked: false, confirmed: false,
+    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : verifying ? { reason: 'no-post' } : {}) } : { posts, sequence, post: null, ...(search ? { search } : {}) };
   const pageId = postURL(location.href);
   const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
   const area = element => {
@@ -96,7 +125,17 @@ function inspectTikTok(request = {}) {
       rect.width >= 240 && rect.height >= 240 && area(image) >= 70000 && !image.closest('a[href]') && !excluded(image);
   });
   const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
-  if (dialogs.length > 1) return empty();
+  // Page-level structure for the page check: counts and booleans, no text or links.
+  const probeFacts = () => {
+    const searchPage = /^\/search(?:\/video)?\/?$/.test(location.pathname);
+    const resultCards = all(document, '[data-e2e="search_top-item"], [data-e2e="search_video-item"]').filter(card => rendered(card) && !excluded(card) &&
+      unique(all(card, 'a[href]').filter(rendered).map(link => postURL(link.href)).filter(Boolean)).length === 1);
+    return { host: true, lang: pageLanguage.slice(0, 40), blockReason: null, searchPage,
+      searchTerm: searchPage && Boolean(new URL(location.href).searchParams.get('q')?.trim()),
+      resultCards: resultCards.length, searchCards: search?.term ? search.posts.length : 0, behindViewerCards: search?.behindViewer ? search.posts.length : 0,
+      dialogs: all(document, '[role="dialog"]').filter(visible).length, mediaDialogs: dialogs.length, postLinks: posts.length, postPage: Boolean(pageId) };
+  };
+  if (dialogs.length > 1) return empty('several-viewers');
   const viewer = dialogs[0] || null;
   // Search relevance comes from the actual result cards, never every link on
   // the page or recommendations discovered after a viewer has opened.
@@ -111,6 +150,26 @@ function inspectTikTok(request = {}) {
       });
       search = { term, posts: unique(resultIds).slice(0, 500) };
     }
+  } else if (viewer) {
+    // Result cards stay mounted behind the search viewer, and more load there
+    // while it advances. Report them without a term: the engine counts them only
+    // after it saw this query's own grid in the same run. A modal can mark the
+    // background aria-hidden, so require layout here, not accessibility.
+    const laidOut = element => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none' || style.opacity === '0') return false;
+      }
+      return true;
+    };
+    const cards = all(document, '[data-e2e="search_top-item"], [data-e2e="search_video-item"]').filter(card => !viewer.contains(card) && laidOut(card) && !excluded(card));
+    const resultIds = cards.flatMap(card => {
+      const ids = unique(all(card, 'a[href]').filter(link => laidOut(link) && !excluded(link)).map(link => postURL(link.href)).filter(Boolean));
+      return ids.length === 1 ? ids : [];
+    });
+    if (resultIds.length) search = { term: null, behindViewer: true, posts: unique(resultIds).slice(0, 500) };
   }
   const failureText = viewer ? warningNodes.filter(element => viewer.contains(element))
     .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
@@ -128,17 +187,17 @@ function inspectTikTok(request = {}) {
       closeControl.click();
       return { clicked: true };
     }
-    return empty();
+    return empty('viewer-error');
   }
   // Search/profile cards can autoplay previews. Opening one is required first.
-  if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty();
+  if (!pageId && !viewer && !/^\/(?:foryou|following|friends)\/?$/.test(location.pathname)) return empty('not-a-post');
   const main = viewer || document.querySelector('main, [role="main"]') || document.body;
   const videos = all(main, 'video').filter(visible);
   const playing = videos.filter(video => !video.paused && !video.ended && video.readyState >= 2);
   const images = pageId ? (photoId(pageId) ? photoMedia(main) : []) : (viewer ? photoMedia(main) : []);
   const candidates = [...(photoId(pageId) ? [] : (playing.length ? playing : videos)), ...images].sort((a, b) => area(b) - area(a));
   const media = candidates[0];
-  if (!media || (candidates[1] && area(media) < area(candidates[1]) * 2)) return empty();
+  if (!media || (candidates[1] && area(media) < area(candidates[1]) * 2)) return empty('no-media');
   const photo = media.tagName === 'IMG';
   const video = photo ? null : media;
   // Include sibling author/action panels, but never cross into another card.
@@ -151,16 +210,17 @@ function inspectTikTok(request = {}) {
     scope = parent;
     if (parent === main || parent.matches('article, [data-e2e="recommend-list-item-container"], [data-e2e="feed-item"]')) break;
   }
-  if (!scope) return empty();
+  if (!scope) return empty('no-media');
   const scopedIds = unique(all(scope, 'a[href]').filter(link => rendered(link) && (!viewer || visible(link))).map(link => postURL(link.href)).filter(Boolean));
   const id = pageId || (scopedIds.length === 1 ? scopedIds[0] : null);
-  if (!id || photo !== photoId(id) || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty();
+  if (!id || photo !== photoId(id) || (pageId && scopedIds.length && !scopedIds.includes(pageId))) return empty('no-post-id');
   const author = new URL(id).pathname.split('/')[1];
   const exact = (root, selector) => unique(all(root, selector).filter(node => visible(node) && !excluded(node)).map(node => target(node, root)).filter(Boolean));
   const only = values => values.length === 1 ? values[0] : null;
   const semantic = (root, pattern) => all(root, 'button, [role="button"]').filter(element => visible(element) && !excluded(element) && pattern.test(label(element)));
   const likeMarkers = exact(scope, '[data-e2e="like-icon"], [data-e2e="browse-like-icon"], [data-e2e="unlike-icon"], [data-e2e="browse-liked-icon"]');
-  const like = only(likeMarkers.length ? likeMarkers : semantic(scope, /^(?:like|liked|unlike)(?:\b|$)/));
+  const likeCandidates = likeMarkers.length ? likeMarkers : semantic(scope, /^(?:like|liked|unlike)(?:\b|$)/);
+  const like = only(likeCandidates);
   const likeStateNodes = like ? [like, ...all(like, '[aria-pressed], [aria-label], [data-state], [data-e2e], svg, [fill]')] : [];
   const liked = likeStateNodes.some(node => node.getAttribute('aria-pressed') === 'true' || /^(?:liked|active|on)$/.test(node.getAttribute('data-state') || '') ||
     /^(?:unlike|liked)\b/.test(label(node)) || /^(?:unlike-icon|browse-liked-icon)$/.test(node.getAttribute('data-e2e') || '') ||
@@ -175,7 +235,7 @@ function inspectTikTok(request = {}) {
   if (photo) {
     const authors = postAuthors(scope);
     const hasDetails = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"], [data-e2e="browse-like-icon"], [data-e2e="like-icon"]').some(element => visible(element) && !excluded(element));
-    if (authors.length !== 1 || authors[0] !== author || !hasDetails) return empty();
+    if (authors.length !== 1 || authors[0] !== author || !hasDetails) return empty('photo-details');
     // A permalink can update before React replaces its old carousel. Bind the
     // entire source set, not the active slide, so autoplay and DOM recreation
     // cannot relabel old media as a new post. Keep state in the isolated world
@@ -190,14 +250,18 @@ function inspectTikTok(request = {}) {
     };
     const carousel = photoCarousel(media);
     const sources = unique(all(carousel, 'img[class*="ImgPhotoSlide"]').map(sourceKey).filter(Boolean));
-    if (!sourceKey(media) || !sources.length) return empty();
-    const bindings = globalThis.collectiveTikTokPhotoBindings ||= { carousels: new WeakMap(), sources: new Map() };
+    if (!sourceKey(media) || !sources.length) return empty('photo-details');
+    // The page check reads existing bindings but never creates or extends them.
+    const bindings = probing ? globalThis.collectiveTikTokPhotoBindings || { carousels: new WeakMap(), sources: new Map() }
+      : globalThis.collectiveTikTokPhotoBindings ||= { carousels: new WeakMap(), sources: new Map() };
     const previous = bindings.carousels.get(carousel);
     if ((previous && previous.id !== id && sources.some(source => previous.sources.has(source))) ||
-        sources.some(source => bindings.sources.has(source) && bindings.sources.get(source) !== id)) return empty();
-    const remembered = previous?.id === id ? previous.sources : new Set();
-    for (const source of sources) { remembered.add(source); bindings.sources.set(source, id); }
-    bindings.carousels.set(carousel, { id, sources: remembered });
+        sources.some(source => bindings.sources.has(source) && bindings.sources.get(source) !== id)) return empty('photo-changed');
+    if (!probing) {
+      const remembered = previous?.id === id ? previous.sources : new Set();
+      for (const source of sources) { remembered.add(source); bindings.sources.set(source, id); }
+      bindings.carousels.set(carousel, { id, sources: remembered });
+    }
   }
   const belongsToAuthor = element => {
     for (let parent = element.parentElement; parent && scope.contains(parent); parent = parent.parentElement) {
@@ -208,7 +272,8 @@ function inspectTikTok(request = {}) {
     return false;
   };
   const followMarkers = exact(scope, '[data-e2e="follow-button"], [data-e2e="browse-follow"], [data-e2e="feed-follow"], [data-e2e="follow-icon"]');
-  const follow = only(unique([...followMarkers, ...semantic(scope, /^(?:follow|following|friends|requested)(?:\s+@[\w.-]+)?$/)]).filter(belongsToAuthor));
+  const followCandidates = unique([...followMarkers, ...semantic(scope, /^(?:follow|following|friends|requested)(?:\s+@[\w.-]+)?$/)]).filter(belongsToAuthor);
+  const follow = only(followCandidates);
   const following = Boolean(follow && (/^(?:following|friends|requested)(?:\s+@[\w.-]+)?$/.test(label(follow)) || follow.getAttribute('aria-pressed') === 'true' || /^(?:following|requested)$/.test(follow.getAttribute('data-state') || '')));
   // A photo's horizontal arrow changes slides, not posts. Never use it to
   // predict a URL transition; vertical browse controls retain post ownership.
@@ -219,12 +284,29 @@ function inspectTikTok(request = {}) {
   const descriptions = all(scope, '[data-e2e="browse-video-desc"], [data-e2e="video-desc"]').filter(element => visible(element) && !excluded(element));
   const textNodes = (descriptions.length ? descriptions : all(scope, 'h1, h2, p, a[href*="/tag/"]').filter(element => visible(element) && !excluded(element)))
     .map(element => element.innerText || element.textContent || '').filter(Boolean);
-  const caption = (textNodes.join(' ') || (pageId ? document.querySelector('meta[property="og:description"]')?.content : '') || '').slice(0, 6000);
+  // Single-page navigation can leave meta tags from an earlier video; use the
+  // page description only when its og:url names this exact post.
+  const ogURL = document.querySelector('meta[property="og:url"]')?.content;
+  const ogCaption = pageId && ogURL && postURL(ogURL) === pageId ? document.querySelector('meta[property="og:description"]')?.content : '';
+  const caption = (textNodes.join(' ') || ogCaption || '').slice(0, 6000);
   // A permalink's comments panel can sit beside the video card. A browse
   // dialog contains its own panel; never inspect another card's composer.
   const commentRoot = viewer || (pageId ? document : scope);
-  const ownProfiles = unique(all(document, 'a[data-e2e="nav-profile"][href]').filter(visible).map(profileAuthor).filter(Boolean));
-  const ownProfile = ownProfiles.length === 1 ? ownProfiles[0] : null;
+  // The student's own profile: TikTok's nav-profile link, a link labelled
+  // Profile in site navigation, or the signed-in avatar in the comment bar
+  // (outside comment rows). Visible links are preferred; two accounts fail closed.
+  const commentBarAvatar = link => Boolean(link.closest('[class*="DivCommentBarContainer"], [class*="DivEnhancedBottomCommentContainer"]')) &&
+    !link.closest('[data-e2e="comment-list"], [data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"], [class*="DivCommentItemContainer"], [class*="DivCommentContentContainer"]') &&
+    all(link, 'img').length > 0;
+  const ownCandidates = links.flatMap(link => {
+    const user = profileAuthor(link);
+    if (!user) return [];
+    const marked = link.matches('[data-e2e="nav-profile"]');
+    const labelled = Boolean(link.closest('nav, aside, header, [role="navigation"]')) && label(link).normalize('NFKC') === 'profile';
+    return marked || labelled || commentBarAvatar(link) ? [{ user, shown: visible(link) }] : [];
+  });
+  const ownUsers = unique((ownCandidates.some(item => item.shown) ? ownCandidates.filter(item => item.shown) : ownCandidates).map(item => item.user));
+  const ownProfile = ownUsers.length === 1 ? ownUsers[0] : null;
   const inputContainers = all(commentRoot, '[data-e2e="comment-input"]').filter(visible);
   const fields = unique(inputContainers.flatMap(container => all(container, '[contenteditable="true"][role="textbox"]')
     .filter(field => visible(field) && container.contains(field.closest('[data-e2e="comment-text"]')))));
@@ -263,9 +345,25 @@ function inspectTikTok(request = {}) {
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
     like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
-  if (!request.action) return { posts, sequence, post };
+  // Why comments can't run here, as a fixed code for the session's message.
+  if (!post.comment) post.commentBlocker = ownProfile ? 'composer' : 'account';
+  if (probing) {
+    // Found and state are separate here: an already-liked post still shows its control.
+    const authors = postAuthors(scope);
+    return { probe: { ...probeFacts(), stage: 'post', viewer: Boolean(viewer), postFound: true, kind: photo ? 'photo' : 'video',
+      authorLink: authors.length === 1 && authors[0] === author, caption: Boolean(caption.trim()),
+      videoPlaying: Boolean(video && !video.paused && !video.ended && video.readyState >= 2),
+      videoShort: Boolean(video && Number.isFinite(video.duration) && video.duration > 0 && video.duration <= 120),
+      like: Boolean(like), likeControls: likeCandidates.length, likeClickable: Boolean(point(like)), liked,
+      follow: Boolean(follow), followControls: followCandidates.length, followClickable: Boolean(point(follow)), following,
+      next: Boolean(point(next)), close: Boolean(point(close)), commentIcon: Boolean(point(commentOpen)),
+      commentBoxes: fields.length, commentBox: Boolean(composer && point(composer)), commentBoxHasText: Boolean(composer && composerValue(composer).trim()),
+      postButton: Boolean(submit), replying, ownProfile: Boolean(ownProfile), ownAccounts: ownUsers.length,
+      commentReady: post.comment, commentBlocker: post.commentBlocker || 'none' } };
+  }
+  if (!request.action) return { posts, sequence, post, ...(search ? { search } : {}) };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : {}) };
+    ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : verifying ? { reason: 'no-post' } : {}) };
   if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {
     return { changed: true, point: null, ready: false, clicked: false, opened: false, reason: 'caption-changed' };
   }
@@ -329,7 +427,14 @@ function inspectTikTok(request = {}) {
   if (request.action === 'comment-submit' || request.action === 'click-comment-submit') {
     const ready = owned && before.caption === caption && before.drafted && !before.submitted && composerValue(composer) === request.comment && submit && point(submit);
     if (request.action === 'comment-submit') return { point: ready || null };
-    if (!ready || typeof submit.click !== 'function') return { clicked: false };
+    if (!ready || typeof submit.click !== 'function') {
+      // A fixed readiness code, never the editor text. 'composer-empty' means the
+      // typed text never reached this owned editor (for example an ignored paste).
+      const value = owned ? composerValue(composer) : null;
+      const reason = !owned || before.caption !== caption || !before.drafted || before.submitted ? 'not-owned'
+        : value === '' ? 'composer-empty' : value !== request.comment ? 'text-mismatch' : 'submit-unavailable';
+      return { clicked: false, reason };
+    }
     before.submitted = true;
     before.inputtingUntil = Date.now() + 1000;
     submit.click();
@@ -369,11 +474,18 @@ function inspectTikTok(request = {}) {
   }
   // A stale red heart or label must not override an explicitly unpressed control.
   // Keep conflicting controls ineligible for another click as well.
+  // Each check also says why, as a fixed code: no-control (missing, hidden or not
+  // this author's), not-liked / not-following, or ok. Only ok confirms.
   if (request.action === 'verify-like') {
     const authors = postAuthors(scope);
-    return { confirmed: Boolean(liked && visible(like) && authors.length === 1 && authors[0] === author && !likeStateNodes.some(node => node.getAttribute('aria-pressed') === 'false')) };
+    const reason = !visible(like) || authors.length !== 1 || authors[0] !== author ? 'no-control'
+      : !liked || likeStateNodes.some(node => node.getAttribute('aria-pressed') === 'false') ? 'not-liked' : 'ok';
+    return { confirmed: reason === 'ok', reason };
   }
-  if (request.action === 'verify-follow') return { confirmed: Boolean(following && visible(follow)) };
+  if (request.action === 'verify-follow') {
+    const reason = !visible(follow) ? 'no-control' : !following ? 'not-following' : 'ok';
+    return { confirmed: reason === 'ok', reason };
+  }
   const controls = { like: post.like ? like : null, follow: post.follow ? follow : null, next, close };
   if (Object.hasOwn(controls, request.action)) return { point: point(controls[request.action]) };
   if (request.action.startsWith('click-') && Object.hasOwn(controls, request.action.slice(6))) {

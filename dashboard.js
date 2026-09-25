@@ -23,7 +23,12 @@ const fields = ['platform','niche','minutes','focus','limit-like','limit-follow'
 const draftFields = fields.filter(field => field !== 'platform' && !field.startsWith('limit-'));
 const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
 const platformDrafts = {};
-const draftPlatform = 'instagram';
+const knownPlatforms = ['instagram', 'tiktok'];
+// The hosted page is always instagram. Only an extension side panel takes its
+// platform from its own page and, once connected, from its own extension build.
+let platform = inPanel && knownPlatforms.includes($('platform').value) ? $('platform').value : 'instagram';
+// A saved session without a platform is an instagram session.
+const sessionPlatform = settings => settings?.platform || 'instagram';
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== location.origin || event.data?.channel !== 'cc-warmup-response') return;
   const callback = pending.get(event.data.id);
@@ -56,9 +61,9 @@ try {
     platformDrafts[saved.platform === 'tiktok' ? 'tiktok' : 'instagram'] = { ...saved, customLimits };
   }
 } catch { /* defaults remain usable */ }
-function restoreDraft(platform) {
-  const draft = platformDrafts[platform] || {};
-  $('platform').value = platform;
+function restoreDraft(name) {
+  const draft = platformDrafts[name] || {};
+  $('platform').value = name;
   for (const field of draftFields) $(field).value = typeof draft[field] === 'string' ? draft[field] : draftDefaults[field];
   limitOverrides = Object.fromEntries(actions.filter(action => typeof draft.customLimits?.[action] === 'string' && draft.customLimits[action] !== '').map(action => [action, draft.customLimits[action]]));
   // Preserve actions explicitly disabled in the retired mix as visible zero targets.
@@ -66,14 +71,21 @@ function restoreDraft(platform) {
   editingLimit = null;
 }
 function saveDraft() {
-  platformDrafts[draftPlatform] = { ...Object.fromEntries(draftFields.map(field => [field, $(field).value])), customLimits: { ...limitOverrides } };
-  try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform: draftPlatform, profiles: platformDrafts })); } catch { /* in-memory settings still work */ }
+  platformDrafts[platform] = { ...Object.fromEntries(draftFields.map(field => [field, $(field).value])), customLimits: { ...limitOverrides } };
+  try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform, profiles: platformDrafts })); } catch { /* in-memory settings still work */ }
 }
-restoreDraft(draftPlatform);
+restoreDraft(platform);
 platformChanged();
+function usePlatform(name) {
+  platform = name;
+  restoreDraft(platform);
+  canAutoSelectTab = true;
+  tabDiscoveryVersion += 1;
+  platformChanged();
+}
 const numeric = value => value.trim() === '' ? NaN : Number(value);
 function input() {
-  return { platform: 'instagram', niche: $('niche').value, minutes: numeric($('minutes').value), pace: 'auto', enableComments: true, focus: supportsFocus ? $('focus').value : 'balanced',
+  return { platform, niche: $('niche').value, minutes: numeric($('minutes').value), pace: 'auto', enableComments: true, focus: supportsFocus ? $('focus').value : 'balanced',
     customLimits: Object.fromEntries(Object.entries(limitOverrides).map(([name, value]) => [name, numeric(value)])) };
 }
 function showError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
@@ -136,7 +148,7 @@ function renderRemaining() {
 function renderFocus() {
   const parent = $(running ? 'focus-live' : 'focus-home');
   if ($('focus-controls').parentElement !== parent) parent.append($('focus-controls'));
-  const available = supportsFocus && (!running || !currentState?.settings?.platform || currentState.settings.platform === 'instagram');
+  const available = supportsFocus && (!running || sessionPlatform(currentState?.settings) === platform);
   $('focus-controls').hidden = !available;
   $('focus').disabled = !available || !connected || busy || focusBusy || (running && !currentState?.canChangeFocus);
   for (const option of $('focus').options) {
@@ -166,11 +178,11 @@ function connection(value) {
 }
 async function tabs({ reportError = false } = {}) {
   if (!connected || running || busy) return;
-  const platform = 'instagram';
+  const requested = platform;
   const version = ++tabDiscoveryVersion;
-  const isCurrent = () => connected && !running && !busy && version === tabDiscoveryVersion && platform === $('platform').value;
+  const isCurrent = () => connected && !running && !busy && version === tabDiscoveryVersion && requested === platform && requested === $('platform').value;
   let list;
-  try { list = await request('tabs', { platform }); }
+  try { list = await request('tabs', { platform: requested }); }
   catch (e) {
     if (isCurrent() && reportError) { tabDiscoveryError = e.message; error(e.message); }
     return;
@@ -180,7 +192,7 @@ async function tabs({ reportError = false } = {}) {
   tabDiscoveryError = '';
   const select = $('instagram-tab');
   const selected = select.value;
-  const options = [new Option(list.length ? 'choose a tab' : `open ${platform} in this chrome profile`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id)))];
+  const options = [new Option(list.length ? 'choose a tab' : `open ${requested} in this chrome profile`, ''), ...list.map((tab, index) => new Option(`${tab.title} · tab ${index + 1}`, String(tab.id)))];
   // Keep an open picker stable when polling has found nothing new.
   if (options.length !== select.options.length || options.some((option, index) => option.value !== select.options[index].value || option.text !== select.options[index].text)) select.replaceChildren(...options);
   if (list.some(tab => String(tab.id) === selected)) select.value = selected;
@@ -198,14 +210,13 @@ function selectActiveTab(tabId) {
   select.value = value;
 }
 function platformChanged() {
-  const platform = 'instagram';
   $('platform').value = platform;
   $('tab-label').textContent = `${platform} tab`;
   $('instagram-tab').dataset.icon = platform;
   $('open-instagram').textContent = `open ${platform} ↗`;
 }
 function displayPlan(state) {
-  if (state.running && state.settings && (!state.settings.platform || state.settings.platform === 'instagram')) {
+  if (state.running && state.settings && sessionPlatform(state.settings) === platform) {
     if (!savedDraft) savedDraft = { values: Object.fromEntries(fields.map(field => [field, $(field).value])), limits: { ...limitOverrides }, tabId: $('instagram-tab').value };
     editingLimit = null;
     const settings = state.settings;
@@ -284,7 +295,7 @@ $('instagram-tab').addEventListener('change', () => { canAutoSelectTab = false; 
 $('focus').addEventListener('change', async () => {
   if (focusBusy || !supportsFocus) return;
   if (!running) { edited(); return; }
-  if (currentState?.settings?.platform && currentState.settings.platform !== 'instagram') return;
+  if (sessionPlatform(currentState?.settings) !== platform) return;
   const sessionId = currentState?.sessionId;
   if (!currentState?.canChangeFocus || !sessionId) return;
   const focus = $('focus').value;
@@ -301,10 +312,10 @@ $('focus').addEventListener('change', async () => {
     focusBusy = false;
     stateRevision += 1;
     render(state);
-    const platform = state.settings.platform;
-    platformDrafts[platform] = { ...platformDrafts[platform], focus };
-    if (savedDraft && draftPlatform === platform) savedDraft.values.focus = focus;
-    try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform: draftPlatform, profiles: platformDrafts })); } catch { /* in-memory choice remains usable */ }
+    const focusPlatform = state.settings.platform;
+    platformDrafts[focusPlatform] = { ...platformDrafts[focusPlatform], focus };
+    if (savedDraft && platform === focusPlatform) savedDraft.values.focus = focus;
+    try { localStorage.setItem('cc-web-session', JSON.stringify({ version: 3, platform, profiles: platformDrafts })); } catch { /* in-memory choice remains usable */ }
     $('focus-status').textContent = 'applies to remaining targets.';
   } catch (e) {
     if (currentState?.sessionId === sessionId && currentState?.canChangeFocus) $('focus-status').textContent = e.message;
@@ -318,10 +329,59 @@ $('focus').addEventListener('change', async () => {
 });
 $('reset-limits').addEventListener('click', () => { limitOverrides = {}; editingLimit = null; edited(); });
 $('refresh-tabs').addEventListener('click', () => tabs({ reportError: true }));
-$('open-instagram').addEventListener('click', () => request('open-platform', { platform: 'instagram' }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
+$('open-instagram').addEventListener('click', () => request('open-platform', { platform }).then(() => tabs({ reportError: true })).catch(e => error(e.message)));
 $('stop').addEventListener('click', () => { stateRevision += 1; if (currentState) currentState.canChangeFocus = false; renderFocus(); return request('stop').then(state => { stateRevision += 1; render(state); }).catch(e => error(e.message)); });
+// Test builds only (a side panel whose extension reports testTools): a read-only
+// check of the chosen tab and a copyable report of numbers and fixed labels.
+let lastProbe = null;
+function showTestTools() {
+  if ($('test-tools')) return;
+  const make = (tag, properties) => Object.assign(document.createElement(tag), properties);
+  const section = make('section', { id: 'test-tools', className: 'setup-strip test-tools' });
+  section.setAttribute('aria-label', 'test tools');
+  const check = make('button', { id: 'check-page', type: 'button', className: 'secondary', textContent: 'check this page' });
+  const copy = make('button', { id: 'copy-report', type: 'button', className: 'secondary', textContent: 'copy test report' });
+  const status = make('p', { id: 'test-status', className: 'results-note' });
+  status.setAttribute('role', 'status');
+  const output = make('textarea', { id: 'test-output', readOnly: true, rows: 8, hidden: true });
+  output.setAttribute('aria-label', 'test output');
+  section.append(make('h2', { textContent: 'test tools' }), check, copy);
+  $('form-error').after(section, status, output);
+  const show = text => { output.value = text; output.hidden = false; };
+  check.addEventListener('click', async () => {
+    check.disabled = true;
+    status.textContent = 'checking this page…';
+    try {
+      const result = await request('test-probe', $('instagram-tab').value ? { tabId: Number($('instagram-tab').value) } : {});
+      lastProbe = result.probe;
+      show(result.lines.join('\n'));
+      status.textContent = 'page checked. nothing was clicked or typed.';
+    } catch (e) { status.textContent = e.message; }
+    finally { check.disabled = false; }
+  });
+  copy.addEventListener('click', async () => {
+    try {
+      const { text } = await request('test-report', lastProbe ? { probe: lastProbe } : {});
+      show(text);
+      try { await navigator.clipboard.writeText(text); status.textContent = 'test report copied.'; }
+      catch { output.select(); status.textContent = 'select the report below and copy it.'; }
+    } catch (e) { status.textContent = e.message; }
+  });
+}
 async function connect() {
-  try { const hello = await request('hello'); supportsFocus = hello.supportsFocus === true; error(''); connection(true); render(hello.state); await tabs({ reportError: true }); }
+  try {
+    const hello = await request('hello');
+    supportsFocus = hello.supportsFocus === true;
+    // Only the side panel's own extension answers here. The hosted page may hear a
+    // reply from any extension on its origin, so it ignores the platform list.
+    // Builds before the list existed send none and stay on instagram.
+    if (inPanel && Array.isArray(hello.platforms) && !hello.platforms.includes(platform)) {
+      const offered = hello.platforms.find(name => knownPlatforms.includes(name));
+      if (offered) usePlatform(offered);
+    }
+    if (inPanel && hello.testTools === true) showTestTools();
+    error(''); connection(true); render(hello.state); await tabs({ reportError: true });
+  }
   catch { connection(false); }
 }
 setInterval(async () => {
