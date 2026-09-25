@@ -1,18 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runTikTok, summarizeTikTok, checkInvariants, ACTIONS, SCENARIOS, SEEDS, MINUTES } = require('./fixtures/tiktok-goals-world.cjs');
+const { runTikTok, summarizeTikTok, checkInvariants, shippedKeywordWindowMs, ACTIONS, SCENARIOS, SEEDS, MINUTES } = require('./fixtures/tiktok-goals-world.cjs');
 const { runBaseline } = require('./fixtures/instagram-goals-world.cjs');
 
-// Evidence for the TikTok keyword window (KEYWORD_WINDOW_MS in session.js), which stays at
-// two minutes until this simulation shows six-minute windows keep the same reach.
+// The per-scenario gate for the TikTok keyword window (KEYWORD_WINDOW_MS in session.js).
 //
-// These are the runs of tiktok-efficiency.test.cjs with one change: this test's own copy of
-// session.js gives TikTok instagram's six-minute window. The file on disk is not changed,
-// and the shipped window is gated in tiktok-efficiency.test.cjs.
+// These are the runs of tiktok-efficiency.test.cjs with the TikTok window pinned to
+// instagram's six minutes in this test's own copy of session.js (the file on disk is not
+// changed). session.js ships that same window, which the first test checks.
 //
 // With six-minute windows each scenario, not only the average, reaches at least 90% of
-// the instagram baseline for each target, in 7 searches instead of 20. The shipped two-
-// minute window falls short on corpus comments (about 3.3 against instagram's 4.25): in
+// the instagram baseline for each target, in 7 searches instead of 20. The earlier two-
+// minute window fell short on corpus comments (about 3.3 against instagram's 4.25): in
 // that scenario both keywords' results hold the few commentable captions at the same
 // positions, two-minute windows walk the two lists in step, so those posts arrive in pairs
 // less than the two-minute comment spacing apart and the second of each pair is passed over.
@@ -21,6 +20,10 @@ const REACH = 0.9;
 const totalMs = MINUTES * 60000;
 const average = values => values.reduce((sum, value) => sum + value, 0) / values.length;
 const round = value => Math.round(value * 100) / 100;
+
+test('tiktok ships instagram\'s six-minute keyword window', () => {
+  assert.equal(shippedKeywordWindowMs(), SIX_MINUTES);
+});
 
 for (const name of Object.keys(SCENARIOS)) {
   test(`six-minute tiktok keyword windows reach at least 90% of instagram's ${name} baseline for each target`, async t => {

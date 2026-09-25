@@ -12,7 +12,7 @@ A separate, TikTok-only build of the warm-up extension for testers whose desktop
 | Where it runs from | website or side panel | its own side panel only |
 | Toolbar | plain icon | black TT badge |
 | Extension id | from the folder path (unpacked) or the store | fixed: `pgkkhpbafojddlaaijcebdjdagakhaca` |
-| Version | three parts, `0.6.57` today | `<instagram version>.<n>`, shown as `<instagram version> tiktok test <n>` |
+| Version | three parts, `0.6.58` today | `<instagram version>.<n>`, shown as `<instagram version> tiktok test <n>` |
 | Help links | the Instagram website | `tiktok-test.html` inside the extension |
 | Test tools | none | check this page, copy test report |
 
@@ -132,7 +132,7 @@ Any `no` points at a selector in `browser-extension/tiktok.js`. Fix it through t
 - At least 80% of each target is confirmed: 48 likes, 15 follows and 6 comments. If not, the report's codes explain the gap (for example, targets are upper limits and captions didn't fit).
 - For like attempts and, separately, follow attempts: at least 90% are `ok to persisted`, none is `to reverted`, and at most 1 is `timed-out`.
 - No repeated comment appears in the panel's comment list.
-- Searches: `searches` counts every loaded search, recoveries included. The expected number of keyword searches is `ceil(40 / W)`, where `W = min(KEYWORD_WINDOW_MS.tiktok, 40 / keywords)` minutes. `KEYWORD_WINDOW_MS` is in `browser-extension/session.js`; it is 2 minutes for TikTok at this commit, giving about 20. If Phase 5 raises it to 6 minutes, 2 to 7 keywords give about 7. Pass: between that number minus 1 and that number plus `max(2, keywords)` recoveries. With a single keyword there's no rotation, which is why 2 to 7 keywords are required.
+- Searches: `searches` counts every loaded search, recoveries included. The expected number of keyword searches is `ceil(40 / W)`, where `W = min(KEYWORD_WINDOW_MS.tiktok, 40 / keywords)` minutes. `KEYWORD_WINDOW_MS` is in `browser-extension/session.js`; it is 6 minutes for TikTok, the same as Instagram, so 2 to 7 keywords give about 7. Pass: between that number minus 1 and that number plus `max(2, keywords)` recoveries. With a single keyword there's no rotation, which is why 2 to 7 keywords are required.
 - Compare with the TikTok simulation and the Instagram baseline in `LIVE_VERIFICATION.md`.
 
 **Restart safety**, in one more default session: the tester reloads the session tab once, then resumes from the side panel.

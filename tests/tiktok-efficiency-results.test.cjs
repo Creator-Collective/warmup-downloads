@@ -5,11 +5,11 @@ const { runBaseline } = require('./fixtures/instagram-goals-world.cjs');
 
 // TikTok search results are finite. A keyword searched again returns the same list from
 // the top, and a short list runs out. These runs use the matching captions of the
-// efficiency gate (tiktok-efficiency.test.cjs), with the shipped keyword window and with
-// the six-minute window of tiktok-efficiency-window.test.cjs.
+// efficiency gate (tiktok-efficiency.test.cjs), with the shipped six-minute keyword window
+// and, for comparison, the earlier two-minute window, which searches three times as often.
 const REACH = 0.9;
-const SIX_MINUTES = 360000;
-const WINDOWS = Object.freeze({ shipped: undefined, 'six-minute': SIX_MINUTES });
+const TWO_MINUTES = 120000;
+const WINDOWS = Object.freeze({ shipped: undefined, 'two-minute': TWO_MINUTES });
 const STOPPED = "tiktok still isn't showing new posts. session stopped. check the results in tiktok or try different keywords before restarting.";
 const average = values => values.reduce((sum, value) => sum + value, 0) / values.length;
 const round = value => Math.round(value * 100) / 100;

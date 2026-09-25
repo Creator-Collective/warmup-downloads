@@ -1,3 +1,13 @@
+# 0.6.58 no instagram behavior changes, prepares a separate tiktok test build
+
+instagram warm-up works exactly as before: same targets, pacing, caps, comment writer, resume, results and messages. the instagram extension still has instagram host access only, keeps its website bridge and student-page version check, asks for no new permissions, and keeps tiktok off. golden instagram tests (40 minute goals runs, runner transitions, draft checks, confirmation, background gates and dashboard payloads) were recorded before any change and still pass unchanged.
+
+the shared source now reads which platforms a build may use from `features.js` (`platforms`), instead of hard-coded instagram-only gates. that lets the same source produce a separate tiktok-only test build with its own name, fixed extension id, tiktok-only host access, no content scripts and a side panel with read-only test tools. it is built with `node scripts/package-tiktok-test.mjs` into `dist/` and is never listed in `release.json`, `setup.html` or the store. see `TESTING-TIKTOK.md` for the build, the tester protocol and privacy.
+
+tiktok changes in the shared engine only run for tiktok: search results behind the open video count like instagram's, a next move that lands on a different video than expected continues instead of stopping, a read-only leftover-draft check, plain-text comments, clearer comment skip reasons, a stop when tiktok isn't in english, six-minute keyword windows, and numbers-only diagnostics that exist only in the test build. in a 40 minute simulation at default targets tiktok matches the instagram baseline (58/60 likes, 17.3/18 follows, 6.1/7 comments on average) with no repeated actions.
+
+replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up. the website update alone does not update an installed extension.
+
 # 0.6.57 reach warm-up targets and write instagram comments
 
 instagram comments now come from a local reply writer with 274 short, fixed replies and 12 keyword templates, picked by the student's niche and the post format. replies never copy caption text, never include links, mentions, hashtags or calls to action, and never repeat within a session. posts that bait for comments, look like instructions to the tool, or cover sensitive or heated topics are skipped.

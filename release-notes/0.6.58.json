@@ -1,5 +1,4 @@
 {
-  "version": "0.6.58",
   "releasedAt": "2026-09-25",
   "summary": "no instagram behavior changes, prepares a separate tiktok test build",
   "changes": [
@@ -7,8 +6,5 @@
     "tiktok stays off in this extension. tiktok is only being tried in a separate test build for a few testers.",
     "no new extension permissions.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.58.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

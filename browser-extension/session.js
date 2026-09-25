@@ -173,9 +173,9 @@ const TIKTOK_COMMENT_BLOCKER_COPY = Object.freeze({
 const WRITER_MISSING = 'comments are unavailable in this version. reinstall the extension from the setup page.';
 const ONCE_PER_SESSION_REASONS = new Set([COMMENT_BLOCKER_COPY.account, COMMENT_BLOCKER_COPY.language, WRITER_MISSING]);
 const TIKTOK_ONCE_PER_SESSION_REASONS = new Set([TIKTOK_COMMENT_BLOCKER_COPY.account, WRITER_MISSING]);
-// Keyword rotation window. TikTok keeps two minutes until the TikTok goals
-// simulation shows six-minute windows keep the same reach; then raise it here.
-const KEYWORD_WINDOW_MS = Object.freeze({ instagram: 360000, tiktok: 120000 });
+// Keyword rotation window. TikTok uses instagram's six minutes: the TikTok goals
+// simulation (tests/tiktok-efficiency*.test.cjs) keeps the same reach with fewer searches.
+const KEYWORD_WINDOW_MS = Object.freeze({ instagram: 360000, tiktok: 360000 });
 // Two typed comments in a row that never reached TikTok's editor turn comments off.
 const MAX_UNTYPED_COMMENTS = 2;
 // TikTok search terms can come back with different case, spacing or Unicode form.

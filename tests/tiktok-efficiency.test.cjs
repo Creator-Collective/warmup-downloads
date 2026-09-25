@@ -18,9 +18,9 @@ const { runBaseline } = require('./fixtures/instagram-goals-world.cjs');
 // instagram baseline for likes, follows and comments (instagram itself averages about
 // 58/60, 17.3/18 and 6.1/7 here), with zero duplicate actions in every run.
 //
-// Not gated here: per scenario, corpus comments reach about 3.3 against instagram's 4.25
-// with the shipped two-minute keyword window. tiktok-efficiency-window.test.cjs shows the
-// six-minute window closing that gap.
+// Per scenario the gate is in tiktok-efficiency-window.test.cjs. The shipped TikTok keyword
+// window is instagram's six minutes; with the earlier two-minute window corpus comments
+// reached only about 3.3 against instagram's 4.25.
 const REACH = 0.9;
 const totalMs = MINUTES * 60000;
 const average = values => values.reduce((sum, value) => sum + value, 0) / values.length;

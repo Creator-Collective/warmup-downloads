@@ -317,8 +317,8 @@ test('instagram full-video watches come every five posts or more', async () => {
   }
 });
 
-test('instagram rotates keywords every six minutes and tiktok keeps two-minute rotation', async () => {
-  for (const [platform, expected] of [['instagram', 7], ['tiktok', 20]]) {
+test('instagram and tiktok both rotate keywords every six minutes', async () => {
+  for (const [platform, expected] of [['instagram', 7], ['tiktok', 7]]) {
     let index = 0;
     const searches = [];
     const h = harness({
