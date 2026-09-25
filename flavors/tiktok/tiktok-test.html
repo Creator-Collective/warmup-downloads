@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Install, update and test the separate tiktok warm-up test build.">
+<title>tiktok warm-up test · creator collective</title>
+<link rel="icon" href="icon-32.png" type="image/png" sizes="32x32">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<header><span class="brand"><img src="cc-logo.webp" width="32" height="32" alt="">creator collective</span></header>
+<main class="guide">
+<div class="guide-heading">
+<h1>tiktok warm-up test build</h1>
+<p class="guide-intro">a separate test build of the warm-up. it runs only on tiktok.com, only from its own side panel, and it makes real, public likes, follows and comments from your tiktok account, never more than the targets you set. it has nothing to do with the instagram warm-up and doesn't change it.</p>
+</div>
+
+<section class="guide-section" id="install" aria-labelledby="install-heading">
+<h2 id="install-heading">install</h2>
+<ol>
+<li>use desktop chrome 120 or newer. unzip the file you were sent. you get a folder called <code>creator-collective-tiktok-test</code>. keep it somewhere it won't get deleted, like your documents folder.</li>
+<li>open <code>chrome://extensions</code>, turn on <strong>developer mode</strong> (top right), click <strong>load unpacked</strong> and pick the <code>creator-collective-tiktok-test</code> folder.</li>
+<li>check the card says <strong>Creator Collective TikTok Warm-up (test)</strong> and its id is <code>pgkkhpbafojddlaaijcebdjdagakhaca</code>. the version reads like <code>0.6.57 tiktok test 1</code>. if the instagram warm-up is also installed, leave it alone. the two don't share settings or sessions.</li>
+<li>pin it from the puzzle-piece menu. its toolbar icon has a black <strong>TT</strong> badge. the instagram build has no badge.</li>
+<li>open tiktok.com in a normal chrome window (not incognito), signed in, with tiktok's language set to english. if tiktok's player offers <strong>auto scroll</strong>, turn it off. then click the TT icon to open the side panel.</li>
+</ol>
+</section>
+
+<section class="guide-section" id="update" aria-labelledby="update-heading">
+<h2 id="update-heading">update to a newer test build</h2>
+<ol>
+<li>stop any running session.</li>
+<li>in <code>chrome://extensions</code>, click <strong>remove</strong> on the old tiktok test card, then delete the old folder. this also clears the side panel's saved keywords and targets.</li>
+<li>unzip the new build and load unpacked, as in install.</li>
+<li>check there's exactly one tiktok test card, showing the new version.</li>
+</ol>
+<p>every test build has the same fixed id, so chrome can only hold one copy of it. if you skip remove, loading the new folder replaces the old card instead of adding a second one.</p>
+</section>
+
+<section class="guide-section" id="protocol" aria-labelledby="protocol-heading">
+<h2 id="protocol-heading">how to test</h2>
+<p>do the steps in order and stop at the first one that doesn't pass. after every session, press <strong>copy test report</strong> under test tools in the side panel and send the report with a screenshot of the side panel. the report holds only numbers and fixed labels: no links, handles, captions, keywords or comment text.</p>
+<ol>
+<li><strong>check that your account keeps likes and follows you make by hand.</strong>
+<p>turn this extension off in <code>chrome://extensions</code>. on desktop chrome, like one video and follow the account that posted it, yourself. reload both pages, wait 2 minutes, and reload again. turn the extension back on.</p>
+<p>passes when the like and the follow are still there after both reloads. if either one disappears, stop and tell us: tiktok is undoing them for your account, and no extension can change that. keep them until step 2 is done.</p></li>
+<li><strong>check five pages, read only.</strong>
+<p>stop any session. choose the tiktok tab in the side panel, open each page below in it, then press <strong>check this page</strong>. it never clicks or types. send all five results: (1) the search results for one of your keywords, (2) a video opened from those results, from an account you don't follow, (3) a photo post, (4) that photo post with its comments open, (5) the video you liked in step 1, freshly reloaded.</p>
+<p>passes when page 1 shows search page yes and result cards above 0; page 2 shows post found, like control, follow control and next all yes; page 3 shows kind photo; page 4 shows comment box yes, own profile link yes and comment blocker none; page 5 shows liked yes, and following yes or no follow control. every page should show language en and block none.</p></li>
+<li><strong>small targets.</strong>
+<p><strong>a.</strong> 5 minutes, two keywords, targets 0 likes, 0 follows, 0 comments. let it finish. then start it again, press stop after about 2 minutes, press <strong>resume session</strong>, and let it finish.</p>
+<p>passes when the first report shows ended: deadline 1, next at least 10, searches at least 2 and no page-changed; and the second shows runs 2, ended: stopped 1, deadline 1, with the timer carrying on from where you stopped.</p>
+<p><strong>b.</strong> 10 minutes, targets 3 likes, 1 follow, 0 comments.</p>
+<p>passes when the report shows at least 2 like checks and 1 follow check, every one of them reads <code>ok to persisted</code>, and none is timed-out. then open your liked videos and following list on tiktok: everything the panel counted is there.</p>
+<p><strong>c.</strong> 10 minutes, targets 0 likes, 0 follows, 1 comment, then once more with 2. use keywords the videos actually talk about.</p>
+<p>passes when each comment the panel lists as posted shows up once under its video after a reload, is short and on topic, isn't repeated, and the report shows comment submit problems: none. if comments pause because of a leftover draft, open that video again, open its comments, press check this page and send the result.</p></li>
+<li><strong>default targets.</strong>
+<p>40 minutes with the automatic targets (60 likes, 18 follows, 7 comments) and 2 to 7 keywords. let it run to the end. then run one more session, reload its session tab once, press resume session in the side panel and let it finish.</p>
+<p>passes when the report shows ended: deadline 1 with no blocks; at least 48 likes, 15 follows and 6 comments confirmed, or the report shows why not; at least 90% of like checks and of follow checks read <code>ok to persisted</code>, none reads <code>to reverted</code>, and at most 1 is timed-out; and no comment is repeated. the reload run passes when the session stops with the tab refreshed message, resume works, and no video gets a second like, follow or comment.</p></li>
+</ol>
+<p><strong>stop straight away</strong> and send a screenshot if tiktok shows a verification, puzzle, captcha, "too fast" or "try again later" message. the session should stop by itself. if it doesn't, press stop (or escape on the session tab): that's a bug we need to see. don't run another session for 24 hours.</p>
+<p><strong>also stop</strong> if the report shows likes or follows that tiktok undid (<code>to reverted</code>) or clicks that never registered (<code>not-liked to</code> or <code>not-following to</code>), while your own likes and follows stick. we report that as it is. the build won't try to get around it.</p>
+</section>
+
+<section class="guide-section" id="privacy" aria-labelledby="privacy-heading">
+<h2 id="privacy-heading">privacy</h2>
+<p>this build can only open and read tiktok.com tabs. it has no connection to our website or any other site, and it doesn't upload anything. your keywords and targets stay in the side panel's storage in this browser. session activity and comment history (including the comment text, video link and author) stay in chrome's session storage and clear when chrome closes. the test report leaves all of that out: it has counts, yes or no answers and fixed codes only, and it goes nowhere unless you send it. likes, follows and comments go to tiktok through your signed-in browser, like your own clicks. removing the extension deletes its storage.</p>
+</section>
+
+<section class="guide-section" id="remove" aria-labelledby="remove-heading">
+<h2 id="remove-heading">remove</h2>
+<p>stop any session, then click <strong>remove</strong> on the tiktok test card in <code>chrome://extensions</code> and delete its folder. stopping or removing doesn't undo likes, follows or comments already sent.</p>
+</section>
+</main>
+</body>
+</html>
