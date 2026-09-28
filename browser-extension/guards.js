@@ -95,6 +95,11 @@ function normalizeCheckpoint(value, settings) {
         (hold.reason === 'draft-retained' && (!hold.comment.trim() || !hold.postId))) return null;
     draftHold = { comment: hold.comment, postId: hold.postId, sinceMs: hold.sinceMs, lastCheckMs: hold.lastCheckMs, checks: hold.checks, lifts: hold.lifts, reason: hold.reason };
   }
+  // Shortfall reasons only explain results. Missing or invalid ones start again
+  // from zero rather than blocking a resume.
+  const counts = entry => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry) && Object.keys(entry).length <= 16 &&
+    Object.entries(entry).every(([name, count]) => /^[a-z-]{1,20}$/.test(name) && integer(count) && count <= 100000);
+  const explained = Boolean(value.shortfall) && typeof value.shortfall === 'object' && actionNames.every(name => counts(value.shortfall[name])) && history(value.assessed);
   return {
     version: 1,
     stats: Object.fromEntries(statNames.map(name => [name, value.stats[name]])),
@@ -103,7 +108,8 @@ function normalizeCheckpoint(value, settings) {
     seen: [...value.seen], done: Object.fromEntries(actionNames.map(name => [name, [...value.done[name]]])), usedComments: [...value.usedComments],
     termIndex: value.termIndex, currentSearchTerm: value.currentSearchTerm,
     elapsedMs: value.elapsedMs, remainingMs: value.remainingMs,
-    cooldowns: Object.fromEntries(['like', 'follow', 'comment', 'engagement', 'break'].map(name => [name, value.cooldowns[name]])), inFlight, ...(draftHold ? { draftHold } : {})
+    cooldowns: Object.fromEntries(['like', 'follow', 'comment', 'engagement', 'break'].map(name => [name, value.cooldowns[name]])), inFlight, ...(draftHold ? { draftHold } : {}),
+    ...(explained ? { shortfall: Object.fromEntries(actionNames.map(name => [name, { ...value.shortfall[name] }])), assessed: [...value.assessed] } : {})
   };
 }
 function remainingTime(job) {

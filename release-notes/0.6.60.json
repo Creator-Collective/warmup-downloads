@@ -1,13 +1,9 @@
 {
-  "version": "0.6.60",
   "releasedAt": "2026-09-28",
   "summary": "see why a session fell short of its targets",
   "changes": [
     "when time runs out below a target, the activity list says why, for example how many posts had no follow button because you already follow the account.",
     "a resumed session keeps counting from where it stopped.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.60.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
