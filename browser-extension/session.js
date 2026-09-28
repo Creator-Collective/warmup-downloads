@@ -165,6 +165,52 @@ const COMMENT_BLOCKER_COPY = Object.freeze({
 });
 const WRITER_MISSING = 'comments are unavailable in this version. reinstall the extension from the setup page.';
 const ONCE_PER_SESSION_REASONS = new Set([COMMENT_BLOCKER_COPY.account, COMMENT_BLOCKER_COPY.language, WRITER_MISSING]);
+// Why a target fell short: each post counts once per action, under the first
+// reason that action wasn't possible there. Pacing is never a reason.
+const MAX_ASSESSED = 9000;
+const many = (count, one, other) => `${count} ${count === 1 ? one : other}`;
+const SHORTFALL_COPY = Object.freeze({
+  like: {
+    control: count => `${many(count, 'post was', 'posts were')} already liked or had no like button`,
+    'off-niche': count => `${many(count, "post wasn't", "posts weren't")} from your search and didn't mention your keywords`
+  },
+  follow: {
+    control: count => `${many(count, 'post', 'posts')} had no follow button, usually because you already follow the account`,
+    repeat: count => `${many(count, 'post was', 'posts were')} from accounts already followed this session`,
+    'off-niche': count => `${many(count, "post wasn't", "posts weren't")} from your search and didn't mention your keywords`
+  },
+  comment: {
+    'off-niche': count => `${many(count, 'caption', 'captions')} didn't contain one of your keywords in full`,
+    account: (count, platform) => `couldn't find your ${platform} account link`,
+    language: (count, platform) => `${platform} isn't in english`,
+    composer: count => `${many(count, 'post', 'posts')} had no clear comment box`,
+    bait: count => `${many(count, 'post', 'posts')} asked for keyword replies or giveaway entries`,
+    suspicious: count => `${many(count, 'caption', 'captions')} looked like spam`,
+    sensitive: count => `${many(count, 'post', 'posts')} looked sensitive or heated`,
+    exhausted: count => `${many(count, 'post', 'posts')} needed wording that was already used`,
+    invalid: count => `${many(count, 'caption', 'captions')} couldn't be read safely`,
+    writer: () => 'comments are unavailable in this version'
+  }
+});
+
+// One line for the activity list when time runs out, naming the main reason
+// behind each target that wasn't reached. Null when nothing fell short.
+function shortfallSummary(settings, stats, unconfirmed, shortfall) {
+  const platform = settings.platform === 'tiktok' ? 'tiktok' : 'instagram';
+  const parts = [];
+  for (const [action, label] of [['follow', 'follows'], ['like', 'likes'], ['comment', 'comments']]) {
+    const limit = settings.limits[action];
+    if (!settings.weights[action] || !limit || stats[action] + unconfirmed[action] >= limit) continue;
+    const [cause, count] = Object.entries(shortfall[action] || {})
+      .filter(([name, value]) => Object.hasOwn(SHORTFALL_COPY[action], name) && value > 0)
+      .sort((a, b) => b[1] - a[1])[0] || [];
+    if (!cause) continue;
+    // Accounts already followed are the usual reason, and only new searches find more.
+    const tip = action === 'follow' && cause !== 'off-niche' ? '. different keywords reach new accounts' : '';
+    parts.push(`${label} ${stats[action]}/${limit}: ${SHORTFALL_COPY[action][cause](count, platform)}${tip}`);
+  }
+  return parts.length ? `why targets fell short: ${parts.join('. ')}.` : null;
+}
 
 // One awaited action at a time. No action begins after cancellation or the deadline.
 async function runSession(settings, adapter, signal, options = {}) {
@@ -204,6 +250,19 @@ async function runSession(settings, adapter, signal, options = {}) {
   const done = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, new Set(strings(checkpoint?.done?.[action]))]));
   const pausedActions = new Set(strings(checkpoint?.pausedActions).filter(action => action in done));
   const usedComments = new Set(strings(checkpoint?.usedComments));
+  const shortfall = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, Object.fromEntries(
+    Object.keys(SHORTFALL_COPY[action]).map(cause => [cause, nonnegative(checkpoint?.shortfall?.[action]?.[cause])]))]));
+  const assessed = new Set(strings(checkpoint?.assessed));
+  const assess = (action, postKey, cause) => {
+    const entry = `${action} ${postKey}`;
+    if (assessed.has(entry) || assessed.size >= MAX_ASSESSED) return;
+    assessed.add(entry);
+    if (cause && Object.hasOwn(shortfall[action], cause)) shortfall[action][cause] += 1;
+  };
+  const reportShortfall = () => {
+    const summary = shortfallSummary(settings, stats, unconfirmed, shortfall);
+    if (summary) update(summary);
+  };
   // Search membership belongs to one requested query in this run. A viewer's
   // recommendations cannot grant themselves eligibility through hidden tiles.
   const searchResults = new Set();
@@ -234,6 +293,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   const fullWatchInterval = () => platform === 'instagram' ? randomBetween(5, 9, random) : randomBetween(16, 24, random);
   let nextFullWatchAfter = fullWatchInterval();
   const running = () => !signal.aborted && now() < deadline;
+  // The runner's own timer can end the session a moment before this deadline.
+  const timeUp = () => now() >= deadline - 1000;
   const comments = Array.isArray(checkpoint?.comments) ? checkpoint.comments.map(item => ({ ...item })) : [];
   let inFlight = checkpoint?.inFlight && checkpoint.inFlight.action in done ? { ...checkpoint.inFlight } : null;
   const savedHold = checkpoint?.draftHold;
@@ -286,6 +347,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       comments: comments.map(item => ({ ...item })), seen: [...seen],
       done: Object.fromEntries(Object.entries(done).map(([action, keys]) => [action, [...keys]])),
       usedComments: [...usedComments], termIndex, currentSearchTerm,
+      shortfall: Object.fromEntries(Object.entries(shortfall).map(([action, counts]) => [action, { ...counts }])), assessed: [...assessed],
       elapsedMs: Math.min(totalMs, Math.max(0, at - startedAt)), remainingMs: Math.max(0, deadline - at),
       cooldowns: Object.fromEntries([...Object.entries(nextAllowed), ['engagement', nextEngagement], ['break', nextBreak]].map(([action, until]) => [action, Math.max(0, until - at)])),
       inFlight: inFlight ? { ...inFlight, post: { ...inFlight.post } } : null,
@@ -567,15 +629,31 @@ async function runSession(settings, adapter, signal, options = {}) {
         for (const action of ['like', 'follow', 'comment']) {
           const key = action === 'follow' ? post.author : postKey;
           if (!settings.weights[action] || pausedActions.has(action) || deadline - now() < confirmationBudgetMs[action] ||
-              stats[action] + unconfirmed[action] >= settings.limits[action] || (key && done[action].has(key))) continue;
+              stats[action] + unconfirmed[action] >= settings.limits[action]) continue;
+          if (key && done[action].has(key)) {
+            // Another post from an account followed earlier offers no new follow.
+            if (action === 'follow') assess(action, postKey, 'repeat');
+            continue;
+          }
           let reason;
-          if (!textMatches && !(action !== 'comment' && fromSearch)) reason = action === 'comment'
-            ? COMMENT_SKIP_COPY['off-niche'] : platform === 'tiktok'
-              ? 'this post does not match your keywords or current search results.' : "this post isn't from your search and doesn't mention your keywords.";
-          else if (action === 'comment' && !writer) reason = WRITER_MISSING;
-          else if (!key || !post[action]) reason = action === 'comment' && typeof post.commentBlocker === 'string' && Object.hasOwn(COMMENT_BLOCKER_COPY, post.commentBlocker)
-            ? COMMENT_BLOCKER_COPY[post.commentBlocker] : 'its control is not available on this post.';
-          else if (action === 'comment' && !written?.text) reason = Object.hasOwn(COMMENT_SKIP_COPY, written?.reason) ? COMMENT_SKIP_COPY[written.reason] : COMMENT_SKIP_COPY.exhausted;
+          let cause = null;
+          if (!textMatches && !(action !== 'comment' && fromSearch)) {
+            cause = 'off-niche';
+            reason = action === 'comment'
+              ? COMMENT_SKIP_COPY['off-niche'] : platform === 'tiktok'
+                ? 'this post does not match your keywords or current search results.' : "this post isn't from your search and doesn't mention your keywords.";
+          } else if (action === 'comment' && !writer) {
+            cause = 'writer';
+            reason = WRITER_MISSING;
+          } else if (!key || !post[action]) {
+            const blocker = action === 'comment' && typeof post.commentBlocker === 'string' && Object.hasOwn(COMMENT_BLOCKER_COPY, post.commentBlocker) ? post.commentBlocker : null;
+            cause = action === 'comment' ? blocker || 'composer' : 'control';
+            reason = blocker ? COMMENT_BLOCKER_COPY[blocker] : 'its control is not available on this post.';
+          } else if (action === 'comment' && !written?.text) {
+            cause = Object.hasOwn(COMMENT_SKIP_COPY, written?.reason) ? written.reason : 'exhausted';
+            reason = COMMENT_SKIP_COPY[cause];
+          }
+          assess(action, postKey, cause);
           if (reason) {
             if (!reportedSkips.has(postKey) && reasonAllowed(reason) && now() >= nextEngagement && now() >= nextAllowed[action] &&
                 expectedActions(settings, action, now() - startedAt) > stats[action] + unconfirmed[action]) {
@@ -702,6 +780,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     }
     await pause(pauseAfter);
   }
+  if (timeUp()) reportShortfall();
   update(signal.aborted ? 'session stopped. you have control.' : 'time’s up. your session is complete.');
   return stats;
   } catch (error) {
@@ -713,6 +792,8 @@ async function runSession(settings, adapter, signal, options = {}) {
     try {
       await saveCheckpoint();
       if (interrupted) update('session stopped before the last action could be confirmed.');
+      // The runner's timer usually ends the final pause, which lands here.
+      else if (failure && signal.aborted && timeUp()) reportShortfall();
     } catch (error) {
       // Keep the actual stop/error reason when final persistence also fails.
       if (!failure) throw error;
