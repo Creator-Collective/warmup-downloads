@@ -1,5 +1,4 @@
 {
-  "version": "0.6.61",
   "releasedAt": "2026-09-29",
   "summary": "each session browses differently and reaches new accounts",
   "changes": [
@@ -7,8 +6,5 @@
     "posts earlier sessions already showed are passed over, so running the same keywords again reaches new accounts to like and follow.",
     "posts with nothing left to do, like ones already liked from accounts you follow, get a quick look instead of a full watch.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.61.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
