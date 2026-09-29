@@ -164,6 +164,7 @@ const USED_UP_STREAK_JUMP = 3;
 const USED_UP_JUMP_SCROLLS = [3, 6];
 const MAX_NOTHING_SKIMS = 5;
 const MAX_BROWSE_HISTORY = 3000;
+const MAX_COMMENTED_BEFORE = 5000;
 const COMMENT_SKIP_COPY = Object.freeze({
   'off-niche': "this post doesn't mention your keywords.",
   bait: 'this post asks for a keyword reply or giveaway entry.',
@@ -202,6 +203,7 @@ const SHORTFALL_COPY = Object.freeze({
     suspicious: count => `${many(count, 'caption', 'captions')} looked like spam`,
     sensitive: count => `${many(count, 'post', 'posts')} looked sensitive or heated`,
     exhausted: count => `${many(count, 'post', 'posts')} needed wording that was already used`,
+    repeat: count => `${many(count, 'post', 'posts')} already had your comment`,
     invalid: count => `${many(count, 'caption', 'captions')} couldn't be read safely`,
     writer: () => 'comments are unavailable in this version'
   }
@@ -269,6 +271,11 @@ async function runSession(settings, adapter, signal, options = {}) {
   const shownBefore = id => pastSeen.has(postIdentity(id));
   let gridScrollsLeft = 0, freshHunts = 0, chainLeft = Infinity, pastStreak = 0, lastViewed = null, pendingView = null, nothingSkims = 0, usedUpStreak = 0, jumpHeld = false;
   const done = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, new Set(strings(checkpoint?.done?.[action]))]));
+  // Posts commented on by earlier sessions on this device, or showing this
+  // account's comment already (any session, any device). Unlike browsing
+  // history this is binding: a post never gets a second comment.
+  const commentedBefore = new Set(strings(options.commented).slice(-MAX_COMMENTED_BEFORE));
+  const alreadyCommented = (post, key) => done.comment.has(key) || commentedBefore.has(key) || post.commented === true;
   const pausedActions = new Set(strings(checkpoint?.pausedActions).filter(action => action in done));
   const usedComments = new Set(strings(checkpoint?.usedComments));
   const shortfall = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, Object.fromEntries(
@@ -415,7 +422,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const offersEngagement = post => ['like', 'follow', 'comment'].some(action => {
     if (!targetOpen(action)) return false;
     const key = action === 'follow' ? post.author : postIdentity(post.id);
-    if (!key || !post[action] || done[action].has(key)) return false;
+    if (!key || !post[action] || done[action].has(key) || (action === 'comment' && alreadyCommented(post, key))) return false;
     return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && searchResults.has(postIdentity(post.id)));
   });
   const watchVideoRemainder = async initialPost => {
@@ -691,7 +698,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         const postKey = postIdentity(post.id);
         const textMatches = nicheMatch(typeof post.text === 'string' ? post.text : '');
         const fromSearch = platform === 'tiktok' ? searchResults.has(tiktokPostIdentity(post.id)) : searchResults.has(postKey);
-        const wantsComment = Boolean(settings.weights.comment && stats.comment + unconfirmed.comment < settings.limits.comment && !pausedActions.has('comment') && !done.comment.has(postKey));
+        const wantsComment = Boolean(settings.weights.comment && stats.comment + unconfirmed.comment < settings.limits.comment && !pausedActions.has('comment') && !alreadyCommented(post, postKey));
         const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt }) : null;
         const burstFree = engagementStarts.filter(time => now() - time < BURST_WINDOW_MS * settings.pauseScale).length < MAX_ACTIONS_PER_WINDOW;
         const onSame = samePost === postKey;
@@ -703,6 +710,10 @@ async function runSession(settings, adapter, signal, options = {}) {
           if (key && done[action].has(key)) {
             // Another post from an account followed earlier offers no new follow.
             if (action === 'follow') assess(action, postKey, 'repeat');
+            continue;
+          }
+          if (action === 'comment' && alreadyCommented(post, key)) {
+            assess(action, postKey, 'repeat');
             continue;
           }
           let reason;

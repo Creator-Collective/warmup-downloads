@@ -1,15 +1,14 @@
-fix: each warm-up session browses differently and reaches new accounts
+fix: never comment twice on the same instagram post
 
-every instagram session walked the same keyword results in the same order,
-so repeat keywords replayed posts already liked from accounts already
-followed. a student set 10 follows for 20 minutes and got 2.
+a student found the same comment from her account twice on one reel, a
+week apart. each session only remembered the posts it commented on itself,
+so a later session on the same keywords could comment on the same reel again.
 
 misc:
-- start on a random keyword, scroll a random 1-4 screens, open a random tile in view
-- page through 3-9 posts, then close the viewer and scroll further down
-- jump 3-6 screens after 3 used-up posts in a row or 2 posts earlier sessions showed
-- quick look instead of a full watch on posts with nothing left to do, ordinary watches once targets are met
-- keep two weeks of viewed post ids (max 3000) in local storage and prefer tiles not on that list; storage failures never block a session
-- limits, cooldowns, per-minute cap, search membership and confirmation unchanged
-- privacy page mentions the local post list
-- package extension 0.6.61 and update install and release notes
+- keep commented post ids for six months (max 5000, no comment text) in local storage, saved with every checkpoint
+- hand the list to each new session; those posts never get another comment
+- skip posts that already show a comment from the signed-in account, covering older comments and other devices
+- end-of-session summary names "posts already had your comment" when that is why comments fell short
+- storage failures never block a session
+- privacy page mentions the commented-post list
+- package extension 0.6.62 and update install and release notes

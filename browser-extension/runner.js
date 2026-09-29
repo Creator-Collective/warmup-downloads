@@ -707,6 +707,10 @@ async function start() {
   // answer starts the session without it.
   let history = [];
   try { const saved = await send('runner-history'); if (Array.isArray(saved)) history = saved; } catch { /* start without history */ }
+  // Posts earlier sessions commented on. These never get another comment; the
+  // post's own comment list is checked too, so a missing answer still starts.
+  let commented = [];
+  try { const saved = await send('runner-commented'); if (Array.isArray(saved)) commented = saved; } catch { /* start without the list */ }
   try {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
@@ -720,7 +724,7 @@ async function start() {
       open: target => recoverPageStep(() => openViewer(target)),
       leavePost: post => recoverPageStep(() => returnToResults(post, searchURL)),
       draftState: comment => recoverPageStep(() => draftStateWithRetry({ comment })).then(state => state || 'unknown')
-    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt(), browseRandom: Math.random, history });
+    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt(), browseRandom: Math.random, history, commented });
     await messageQueue;
     controller.signal.throwIfAborted();
     await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });

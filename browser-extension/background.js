@@ -39,6 +39,28 @@ async function rememberBrowsing(job) {
     await chrome.storage.local.set({ [BROWSE_HISTORY_KEY]: { ...stored, [platform]: mergeBrowseHistory(stored[platform], seen) } });
   } catch { /* history is a preference, never a requirement */ }
 }
+// Posts this device commented on. Saved with every checkpoint, so a post is on
+// the list from the moment a comment is reserved, before anything is typed.
+const COMMENTED_POSTS_KEY = 'commentedPosts';
+async function commentedPosts() {
+  try {
+    const stored = (await chrome.storage.local.get(COMMENTED_POSTS_KEY))[COMMENTED_POSTS_KEY];
+    const kept = normalizeCommentedPosts(stored);
+    if (Array.isArray(stored) && kept.length !== stored.length) await chrome.storage.local.set({ [COMMENTED_POSTS_KEY]: kept });
+    return kept.map(([id]) => id);
+  } catch { return []; }
+}
+async function rememberComments(checkpoint) {
+  const ids = checkpoint?.done?.comment;
+  if (!Array.isArray(ids) || !ids.length) return;
+  try {
+    const stored = (await chrome.storage.local.get(COMMENTED_POSTS_KEY))[COMMENTED_POSTS_KEY];
+    const merged = mergeCommentedPosts(stored, ids);
+    if (!Array.isArray(stored) || merged.length !== stored.length || merged.some(([id], index) => id !== stored[index]?.[0])) {
+      await chrome.storage.local.set({ [COMMENTED_POSTS_KEY]: merged });
+    }
+  } catch { /* the post's own comment list is still checked before commenting */ }
+}
 async function closeOwnedRunner(job) {
   if (!job?.runnerTabId) return;
   // Without the tabs permission Chrome hides every tab URL, even this
@@ -131,6 +153,7 @@ async function dashboardCommand(message) {
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
   await closeOwnedRunner(current);
   await rememberBrowsing(current);
+  await rememberComments(current?.checkpoint);
   const token = crypto.randomUUID();
   const remainingMs = resuming ? remainingTime(current) : settings.minutes * 60000;
   const checkpoint = resuming ? { ...normalizeCheckpoint(current.checkpoint, settings), remainingMs, elapsedMs: settings.minutes * 60000 - remainingMs } : null;
@@ -176,6 +199,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'runner-job') return job;
     if (message.type === 'runner-stop') { await stopJob(); return null; }
     if (message.type === 'runner-history') return browseHistory(validPlatform(job.settings?.platform));
+    if (message.type === 'runner-commented') return commentedPosts();
     if (message.type === 'runner-show') { enabledPlatform(job.settings?.platform); await chrome.tabs.update(job.tabId, { active: true }); return null; }
     if (message.type === 'runner-checkpoint') {
       const checkpoint = normalizeCheckpoint(message.checkpoint, job.settings);
@@ -187,6 +211,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const remainingMs = frozen ? remainingTime(job) : Math.min(remainingTime(job), checkpoint.remainingMs);
       const saved = { ...checkpoint, remainingMs, elapsedMs: job.settings.minutes * 60000 - remainingMs };
       await putJob({ ...job, checkpoint: saved, remainingMs, stats: saved.stats, unconfirmed: saved.unconfirmed, pausedActions: saved.pausedActions, comments: commentHistory.normalize(saved.comments) });
+      // The list only grows within a session, so an unchanged count needs no write.
+      if (saved.done.comment.length !== (job.checkpoint?.done?.comment?.length ?? 0)) await rememberComments(saved);
       return null;
     }
     if (message.type !== 'runner-update') throw new Error('unknown session action.');

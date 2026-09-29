@@ -1,3 +1,11 @@
+## 0.6.62 no second comment on a post, September 29
+
+Reported by a student with a phone screenshot: one Instagram reel showed the same comment from her account twice, posted 1 week and 9 hours earlier. Cause: comment de-duplication lived only in the session checkpoint, so each new session started with an empty list.
+
+Engine checks via vm: two sessions over the same modelled grid, where the unguarded second session reaches posts the first one commented on, and the guarded one comments only on new posts; posts that show the account's comment are skipped with no saved history; the shortfall summary names the repeat reason. Background checks: the list is saved on each checkpoint and handed to the next session, and a failing storage never blocks a checkpoint. Instagram inspector checks on modelled markup (not a capture of the live site): own comment alone, among others, in different letter case, on another post, and a mention of the account inside someone else's comment. All 7 new tests fail on 0.6.61.
+
+Not done: the own-comment check was not run against the live Instagram comment list, and no installed-extension session was run, since that would comment on a real account. Instagram loads comments lazily, so the on-post check is a second guard; the saved list is the main one. Existing unpacked installations require replacing files and reloading.
+
 ## 0.6.61 varied browsing, September 29
 
 Follow-up to the 0.6.60 report (20 minutes, "SAT test, SAT test prep", 2 of 10 follows, 12 of 45 likes). Read-only live check in a signed-in Chrome on September 28: the packaged Instagram inspector ran against the real "SAT test prep" keyword results in a 760 px and a 1512 px wide window. 40 consecutive posts opened in the viewer; like was detected on 40, follow on 36 (the other 4 showed no follow button), Next on all 40. 29 of those posts came from 23 different authors. No like, follow or comment was clicked. So detection works in current layouts. The likely cause, not confirmed on the student's account, is results the account had already used up, which every session replayed because it always walked the grid from the top.

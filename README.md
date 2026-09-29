@@ -1,3 +1,11 @@
+# 0.6.62 never comments twice on the same post
+
+a student reported that warm-up "posts the same comments on the same reels", with a screenshot of one reel carrying the same comment from her account twice, a week apart. each session only remembered the posts it commented on itself, so a later session searching the same keywords could reach the same reel and comment on it again. 0.6.61's browsing history only prefers new tiles, it never stops an action.
+
+now a post never gets a second comment. the extension keeps the post ids its sessions commented on in the last six months (up to 5,000, no comment text) in chrome's local storage, saved with every session checkpoint, so a post is on the list as soon as a comment is reserved, before anything is typed. on top of that, a post that already shows a comment from the signed-in account is skipped, which also covers comments from before this update or from another computer. when comments fall short because of this, the end-of-session summary says "posts already had your comment". a storage failure never blocks a session; the on-post check still applies.
+
+no new extension permissions. replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.61 each session browses differently and reaches new accounts
 
 every instagram session used to walk the same keyword results in the same order: first keyword, first tile, then next, next, next. running the same keywords again replayed the same top posts, which were already liked and whose authors were already followed, so a 20 minute session with 10 follows could end with 2. a live read-only check of the "sat test prep" results found a follow button on 36 of 40 posts for an account that does not follow those creators, so detection was fine; the session was spending its time on posts with nothing left to do.

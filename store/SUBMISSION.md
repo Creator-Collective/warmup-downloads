@@ -25,7 +25,9 @@ Permissions justification:
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.61.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.62.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+
+Version 0.6.62 never comments twice on the same Instagram post. It keeps a six-month list of the post IDs it commented on (up to 5,000) in local extension storage, and skips any post that already shows a comment from the signed-in account. No new permissions, no change to action limits, cooldowns or confirmation.
 
 Version 0.6.61 varies how each Instagram session browses its keyword results: a randomly chosen starting keyword and post, a few posts at a time, then further down the results. It keeps a two-week list of the post IDs it already showed in local extension storage and prefers other posts when they are in reach. No new permissions, no change to action limits, cooldowns or confirmation.
 
