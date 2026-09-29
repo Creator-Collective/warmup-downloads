@@ -14,6 +14,31 @@ function freezeJob(job, patch = {}) {
   const checkpoint = job.checkpoint ? { ...job.checkpoint, remainingMs, elapsedMs: job.settings.minutes * 60000 - remainingMs } : null;
   return { ...job, ...patch, remainingMs, checkpoint };
 }
+// Browsing history only guides which posts a session opens; a storage failure
+// never blocks or stops a session.
+const BROWSE_HISTORY_KEY = 'browseHistory';
+async function storedBrowseHistory() {
+  const stored = (await chrome.storage.local.get(BROWSE_HISTORY_KEY))[BROWSE_HISTORY_KEY];
+  return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+}
+async function browseHistory(platform) {
+  try {
+    const stored = await storedBrowseHistory();
+    const kept = normalizeBrowseHistory(stored[platform]);
+    // Entries older than two weeks leave storage, not just this answer.
+    if (Array.isArray(stored[platform]) && kept.length !== stored[platform].length) await chrome.storage.local.set({ [BROWSE_HISTORY_KEY]: { ...stored, [platform]: kept } });
+    return kept.map(([id]) => id);
+  } catch { return []; }
+}
+async function rememberBrowsing(job) {
+  const seen = job?.checkpoint?.seen;
+  if (!Array.isArray(seen) || !seen.length) return;
+  try {
+    const platform = validPlatform(job.settings?.platform);
+    const stored = await storedBrowseHistory();
+    await chrome.storage.local.set({ [BROWSE_HISTORY_KEY]: { ...stored, [platform]: mergeBrowseHistory(stored[platform], seen) } });
+  } catch { /* history is a preference, never a requirement */ }
+}
 async function closeOwnedRunner(job) {
   if (!job?.runnerTabId) return;
   // Without the tabs permission Chrome hides every tab URL, even this
@@ -105,6 +130,7 @@ async function dashboardCommand(message) {
   if (!platformURL(tab.url, platform)) throw new Error(`that tab is no longer on ${platforms[platform].label}. choose it again.`);
   if (tab.incognito) throw new Error('use a regular chrome window for this session.');
   await closeOwnedRunner(current);
+  await rememberBrowsing(current);
   const token = crypto.randomUUID();
   const remainingMs = resuming ? remainingTime(current) : settings.minutes * 60000;
   const checkpoint = resuming ? { ...normalizeCheckpoint(current.checkpoint, settings), remainingMs, elapsedMs: settings.minutes * 60000 - remainingMs } : null;
@@ -149,6 +175,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (!runnerSender(sender, job, extensionOrigin) || message.token !== job.token) throw new Error('this session is no longer active.');
     if (message.type === 'runner-job') return job;
     if (message.type === 'runner-stop') { await stopJob(); return null; }
+    if (message.type === 'runner-history') return browseHistory(validPlatform(job.settings?.platform));
     if (message.type === 'runner-show') { enabledPlatform(job.settings?.platform); await chrome.tabs.update(job.tabId, { active: true }); return null; }
     if (message.type === 'runner-checkpoint') {
       const checkpoint = normalizeCheckpoint(message.checkpoint, job.settings);
@@ -185,7 +212,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const text = typeof patch.message === 'string' ? patch.message.slice(0, 600) : job.message;
     const activity = text !== job.message ? [{ time: Date.now(), message: text }, ...job.activity].slice(0, 12) : job.activity;
     const next = { ...job, ...outcomes, phase, activity, message: text, nextActionAt: Number.isFinite(patch.nextActionAt) ? Math.min(patch.nextActionAt, job.deadline) : null };
-    await putJob(['stopped', 'complete', 'error'].includes(phase) ? freezeJob(job, { ...next, stopRequested: true }) : next);
+    const finished = ['stopped', 'complete', 'error'].includes(phase);
+    await putJob(finished ? freezeJob(job, { ...next, stopRequested: true }) : next);
+    if (finished) await rememberBrowsing(next);
     return null;
   }).then(data => respond({ ok: true, data }), error => respond({ ok: false, error: error.message }));
   return true;

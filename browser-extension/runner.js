@@ -703,6 +703,10 @@ async function start() {
   const timer = setInterval(() => { remaining(); if (Date.now() >= job.deadline) controller.abort(new Error('time’s up. your session is complete.')); }, 250);
   remaining();
   let searchURL;
+  // Posts earlier sessions showed. Only a browsing preference, so a missing
+  // answer starts the session without it.
+  let history = [];
+  try { const saved = await send('runner-history'); if (Array.isArray(saved)) history = saved; } catch { /* start without history */ }
   try {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
@@ -716,7 +720,7 @@ async function start() {
       open: target => recoverPageStep(() => openViewer(target)),
       leavePost: post => recoverPageStep(() => returnToResults(post, searchURL)),
       draftState: comment => recoverPageStep(() => draftStateWithRetry({ comment })).then(state => state || 'unknown')
-    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt() });
+    }, controller.signal, { getFocus: () => job.settings.focus, checkpoint: job.checkpoint, remainingMs: Math.max(0, job.deadline - Date.now()), commentSalt: sessionSalt(), browseRandom: Math.random, history });
     await messageQueue;
     controller.signal.throwIfAborted();
     await finish({ phase: 'complete', message: 'time’s up. your session is complete.' });

@@ -150,6 +150,20 @@ const MAX_DRAFT_LIFTS = 1;
 const SKIP_REPEAT_MS = 180000;
 const REVISIT_GRACE_MS = 120000;
 const DISCOVERY_GRACE_MS = 30000;
+// Instagram browsing variety. Each run starts on a different keyword and a
+// different tile, pages through a few posts, then jumps further down the results.
+// Posts earlier sessions already showed are passed over, and a post with nothing
+// left to do gets a quick look instead of a full watch.
+const CHAIN_POSTS = [3, 9];
+const JUMP_SCROLLS = [1, 3];
+const FIRST_SCROLLS = [0, 3];
+const FRESH_HUNT_SCROLLS = 6;
+const TILE_CHOICES = 6;
+const PAST_STREAK_JUMP = 2;
+const USED_UP_STREAK_JUMP = 3;
+const USED_UP_JUMP_SCROLLS = [3, 6];
+const MAX_NOTHING_SKIMS = 5;
+const MAX_BROWSE_HISTORY = 3000;
 const COMMENT_SKIP_COPY = Object.freeze({
   'off-niche': "this post doesn't mention your keywords.",
   bait: 'this post asks for a keyword reply or giveaway entry.',
@@ -221,6 +235,8 @@ async function runSession(settings, adapter, signal, options = {}) {
   const now = options.now || Date.now;
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
+  // Browsing variety is opt-in: without it, results are walked top to bottom.
+  const vary = platform === 'instagram' && typeof options.browseRandom === 'function' ? options.browseRandom : null;
   const commentSalt = typeof options.commentSalt === 'string' ? options.commentSalt.slice(0, 64) : '';
   const checkpoint = options.checkpoint?.version === 1 ? options.checkpoint : null;
   const nonnegative = (value, fallback = 0) => Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -237,7 +253,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   let nextBreak = resumedAt + nonnegative(checkpoint?.cooldowns?.break, randomBetween(300000, 540000, random));
   const termWindowMs = Math.max(10000, Math.min(platform === 'instagram' ? 360000 : 120000, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
-  let termIndex = Math.floor(nonnegative(checkpoint?.termIndex));
+  let termIndex = checkpoint ? Math.floor(nonnegative(checkpoint.termIndex)) : vary ? randomBetween(0, settings.terms.length - 1, vary) : 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
   for (const key of Object.keys(stats)) stats[key] = nonnegative(checkpoint?.stats?.[key]);
   // Background tabs can round sub-second timers up during confirmation.
@@ -247,6 +263,11 @@ async function runSession(settings, adapter, signal, options = {}) {
   const strings = values => Array.isArray(values) ? values.filter(value => typeof value === 'string') : [];
   const seen = new Set(strings(checkpoint?.seen));
   const hasSeen = id => seen.has(postIdentity(id));
+  // Posts shown by earlier sessions on this device. Only a preference: they are
+  // skipped when fresher ones are in reach, never a reason to stop.
+  const pastSeen = new Set(vary ? strings(options.history).slice(-MAX_BROWSE_HISTORY) : []);
+  const shownBefore = id => pastSeen.has(postIdentity(id));
+  let gridScrollsLeft = 0, freshHunts = 0, chainLeft = Infinity, pastStreak = 0, lastViewed = null, pendingView = null, nothingSkims = 0, usedUpStreak = 0, jumpHeld = false;
   const done = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, new Set(strings(checkpoint?.done?.[action]))]));
   const pausedActions = new Set(strings(checkpoint?.pausedActions).filter(action => action in done));
   const usedComments = new Set(strings(checkpoint?.usedComments));
@@ -387,6 +408,16 @@ async function runSession(settings, adapter, signal, options = {}) {
     consecutiveSkims = 0;
     return 'watch';
   };
+  // Whether anything is still possible on this post, ignoring cooldowns: an unliked
+  // like, an author not yet followed, a comment box on a matching caption.
+  const targetOpen = action => Boolean(settings.weights[action]) && !pausedActions.has(action) && stats[action] + unconfirmed[action] < settings.limits[action];
+  const targetsLeft = () => ['like', 'follow', 'comment'].some(targetOpen);
+  const offersEngagement = post => ['like', 'follow', 'comment'].some(action => {
+    if (!targetOpen(action)) return false;
+    const key = action === 'follow' ? post.author : postIdentity(post.id);
+    if (!key || !post[action] || done[action].has(key)) return false;
+    return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && searchResults.has(postIdentity(post.id)));
+  });
   const watchVideoRemainder = async initialPost => {
     const initial = initialPost.videoPlayback;
     const until = Math.min(deadline, nextTermAt, now() + initialPost.videoRemainingMs + 8000);
@@ -469,6 +500,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const search = async (resumeCurrent = false) => {
     const term = resumeCurrent && currentSearchTerm ? currentSearchTerm : settings.terms[termIndex % settings.terms.length];
     currentSearchTerm = term;
+    pendingView = null;
     searchResults.clear();
     searchGridOwned = false;
     revisitedTerm = searchedTerms.has(term) || Boolean(resumeCurrent && checkpoint);
@@ -494,6 +526,7 @@ async function runSession(settings, adapter, signal, options = {}) {
     stalled = 0;
     stats.search += 1;
     needsSearchScroll = platform !== 'tiktok';
+    if (vary) { gridScrollsLeft = randomBetween(...FIRST_SCROLLS, vary); freshHunts = 0; chainLeft = Infinity; }
     previousAction = undefined;
     update(`opened search: ${term}`);
   };
@@ -546,6 +579,11 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (!hasSeen(page.post.id)) discoveredPost();
       seen.add(postIdentity(page.post.id));
     }
+    if (vary && page.post?.viewer && page.post.id !== lastViewed) {
+      lastViewed = page.post.id;
+      pastStreak = shownBefore(page.post.id) ? pastStreak + 1 : 0;
+    }
+    if (!page.post) pendingView = null;
     if (platform === 'tiktok' && !page.post && currentSearchTerm !== null && page.search?.term === currentSearchTerm && Array.isArray(page.search.posts)) {
       for (const id of page.search.posts) {
         const identity = tiktokPostIdentity(id);
@@ -591,8 +629,26 @@ async function runSession(settings, adapter, signal, options = {}) {
     } else if (now() >= nextTermAt) {
       await search();
       pauseAfter = 'transition';
+    } else if (!needsSearchScroll && !page.post && candidates.length &&
+        vary && (gridScrollsLeft > 0 || (freshHunts < FRESH_HUNT_SCROLLS && !(page.posts || []).some(id => !hasSeen(id) && !shownBefore(id))))) {
+      // Look further down before opening: a different starting point each run,
+      // and past tiles that earlier sessions already showed.
+      const hunting = gridScrollsLeft <= 0;
+      if (hunting) freshHunts += 1; else gridScrollsLeft -= 1;
+      update(hunting && pastSeen.size ? 'these posts were shown before. scrolling further…' : 'scrolling further down the results…');
+      const moved = await adapter.scroll(signal);
+      if (!running()) break;
+      if (moved) stats.scroll += 1;
+      else { gridScrollsLeft = 0; freshHunts = FRESH_HUNT_SCROLLS; }
+      pauseAfter = 'browse';
     } else if (!needsSearchScroll && !page.post && candidates.length) {
-      const target = candidates[0];
+      let target = candidates[0];
+      if (vary) {
+        const shown = (page.posts || []).filter(id => !hasSeen(id));
+        const fresh = shown.filter(id => !shownBefore(id));
+        const pool = (fresh.length ? fresh : shown.length ? shown : candidates).slice(0, TILE_CHOICES);
+        target = pool[randomBetween(0, pool.length - 1, vary)];
+      }
       seen.add(postIdentity(target));
       update('opening a matching post…');
       const opened = await adapter.open(target, signal);
@@ -608,7 +664,21 @@ async function runSession(settings, adapter, signal, options = {}) {
       stalled = 0;
       discoveredPost();
       update('watching a post from your search.');
-      pauseAfter = viewerPause();
+      if (vary) {
+        chainLeft = randomBetween(...CHAIN_POSTS, vary);
+        pendingView = viewerPause();
+        pauseAfter = 'transition';
+      } else pauseAfter = viewerPause();
+    } else if (vary && pendingView && page.post?.viewer && !needsSearchScroll) {
+      // Watch once the post is known, so one with nothing left to do (already
+      // liked, author already followed) is a quick look instead of a full watch.
+      pauseAfter = pendingView;
+      pendingView = null;
+      // Once every target is met, viewing goes back to ordinary watches.
+      const usedUp = !offersEngagement(page.post) && targetsLeft();
+      usedUpStreak = usedUp ? usedUpStreak + 1 : 0;
+      if (usedUp && nothingSkims < MAX_NOTHING_SKIMS && vary() < .8) { pauseAfter = 'skim'; nothingSkims += 1; }
+      else if (pauseAfter !== 'skim') nothingSkims = 0;
     } else {
       const post = page.post;
       const eligible = [];
@@ -714,6 +784,29 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (action === 'read') {
         stats.read += 1;
         update('taking a reading pause…');
+      } else if (action === 'scroll' && vary && post?.viewer && adapter.advance && !jumpHeld &&
+          (chainLeft <= 0 || pastStreak >= PAST_STREAK_JUMP || usedUpStreak >= USED_UP_STREAK_JUMP)) {
+        // Step out of the viewer and continue further down the results instead
+        // of paging through the next posts in order. Stretches of posts shown
+        // before, or with nothing left to do, get a longer jump.
+        needsSearchScroll = false;
+        const usedUp = pastStreak >= PAST_STREAK_JUMP || usedUpStreak >= USED_UP_STREAK_JUMP;
+        update(pastStreak >= PAST_STREAK_JUMP ? 'these posts were shown before. jumping further down the results…'
+          : usedUp ? 'nothing new to like or follow here. jumping further down the results…' : 'jumping further down the results…');
+        const left = await adapter.leavePost(post, signal);
+        if (!running()) break;
+        if (left === false) {
+          // The viewer stayed open: page on once, then try the jump again.
+          jumpHeld = true;
+          chainLeft = randomBetween(...CHAIN_POSTS, vary);
+        } else {
+          pastStreak = 0;
+          usedUpStreak = 0;
+          chainLeft = Infinity;
+          gridScrollsLeft = randomBetween(...(usedUp ? USED_UP_JUMP_SCROLLS : JUMP_SCROLLS), vary);
+          freshHunts = 0;
+        }
+        pauseAfter = 'transition';
       } else if (action === 'scroll') {
         needsSearchScroll = false;
         const inViewer = Boolean(post?.viewer && adapter.advance);
@@ -723,7 +816,11 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (moved === 'login') throw new Error(`sign in to ${platform}, then start a new session.`);
         if (moved) { stats.scroll += 1; stalled = 0; } else { stats.skipped += 1; stalled += 1; }
         if (post && (!inViewer || !moved)) await adapter.leavePost(post, signal);
-        if (inViewer && moved) pauseAfter = viewerPause();
+        if (inViewer && moved) {
+          chainLeft -= 1;
+          jumpHeld = false;
+          if (vary) { pendingView = viewerPause(); pauseAfter = 'transition'; } else pauseAfter = viewerPause();
+        }
         if (!post && !moved && stalled >= 2) pauseAfter = 'exhausted';
         else if (!post && moved && !candidates.length && revisitedTerm) pauseAfter = 'transition';
         update(inViewer ? (moved ? 'watching the next post.' : 'continuing from your search results...') : (moved ? 'scrolled to more content.' : 'scrolling made no progress. waiting for results...'));

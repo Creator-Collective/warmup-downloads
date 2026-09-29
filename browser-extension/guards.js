@@ -112,6 +112,26 @@ function normalizeCheckpoint(value, settings) {
     ...(explained ? { shortfall: Object.fromEntries(actionNames.map(name => [name, { ...value.shortfall[name] }])), assessed: [...value.assessed] } : {})
   };
 }
+// Posts earlier sessions showed, as [post identity, time] pairs, newest last. Kept
+// only on this device, for two weeks, so a new session can reach posts it hasn't
+// shown before. Anything malformed is dropped.
+const BROWSE_HISTORY_LIMIT = 3000;
+const BROWSE_HISTORY_MS = 14 * 86400000;
+const browseIdentity = value => typeof value === 'string' && /^instagram:[\w-]{1,100}$/.test(value);
+function normalizeBrowseHistory(value, now = Date.now()) {
+  if (!Array.isArray(value)) return [];
+  return value.filter(entry => Array.isArray(entry) && entry.length === 2 && browseIdentity(entry[0]) &&
+    Number.isFinite(entry[1]) && entry[1] > now - BROWSE_HISTORY_MS && entry[1] <= now + 60000).slice(-BROWSE_HISTORY_LIMIT);
+}
+function mergeBrowseHistory(value, seen, now = Date.now()) {
+  const entries = new Map(normalizeBrowseHistory(value, now));
+  for (const id of Array.isArray(seen) ? seen : []) {
+    if (!browseIdentity(id)) continue;
+    entries.delete(id);
+    entries.set(id, now);
+  }
+  return [...entries].slice(-BROWSE_HISTORY_LIMIT);
+}
 function remainingTime(job) {
   if (!job || job.phase === 'complete') return 0;
   if (job.stopRequested || ['stopped', 'error'].includes(job.phase)) return Number.isFinite(job.remainingMs) ? Math.max(0, job.remainingMs) : 0;
@@ -128,4 +148,4 @@ function publicState(job) {
     canChangeFocus: Boolean(job.sessionId && ['starting', 'running'].includes(job.phase) && !job.stopRequested && job.deadline > Date.now()),
     settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights, focus: ['like','follow','comment'].includes(job.settings.focus) ? job.settings.focus : 'balanced' } : undefined };
 }
-if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, normalizeCheckpoint, remainingTime, resumableJob, publicState };
+if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, normalizeCheckpoint, normalizeBrowseHistory, mergeBrowseHistory, remainingTime, resumableJob, publicState };
