@@ -5,7 +5,7 @@ so repeat keywords replayed posts already liked from accounts already
 followed. a student set 10 follows for 20 minutes and got 2.
 
 misc:
-- start on a random keyword, scroll a random 0-3 screens, open a random tile in view
+- start on a random keyword, scroll a random 1-4 screens, open a random tile in view
 - page through 3-9 posts, then close the viewer and scroll further down
 - jump 3-6 screens after 3 used-up posts in a row or 2 posts earlier sessions showed
 - quick look instead of a full watch on posts with nothing left to do, ordinary watches once targets are met

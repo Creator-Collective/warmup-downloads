@@ -22,8 +22,13 @@ async function storedBrowseHistory() {
   return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
 }
 async function browseHistory(platform) {
-  try { return normalizeBrowseHistory((await storedBrowseHistory())[platform]).map(([id]) => id); }
-  catch { return []; }
+  try {
+    const stored = await storedBrowseHistory();
+    const kept = normalizeBrowseHistory(stored[platform]);
+    // Entries older than two weeks leave storage, not just this answer.
+    if (Array.isArray(stored[platform]) && kept.length !== stored[platform].length) await chrome.storage.local.set({ [BROWSE_HISTORY_KEY]: { ...stored, [platform]: kept } });
+    return kept.map(([id]) => id);
+  } catch { return []; }
 }
 async function rememberBrowsing(job) {
   const seen = job?.checkpoint?.seen;

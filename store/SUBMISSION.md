@@ -27,7 +27,7 @@ Website content is processed locally for matching and interaction verification. 
 
 Upload chrome-web-store-0.6.61.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
-Version 0.6.61 varies how each Instagram session browses its keyword results: a different starting keyword and post, a few posts at a time, then further down the results. It keeps a two-week list of post links it already showed in local extension storage so later sessions reach new posts. No new permissions, no change to action limits, cooldowns or confirmation.
+Version 0.6.61 varies how each Instagram session browses its keyword results: a randomly chosen starting keyword and post, a few posts at a time, then further down the results. It keeps a two-week list of the post IDs it already showed in local extension storage and prefers other posts when they are in reach. No new permissions, no change to action limits, cooldowns or confirmation.
 
 Version 0.6.59 fixes starting a new session while the finished session tab is still open. The extension now finds its own session tab with chrome.runtime.getContexts instead of reading tab addresses it cannot see. No new permissions.
 

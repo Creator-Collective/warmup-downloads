@@ -113,7 +113,7 @@ test('a session pages through a few posts, then jumps further down the results',
     else if (move !== 'scroll') chain = 0;
   }
   assert.ok(h.moves.filter(move => move === 'leave').length >= 3, `jumps: ${h.moves.filter(move => move === 'leave').length}`);
-  assert.ok(longest <= 9, `longest run of next: ${longest}`);
+  assert.ok(longest >= 3 && longest <= 9, `longest run of next: ${longest}`);
   const deepest = Math.max(...h.opens.map(open => open.index));
   assert.ok(deepest > 24, `deepest opened tile: ${deepest}`);
 });

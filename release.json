@@ -3,9 +3,9 @@
   "releasedAt": "2026-09-29",
   "summary": "each session browses differently and reaches new accounts",
   "changes": [
-    "each session starts on a different keyword and a different post, pages through a few posts, then scrolls further down the results.",
-    "posts earlier sessions already showed are passed over, so running the same keywords again reaches new accounts to like and follow.",
-    "posts with nothing left to do, like ones already liked from accounts you follow, get a quick look instead of a full watch.",
+    "each session starts on a random keyword and a random post, pages through a few posts, then scrolls further down the results.",
+    "posts earlier sessions already showed are skipped when newer ones are in reach, so running the same keywords again gets to accounts you haven't followed yet.",
+    "posts with nothing left to do, like ones already liked from accounts you follow, usually get a quick look instead of a full watch.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
   ],
   "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.61.zip",

@@ -267,7 +267,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   // skipped when fresher ones are in reach, never a reason to stop.
   const pastSeen = new Set(vary ? strings(options.history).slice(-MAX_BROWSE_HISTORY) : []);
   const shownBefore = id => pastSeen.has(postIdentity(id));
-  let gridScrollsLeft = 0, freshHunts = 0, chainLeft = Infinity, pastStreak = 0, lastViewed = null, pendingView = null, nothingSkims = 0, usedUpStreak = 0;
+  let gridScrollsLeft = 0, freshHunts = 0, chainLeft = Infinity, pastStreak = 0, lastViewed = null, pendingView = null, nothingSkims = 0, usedUpStreak = 0, jumpHeld = false;
   const done = Object.fromEntries(['like', 'follow', 'comment'].map(action => [action, new Set(strings(checkpoint?.done?.[action]))]));
   const pausedActions = new Set(strings(checkpoint?.pausedActions).filter(action => action in done));
   const usedComments = new Set(strings(checkpoint?.usedComments));
@@ -784,7 +784,7 @@ async function runSession(settings, adapter, signal, options = {}) {
       if (action === 'read') {
         stats.read += 1;
         update('taking a reading pause…');
-      } else if (action === 'scroll' && vary && post?.viewer && adapter.advance &&
+      } else if (action === 'scroll' && vary && post?.viewer && adapter.advance && !jumpHeld &&
           (chainLeft <= 0 || pastStreak >= PAST_STREAK_JUMP || usedUpStreak >= USED_UP_STREAK_JUMP)) {
         // Step out of the viewer and continue further down the results instead
         // of paging through the next posts in order. Stretches of posts shown
@@ -795,10 +795,17 @@ async function runSession(settings, adapter, signal, options = {}) {
           : usedUp ? 'nothing new to like or follow here. jumping further down the results…' : 'jumping further down the results…');
         const left = await adapter.leavePost(post, signal);
         if (!running()) break;
-        pastStreak = 0;
-        usedUpStreak = 0;
-        if (left === false) chainLeft = randomBetween(...CHAIN_POSTS, vary);
-        else { chainLeft = Infinity; gridScrollsLeft = randomBetween(...(usedUp ? USED_UP_JUMP_SCROLLS : JUMP_SCROLLS), vary); freshHunts = 0; }
+        if (left === false) {
+          // The viewer stayed open: page on once, then try the jump again.
+          jumpHeld = true;
+          chainLeft = randomBetween(...CHAIN_POSTS, vary);
+        } else {
+          pastStreak = 0;
+          usedUpStreak = 0;
+          chainLeft = Infinity;
+          gridScrollsLeft = randomBetween(...(usedUp ? USED_UP_JUMP_SCROLLS : JUMP_SCROLLS), vary);
+          freshHunts = 0;
+        }
         pauseAfter = 'transition';
       } else if (action === 'scroll') {
         needsSearchScroll = false;
@@ -811,6 +818,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         if (post && (!inViewer || !moved)) await adapter.leavePost(post, signal);
         if (inViewer && moved) {
           chainLeft -= 1;
+          jumpHeld = false;
           if (vary) { pendingView = viewerPause(); pauseAfter = 'transition'; } else pauseAfter = viewerPause();
         }
         if (!post && !moved && stalled >= 2) pauseAfter = 'exhausted';
