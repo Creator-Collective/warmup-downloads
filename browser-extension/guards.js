@@ -118,19 +118,30 @@ function normalizeCheckpoint(value, settings) {
 const BROWSE_HISTORY_LIMIT = 3000;
 const BROWSE_HISTORY_MS = 14 * 86400000;
 const browseIdentity = value => typeof value === 'string' && /^instagram:[\w-]{1,100}$/.test(value);
-function normalizeBrowseHistory(value, now = Date.now()) {
+function normalizeBrowseHistory(value, now = Date.now(), maxAgeMs = BROWSE_HISTORY_MS, limit = BROWSE_HISTORY_LIMIT) {
   if (!Array.isArray(value)) return [];
   return value.filter(entry => Array.isArray(entry) && entry.length === 2 && browseIdentity(entry[0]) &&
-    Number.isFinite(entry[1]) && entry[1] > now - BROWSE_HISTORY_MS && entry[1] <= now + 60000).slice(-BROWSE_HISTORY_LIMIT);
+    Number.isFinite(entry[1]) && entry[1] > now - maxAgeMs && entry[1] <= now + 60000).slice(-limit);
 }
-function mergeBrowseHistory(value, seen, now = Date.now()) {
-  const entries = new Map(normalizeBrowseHistory(value, now));
+function mergeBrowseHistory(value, seen, now = Date.now(), maxAgeMs = BROWSE_HISTORY_MS, limit = BROWSE_HISTORY_LIMIT) {
+  const entries = new Map(normalizeBrowseHistory(value, now, maxAgeMs, limit));
   for (const id of Array.isArray(seen) ? seen : []) {
     if (!browseIdentity(id)) continue;
     entries.delete(id);
     entries.set(id, now);
   }
-  return [...entries].slice(-BROWSE_HISTORY_LIMIT);
+  return [...entries].slice(-limit);
+}
+// Posts this device already commented on, same shape as browsing history. Kept
+// for six months: unlike browsing history this is a rule, so a later session
+// never comments on the same post again.
+const COMMENTED_POSTS_LIMIT = 5000;
+const COMMENTED_POSTS_MS = 180 * 86400000;
+const normalizeCommentedPosts = (value, now = Date.now()) => normalizeBrowseHistory(value, now, COMMENTED_POSTS_MS, COMMENTED_POSTS_LIMIT);
+function mergeCommentedPosts(value, ids, now = Date.now()) {
+  // A post keeps the time of its first comment; only new posts are added.
+  const known = new Set(normalizeCommentedPosts(value, now).map(([id]) => id));
+  return mergeBrowseHistory(value, (Array.isArray(ids) ? ids : []).filter(id => !known.has(id)), now, COMMENTED_POSTS_MS, COMMENTED_POSTS_LIMIT);
 }
 function remainingTime(job) {
   if (!job || job.phase === 'complete') return 0;
@@ -148,4 +159,4 @@ function publicState(job) {
     canChangeFocus: Boolean(job.sessionId && ['starting', 'running'].includes(job.phase) && !job.stopRequested && job.deadline > Date.now()),
     settings: job.settings ? { platform: validPlatform(job.settings.platform), minutes: job.settings.minutes, terms: job.settings.terms, pace: job.settings.pace, limits: job.settings.limits, weights: job.settings.weights, focus: ['like','follow','comment'].includes(job.settings.focus) ? job.settings.focus : 'balanced' } : undefined };
 }
-if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, normalizeCheckpoint, normalizeBrowseHistory, mergeBrowseHistory, remainingTime, resumableJob, publicState };
+if (typeof module !== 'undefined') module.exports = { platforms, validPlatform, platformURL, instagramURL, dashboardSender, panelSender, runnerSender, normalizeUnconfirmed, normalizePausedActions, normalizeCheckpoint, normalizeBrowseHistory, mergeBrowseHistory, normalizeCommentedPosts, mergeCommentedPosts, remainingTime, resumableJob, publicState };

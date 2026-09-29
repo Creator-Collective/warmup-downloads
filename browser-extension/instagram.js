@@ -148,6 +148,23 @@ function inspectInstagram(request = {}) {
     }
     return [];
   });
+  // Whether this post already shows a comment by the student's own account, from
+  // any session or device. A comment row is the nearest container around one
+  // comment permalink of this post; it counts only when that row has exactly one
+  // author and it is the student. The caption and other posts never count.
+  const postCode = new URL(id).pathname.split('/')[2];
+  const ownComment = Boolean(ownProfile) && [...scope.querySelectorAll('a[href]')].some(link => {
+    let url; try { url = new URL(link.href); } catch { return false; }
+    const match = url.origin === location.origin && url.pathname.match(/^\/(?:p|reel)\/([\w-]+)\/c\/\d+\/?$/);
+    if (!match || match[1] !== postCode) return false;
+    for (let row = link.parentElement; row && row !== scope; row = row.parentElement) {
+      const paths = [...row.querySelectorAll('a[href]')].flatMap(item => { try { const path = new URL(item.href); return path.origin === location.origin ? [path.pathname] : []; } catch { return []; } });
+      if (new Set(paths.filter(path => /^\/(?:p|reel)\/[\w-]+\/c\/\d+\/?$/.test(path))).size > 1) return false;
+      const authors = new Set(paths.filter(path => /^\/[\w.]+\/$/.test(path)).map(path => path.toLowerCase()));
+      if (authors.size) return authors.size === 1 && authors.has(ownProfile.toLowerCase());
+    }
+    return false;
+  });
   const visibleFields = [...scope.querySelectorAll('textarea')].filter(visible);
   const hintedFields = visibleFields.filter(element => /comment/i.test(element.placeholder || element.getAttribute('aria-label') || ''));
   const hasPostLabel = form => [...form.querySelectorAll('button, [role="button"]')].some(element => label(element).toLowerCase() === 'post');
@@ -174,7 +191,7 @@ function inspectInstagram(request = {}) {
     ? { positionMs: Math.round(video.currentTime * 1000), durationMs: Math.round(video.duration * 1000), rate: video.playbackRate,
       playing: !video.paused && !video.ended && video.readyState >= 2, ended: Boolean(video.ended), source: video.currentSrc || video.src || '' } : null;
   const videoRemainingMs = videoPlayback?.playing ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
-  const post = { id, author, videoRemainingMs, videoPlayback, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)) };
+  const post = { id, author, videoRemainingMs, videoPlayback, viewer: Boolean(postDialog), next: Boolean(point(viewerNext)), text: `${caption} ${alt}`.slice(0, 6000), caption: visibleCaption.slice(0, 6000), like: Boolean(point(like)), follow: Boolean(point(follow)), comment: Boolean(ownProfile && point(textarea)), commented: ownComment };
   if (!post.comment) {
     const blocker = !ownProfile ? 'account' : 'composer';
     const lang = (document.documentElement?.getAttribute('lang') || '').trim();
