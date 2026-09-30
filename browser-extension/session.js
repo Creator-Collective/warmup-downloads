@@ -152,7 +152,7 @@ const MAX_DRAFT_LIFTS = 1;
 const SKIP_REPEAT_MS = 180000;
 const REVISIT_GRACE_MS = 120000;
 const DISCOVERY_GRACE_MS = 30000;
-// Instagram browsing variety. Each run starts on a different keyword and a
+// Browsing variety. Each run starts on a different keyword and a
 // different tile, pages through a few posts, then jumps further down the results.
 // Posts earlier sessions already showed are passed over, and a post with nothing
 // left to do gets a quick look instead of a full watch.
@@ -253,7 +253,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
   // Browsing variety is opt-in: without it, results are walked top to bottom.
-  const vary = platform === 'instagram' && typeof options.browseRandom === 'function' ? options.browseRandom : null;
+  const vary = ['instagram', 'tiktok'].includes(platform) && typeof options.browseRandom === 'function' ? options.browseRandom : null;
   const commentSalt = typeof options.commentSalt === 'string' ? options.commentSalt.slice(0, 64) : '';
   const checkpoint = options.checkpoint?.version === 1 ? options.checkpoint : null;
   const nonnegative = (value, fallback = 0) => Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -442,7 +442,8 @@ async function runSession(settings, adapter, signal, options = {}) {
     if (!targetOpen(action)) return false;
     const key = action === 'follow' ? post.author : postIdentity(post.id);
     if (!key || !post[action] || done[action].has(key) || (action === 'comment' && alreadyCommented(post, key))) return false;
-    return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && searchResults.has(postIdentity(post.id)));
+    const fromSearch = searchResults.has(platform === 'tiktok' ? tiktokPostIdentity(post.id) : postIdentity(post.id));
+    return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && fromSearch);
   });
   const watchVideoRemainder = async initialPost => {
     const initial = initialPost.videoPlayback;
@@ -483,8 +484,10 @@ async function runSession(settings, adapter, signal, options = {}) {
     if (!running()) return;
     const ranges = { transition: [500, 1800], browse: [1800, 5200], retry: [6000, 10000], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[platform === 'tiktok' && action === 'fullwatch' ? 'watch' : action] || ranges.browse;
+    // A quick look lasts the same on both platforms. TikTok only skims posts
+    // with nothing left to do, while browsing variety is on.
+    if (action === 'skim') { min = 1500; max = 4000; }
     if (platform === 'instagram') {
-      if (action === 'skim') { min = 1500; max = 4000; }
       if (action === 'watch') { min = 6000; max = 18000; }
       if (action === 'fullwatch') { min = 10000; max = 22000; }
     }

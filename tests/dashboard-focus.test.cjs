@@ -6,7 +6,7 @@ const { JSDOM } = require('jsdom');
 const { validateSettings } = require('../plan.js');
 const root = path.resolve(__dirname, '..');
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
-function view({ supports = true, running = true, legacyTikTok = false } = {}) {
+function view({ supports = true, running = true, tiktok = false, platforms } = {}) {
   const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), { url: 'chrome-extension://extension-id/sidepanel.html', runScripts: 'outside-only' });
   const { window } = dom;
   const requests = [];
@@ -16,14 +16,14 @@ function view({ supports = true, running = true, legacyTikTok = false } = {}) {
   let state = { running, phase: running ? 'running' : 'ready', sessionId: 'session-1', canChangeFocus: running, deadline: Date.now() + 120000,
     settings: running ? validateSettings({ platform: 'instagram', minutes: 5, niche: 'branding', enableComments: true, customLimits: { like: 3, follow: 2, comment: 1 } }) : undefined,
     tabId: 8, message: 'watching a video.', activity: [{ time: '2026-09-19T18:00:42Z', message: 'watching a video.' }], stats: {} };
-  if (legacyTikTok) state.settings = { ...state.settings, platform: 'tiktok' };
+  if (tiktok) state.settings = { ...state.settings, platform: 'tiktok' };
   let responder;
   window.setInterval = (fn, ms) => { timers.set(ms, fn); return 1; };
   window.chrome = { runtime: { sendMessage: async message => {
     requests.push(message);
     if (responder) { const result = await responder(message); if (result !== undefined) return result; }
-    if (message.type === 'hello') return { ok: true, data: { supportsFocus: supports, state } };
-    if (message.type === 'tabs') return { ok: true, data: [{ id: 8, title: 'Instagram - creator videos' }] };
+    if (message.type === 'hello') return { ok: true, data: { supportsFocus: supports, ...(platforms ? { platforms } : {}), state } };
+    if (message.type === 'tabs') return { ok: true, data: [{ id: 8, title: message.platform === 'tiktok' ? 'TikTok - creator videos' : 'Instagram - creator videos' }] };
     if (message.type === 'set-focus') { state = { ...state, settings: { ...state.settings, focus: message.focus } }; return { ok: true, data: state }; }
     if (message.type === 'stop') { state = { ...state, running: false, canChangeFocus: false, phase: 'stopped' }; }
     return { ok: true, data: state };
@@ -54,18 +54,25 @@ test('old extensions keep ordinary sessions usable without offering unsupported 
   assert.equal(h.requests.some(r => r.type === 'set-focus'), false);
 });
 
-test('an older installed tiktok session keeps stop available without changing instagram controls or focus', async t => {
-  const h = view({ legacyTikTok: true }); t.after(() => h.dom.window.close()); await tick();
-  assert.equal(h.$('platform').value, 'instagram');
-  assert.equal(h.$('niche').value, 'personal branding');
-  assert.equal(h.$('focus-controls').hidden, true);
+test('a running tiktok session shows as tiktok with focus and stop, and leaves the instagram draft alone', async t => {
+  const h = view({ tiktok: true, platforms: ['instagram', 'tiktok'] }); t.after(() => h.dom.window.close()); await tick();
+  assert.equal(h.$('platform').value, 'tiktok');
+  assert.equal(h.$('tab-label').textContent, 'tiktok tab');
+  assert.equal(h.$('niche').value, 'branding');
+  assert.equal(h.$('instagram-tab').value, '8');
+  assert.equal(h.$('focus-controls').hidden, false);
   assert.equal(h.$('stop').hidden, false);
   h.change('follow'); await tick();
-  assert.equal(h.requests.some(request => request.type === 'set-focus'), false);
+  assert.deepEqual({ ...h.requests.find(request => request.type === 'set-focus') }, { type: 'set-focus', sessionId: 'session-1', focus: 'follow' });
   h.$('stop').click(); await tick();
   assert.equal(h.requests.some(request => request.type === 'stop'), true);
   assert.equal(h.$('stop').hidden, true);
+  assert.equal(h.$('platform').value, 'tiktok');
   assert.equal(h.$('niche').value, 'personal branding');
+  const saved = JSON.parse(h.window.localStorage.getItem('cc-web-session'));
+  assert.equal(saved.profiles.tiktok.focus, 'follow');
+  assert.equal(saved.profiles.instagram.focus, 'balanced');
+  assert.equal(saved.profiles.instagram.niche, 'personal branding');
 });
 
 test('failed focus updates restore the acknowledged choice and keep a useful error', async t => {
@@ -103,16 +110,21 @@ test('an old in-flight poll cannot overwrite an acknowledged focus change', asyn
   assert.equal(h.$('focus').value, 'follow');
 });
 
-test('activity timestamps include seconds and machine-readable time; only the instagram tab picker remains', async t => {
+test('activity timestamps include seconds and machine-readable time; the platform picker offers instagram and tiktok with local logos', async t => {
   const h = view(); t.after(() => h.dom.window.close()); await tick();
   const time = h.window.document.querySelector('#activity time');
   assert.match(time.textContent, /:\d{2}:42/);
   assert.equal(time.dateTime, '2026-09-19T18:00:42.000Z');
-  assert.equal(h.$('platform').type, 'hidden');
+  assert.equal(h.$('platform').tagName, 'SELECT');
+  assert.deepEqual(Array.from(h.$('platform').options, option => [option.value, option.dataset.icon]), [['instagram', 'instagram'], ['tiktok', 'tiktok']]);
   assert.equal(h.$('platform').value, 'instagram');
-  assert.equal(h.$('platform').closest('.select-control'), null);
-  assert.equal(h.window.document.querySelector('option[value="tiktok"]'), null);
+  const platform = h.$('platform').closest('.select-control').querySelector('img');
+  assert.equal(platform.getAttribute('src'), 'platform-instagram.svg');
+  assert.equal(platform.alt, '');
   assert.equal(h.$('instagram-tab').closest('.select-control').querySelector('img').getAttribute('src'), 'platform-instagram.svg');
+  const tiktok = view({ tiktok: true }); t.after(() => tiktok.dom.window.close()); await tick();
+  assert.equal(tiktok.$('platform').closest('.select-control').querySelector('img').getAttribute('src'), 'platform-tiktok.svg');
+  assert.equal(tiktok.$('instagram-tab').closest('.select-control').querySelector('img').getAttribute('src'), 'platform-tiktok.svg');
   assert.equal(h.$('pace'), null);
   assert.equal(h.$('mix-like'), null);
 });

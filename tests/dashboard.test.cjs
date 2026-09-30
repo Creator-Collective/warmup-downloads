@@ -138,7 +138,7 @@ test('the submitted plan matches the visible automatic and custom amounts',async
  assert.equal(h.element('settings').disabled,true);
 });
 
-test('saved tiktok selection opens and starts only instagram with every engagement target available',async()=>{
+test('a saved tiktok selection opens and starts instagram when the extension runs only instagram',async()=>{
  const h=dashboard(true,{platform:'tiktok'});for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(h.element('tab-label').textContent,'instagram tab');
  assert.equal(h.element('open-instagram').textContent,'open instagram ↗');
@@ -151,27 +151,91 @@ test('saved tiktok selection opens and starts only instagram with every engageme
  assert.equal(request.settings.platform,'instagram');
 });
 
-test('instagram preferences survive a saved tiktok selection and remain separate',()=>{
- const archived = {niche:'tiktok niche',minutes:'20',customLimits:{follow:'4'}};
- const h=dashboard(false,{version:3,platform:'tiktok',profiles:{instagram:{niche:'instagram niche',minutes:'10',customLimits:{follow:'0',comment:'7'}},tiktok:archived}});
- assert.equal(h.element('niche').value,'instagram niche');
- assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,7);
- assert.deepEqual(h.saved().profiles.tiktok,archived);
- h.edit('minutes','20');
- const reopened=dashboard(false,h.saved());
- assert.equal(reopened.settings().platform,'instagram');
- assert.deepEqual(reopened.settings(),h.settings());
- assert.equal(reopened.settings().limits.follow,0);assert.equal(reopened.settings().limits.comment,7);
+test('choosing tiktok lists tiktok tabs and starts a tiktok session with every engagement target available',async()=>{
+ const h=dashboard(true,null,(message,data)=>message.type==='hello'?{...data,platforms:['instagram','tiktok']}:data);await settleDashboard();
+ assert.equal(h.element('platform').value,'instagram');
+ assert.equal(h.element('instagram-tab').value,'7');
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ await settleDashboard();
+ assert.equal(h.element('tab-label').textContent,'tiktok tab');
+ assert.equal(h.element('instagram-tab').dataset.icon,'tiktok');
+ assert.equal(h.element('open-instagram').textContent,'open tiktok ↗');
+ assert.deepEqual({...h.requests.at(-1)},{type:'tabs',platform:'tiktok'});
+ assert.equal(h.element('instagram-tab').value,'8');
+ assert.equal(h.element('limit-comment').value,'2');
+ assert.equal(h.element('limit-comment').disabled,false);
+ assert.deepEqual(h.settings().limits,{like:15,follow:5,comment:2});
+ assert.equal(h.element('start').disabled,false);
+ assert.equal(h.element('form-error').hidden,true);
+ await h.element('session-form').listeners.submit({preventDefault(){}});
+ const request=h.requests.findLast(r=>r.type==='start');
+ assert.equal(request.settings.platform,'tiktok');
+ assert.equal(request.tabId,8);
+ assert.equal(h.saved().platform,'tiktok');
 });
 
-test('legacy tiktok settings are retained without becoming instagram preferences',()=>{
+test('an extension without a platform list asks for an update instead of listing or starting tiktok',async()=>{
+ const h=dashboard(true);await settleDashboard();
+ const listed=h.requests.filter(r=>r.type==='tabs').length;
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ await settleDashboard();
+ const UPDATE='update the extension to run tiktok sessions. the setup page has the new version.';
+ assert.equal(h.element('platform').value,'tiktok');
+ assert.equal(h.element('form-error').textContent,UPDATE);
+ assert.equal(h.element('form-error').hidden,false);
+ assert.equal(h.element('start').disabled,true);
+ assert.deepEqual(h.element('instagram-tab').options.map(option=>[option.text,option.value]),[['update the extension first','']]);
+ await h.poll();
+ assert.equal(h.element('form-error').textContent,UPDATE);
+ assert.equal(h.element('start').disabled,true);
+ assert.equal(h.requests.filter(r=>r.type==='tabs').length,listed,'an older extension is never asked for tiktok tabs');
+ h.element('platform').value='instagram';h.element('platform').listeners.change();
+ await settleDashboard();
+ assert.equal(h.requests.at(-1).platform,'instagram');
+ assert.equal(h.element('instagram-tab').value,'7');
+ assert.equal(h.element('start').disabled,false);
+ assert.equal(h.element('form-error').hidden,true);
+});
+
+test('each platform remembers its own targets and keywords, and a saved tiktok selection reopens on tiktok',()=>{
+ const h=dashboard();
+ h.edit('niche','instagram niche');
+ h.edit('limit-follow','0');h.element('limit-follow').listeners.blur();
+ h.edit('limit-comment','7');h.element('limit-comment').listeners.blur();
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.deepEqual(h.settings().limits,{like:15,follow:5,comment:2});
+ h.edit('niche','tiktok niche');h.edit('minutes','20');
+ h.edit('limit-follow','4');h.element('limit-follow').listeners.blur();
+ h.element('platform').value='instagram';h.element('platform').listeners.change();
+ assert.equal(h.element('niche').value,'instagram niche');
+ assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,7);
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.equal(h.element('niche').value,'tiktok niche');
+ assert.equal(h.element('minutes').value,'20');
+ assert.equal(h.settings().limits.follow,4);assert.equal(h.settings().weights.like,2);
+ const reopened=dashboard(false,h.saved());
+ assert.equal(reopened.settings().platform,'tiktok');
+ assert.deepEqual(reopened.settings(),h.settings());
+ reopened.element('platform').value='instagram';reopened.element('platform').listeners.change();
+ assert.equal(reopened.settings().limits.follow,0);assert.equal(reopened.settings().limits.comment,7);
+ const archived={niche:'tiktok niche',minutes:'20',customLimits:{follow:'4'}};
+ const stored=dashboard(false,{version:3,platform:'tiktok',profiles:{instagram:{niche:'instagram niche',minutes:'10',customLimits:{follow:'0',comment:'7'}},tiktok:archived}});
+ assert.equal(stored.element('platform').value,'tiktok');
+ assert.equal(stored.element('niche').value,'tiktok niche');
+ assert.equal(stored.settings().limits.follow,4);
+ assert.deepEqual(stored.saved().profiles.instagram,{niche:'instagram niche',minutes:'10',customLimits:{follow:'0',comment:'7'}});
+});
+
+test('legacy tiktok settings migrate only to tiktok and preserve explicit zero',()=>{
  const h=dashboard(false,{version:2,platform:'tiktok',niche:'photography',minutes:'15',customLimits:{follow:'0',comment:'2'}});
  assert.equal(h.saved().version,3);
- assert.equal(h.settings().platform,'instagram');
+ assert.equal(h.settings().platform,'tiktok');assert.equal(h.settings().limits.follow,0);
+ h.element('platform').value='instagram';h.element('platform').listeners.change();
  assert.equal(h.settings().limits.follow,5);
  assert.equal(h.settings().terms[0],'personal branding');assert.equal(h.settings().minutes,10);
- assert.equal(h.saved().profiles.tiktok.niche,'photography');
- assert.deepEqual(h.saved().profiles.tiktok.customLimits,{follow:'0',comment:'2'});
+ h.element('platform').value='tiktok';h.element('platform').listeners.change();
+ assert.equal(h.settings().terms[0],'photography');assert.equal(h.settings().minutes,15);
+ assert.equal(h.settings().limits.follow,0);assert.equal(h.settings().limits.comment,2);
 });
 
 test('results keep their actual targets after controls return to the saved draft',()=>{
@@ -235,8 +299,11 @@ test('warm-up markup has no comments toggle, instructional hints or footer links
  const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
  assert.doesNotMatch(html.slice(html.indexOf('<form id="session-form"')),/enable-comments|class="hint"|pace-help|pacing &amp; engagement mix|id="pace"|id="mix-|how comments work|plan-mode|<footer>|report a problem|>privacy</);
  assert.match(html,/session targets/);
- assert.match(html,/<input id="platform" type="hidden" value="instagram">/);
- assert.doesNotMatch(html,/tiktok|<select id="platform"/i);
+ for(const file of ['../index.html','../browser-extension/sidepanel.html']) {
+  const page=fs.readFileSync(path.join(__dirname,file),'utf8');
+  assert.match(page,/<label for="platform">platform<\/label><select id="platform"><option value="instagram" data-icon="instagram">instagram<\/option><option value="tiktok" data-icon="tiktok">tiktok<\/option><\/select>/,file);
+  assert.doesNotMatch(page,/<input id="platform"/,file);
+ }
  for(const action of ['like','follow','comment']) {
   const tag=html.match(new RegExp(`<input id="limit-${action}"[^>]*>`))[0];
   assert.match(tag,/type="number"/);assert.match(tag,/required/);assert.doesNotMatch(tag,/placeholder|disabled/);

@@ -215,16 +215,21 @@ function background(job, localStorage) {
   return { message, runner, local: () => local, job: () => saved };
 }
 
-test('a finished session hands the posts it showed to the next session', async () => {
-  const settings = validateSettings({ platform: 'instagram', minutes: 10, niche: 'sat test' });
-  const job = { sessionId: 's1', token: 'token-1', runnerTabId: 90, tabId: 7, settings, phase: 'running', stopRequested: false, deadline: Date.now() + 60000, stats: {}, unconfirmed: {}, pausedActions: [], comments: [], activity: [], message: 'running',
-    checkpoint: { seen: ['instagram:one', 'instagram:two', 'https://www.tiktok.com/@x/video/1'] } };
-  const h = background(job);
-  assert.deepEqual(plain((await h.message({ type: 'runner-history', token: 'token-1' }, h.runner())).data), []);
-  const done = await h.message({ type: 'runner-update', token: 'token-1', patch: { phase: 'complete', message: 'time’s up. your session is complete.' } }, h.runner());
-  assert.equal(done.ok, true);
-  assert.deepEqual(plain(h.local().browseHistory.instagram.map(([id]) => id)), ['instagram:one', 'instagram:two']);
-  assert.deepEqual(plain((await h.message({ type: 'runner-history', token: 'token-1' }, h.runner())).data), ['instagram:one', 'instagram:two']);
+test('a finished session hands the posts it showed to the next session on its own platform', async () => {
+  for (const [platform, seen, kept] of [
+    ['instagram', ['instagram:one', 'instagram:two', 'https://www.tiktok.com/@x/video/1/', 'https://evil.example/x'], ['instagram:one', 'instagram:two']],
+    ['tiktok', ['https://www.tiktok.com/@x/video/1', 'https://www.tiktok.com/@y.z/photo/2', 'https://www.tiktok.com/@x/video/3/', 'tiktok:x:video:4'], ['https://www.tiktok.com/@x/video/1', 'https://www.tiktok.com/@y.z/photo/2']]
+  ]) {
+    const settings = validateSettings({ platform, minutes: 10, niche: 'sat test' });
+    const job = { sessionId: 's1', token: 'token-1', runnerTabId: 90, tabId: 7, settings, phase: 'running', stopRequested: false, deadline: Date.now() + 60000, stats: {}, unconfirmed: {}, pausedActions: [], comments: [], activity: [], message: 'running', checkpoint: { seen } };
+    const h = background(job);
+    assert.deepEqual(plain((await h.message({ type: 'runner-history', token: 'token-1' }, h.runner())).data), []);
+    const done = await h.message({ type: 'runner-update', token: 'token-1', patch: { phase: 'complete', message: 'time’s up. your session is complete.' } }, h.runner());
+    assert.equal(done.ok, true);
+    assert.deepEqual(Object.keys(h.local().browseHistory), [platform]);
+    assert.deepEqual(plain(h.local().browseHistory[platform].map(([id]) => id)), kept);
+    assert.deepEqual(plain((await h.message({ type: 'runner-history', token: 'token-1' }, h.runner())).data), kept);
+  }
 });
 
 test('a history storage failure never blocks a session', async () => {

@@ -1,0 +1,12 @@
+{
+  "releasedAt": "2026-09-29",
+  "summary": "tiktok is back and works the same way as instagram",
+  "changes": [
+    "pick instagram or tiktok in the platform menu. a tiktok session searches your keywords, watches, likes, follows and comments within your targets, just like instagram.",
+    "tiktok gets everything instagram has: resume, the end-of-session summary, a different path through the results each session, and never commenting twice on the same post.",
+    "a tiktok like or follow only counts once a fresh copy of the post still shows it. if tiktok undoes it on your account, it shows as not confirmed instead.",
+    "sign in to tiktok in the same chrome profile and keep tiktok in english before starting.",
+    "instagram sessions work exactly as before.",
+    "replace the files in your original extension folder, reload the extension and reopen warm-up."
+  ]
+}

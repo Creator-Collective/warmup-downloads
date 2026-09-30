@@ -343,8 +343,12 @@ function inspectTikTok(request = {}) {
     Number.isFinite(video.currentTime) && video.currentTime >= 0 && video.currentTime < video.duration &&
     Number.isFinite(video.playbackRate) && video.playbackRate > 0
     ? Math.ceil((video.duration - video.currentTime) / video.playbackRate * 1000) : null;
+  // Whether this post already shows a comment by the student's own account, from
+  // any session or device: a top-level comment row whose one author is the student.
+  // Replies, the caption and other posts never count. Only read for plain page reads.
+  const ownComment = Boolean(ownProfile && !request.action) && commentRows().some(row => row.author === ownProfile);
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
-    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))) };
+    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))), commented: ownComment };
   // Why comments can't run here, as a fixed code for the session's message.
   if (!post.comment) post.commentBlocker = ownProfile ? 'composer' : 'account';
   if (probing) {

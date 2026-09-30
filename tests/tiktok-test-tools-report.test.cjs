@@ -283,16 +283,17 @@ async function dashboard({ hosted = false, hello = {}, answers = {} } = {}) {
 }
 
 test('the test tools appear only in a side panel whose own build reports them', async t => {
-  for (const [name, options, shown] of [
+  // The hosted page stays on instagram, which a tiktok-only reply cannot list, so it sends only hello.
+  for (const [name, options, shown, sent = ['hello', 'tabs']] of [
     ['tiktok test build side panel', { hello: { platforms: ['tiktok'], testTools: true } }, true],
     ['instagram build side panel', { hello: { platforms: ['instagram'] } }, false],
     ['side panel of an older build', {}, false],
-    ['hosted page hearing a test build reply', { hosted: true, hello: { platforms: ['tiktok'], testTools: true } }, false]
+    ['hosted page hearing a test build reply', { hosted: true, hello: { platforms: ['tiktok'], testTools: true } }, false, ['hello']]
   ]) await t.test(name, async () => {
     const h = await dashboard(options);
     try {
       for (const id of ['test-tools', 'check-page', 'copy-report', 'test-status', 'test-output']) assert.equal(Boolean(h.$(id)), shown, `${name}: ${id}`);
-      assert.deepEqual(h.requests().map(request => request.type), ['hello', 'tabs'], 'nothing extra is sent on connect');
+      assert.deepEqual(h.requests().map(request => request.type), sent, 'nothing extra is sent on connect');
     } finally { h.dom.window.close(); }
   });
 });

@@ -8,8 +8,9 @@ const { JSDOM } = require('jsdom');
 const { validateSettings } = require('../plan.js');
 const { resumableJob, publicState } = require('../browser-extension/guards.js');
 
-// Each build lists the platforms it may drive in features.js. The instagram build
-// lists only instagram; a tiktok test build lists only tiktok. These tests load the
+// Each build lists the platforms it may drive in features.js. The student build lists
+// instagram and tiktok. Older feature files list only instagram, or nothing (instagram
+// only), and the retired tiktok test build listed only tiktok. These tests load the
 // real background.js with each list, and the real side panel and hosted page markup.
 const root = path.resolve(__dirname, '..');
 const extension = path.join(root, 'browser-extension');
@@ -23,6 +24,7 @@ const NOW = 1000000;
 const FEATURES = {
   real: null,
   legacy: 'const productFeatures = Object.freeze({ accountSignup: false });',
+  instagram: "const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['instagram']) });",
   tiktok: "const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['tiktok']), testTools: true });"
 };
 
@@ -91,35 +93,42 @@ function savedJob(platform = 'tiktok', patch = {}) {
     stats: checkpoint.stats, unconfirmed: checkpoint.unconfirmed, pausedActions: [], comments: checkpoint.comments, activity: [{ time: 1000, message: 'watching your post.' }], message: 'session stopped.', ...patch };
 }
 
-test('the instagram build lists only instagram, and hello says so without test tools', async () => {
+test('the student build lists instagram and tiktok, and hello says so without test tools', async () => {
   const h = worker('real');
-  assert.deepEqual(plain(vm.runInContext('productFeatures.platforms', h.ctx)), ['instagram']);
+  assert.deepEqual(plain(vm.runInContext('productFeatures.platforms', h.ctx)), ['instagram', 'tiktok']);
   assert.equal(vm.runInContext('Object.isFrozen(productFeatures.platforms)', h.ctx), true);
   assert.equal(vm.runInContext('productFeatures.testTools', h.ctx), undefined);
   for (const source of [website, panel]) {
     const hello = await h.message({ type: 'hello' }, source);
     assert.deepEqual(Object.keys(hello.data).sort(), ['platforms', 'state', 'supportsFocus', 'version']);
-    assert.deepEqual(hello.data.platforms, ['instagram']);
+    assert.deepEqual(hello.data.platforms, ['instagram', 'tiktok']);
     assert.equal(Object.hasOwn(hello.data, 'testTools'), false);
+  }
+  assert.deepEqual(await h.message({ type: 'tabs', platform: 'youtube' }), { ok: false, error: 'choose instagram or tiktok.' });
+  assert.deepEqual(await h.message({ type: 'tabs' }), { ok: true, data: [{ id: 7, title: 'instagram' }] });
+});
+
+test('a feature file without tiktok in its list keeps the instagram-only gates and wording', async () => {
+  for (const features of ['legacy', 'instagram']) {
+    const h = worker(features);
+    assert.deepEqual((await h.message({ type: 'hello' })).data.platforms, ['instagram'], features);
+    for (const request of [{ type: 'tabs', platform: 'tiktok' }, { type: 'open-platform', platform: 'tiktok' }, { type: 'start', tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'branding' } }]) {
+      assert.deepEqual(await h.message(request), { ok: false, error: INSTAGRAM_ONLY }, `${features} ${request.type}`);
+    }
+    assert.deepEqual(h.tabCalls, []);
+    assert.deepEqual(await h.message({ type: 'tabs' }), { ok: true, data: [{ id: 7, title: 'instagram' }] });
+    const stopped = worker(features, activeJob('running', 'tiktok'));
+    assert.equal((await stopped.message({ type: 'state' })).ok, true);
+    assert.equal(stopped.job().message, `tiktok session stopped. ${INSTAGRAM_ONLY}`);
+    const kept = worker(features, activeJob('running', null));
+    assert.equal((await kept.message({ type: 'state' })).ok, true);
+    assert.deepEqual(kept.job(), activeJob('running', null));
   }
 });
 
-test('a feature file without a platform list keeps the instagram-only gates and wording', async () => {
-  const h = worker('legacy');
-  assert.deepEqual((await h.message({ type: 'hello' })).data.platforms, ['instagram']);
-  assert.deepEqual(await h.message({ type: 'tabs', platform: 'tiktok' }), { ok: false, error: INSTAGRAM_ONLY });
-  assert.deepEqual(await h.message({ type: 'tabs' }), { ok: true, data: [{ id: 7, title: 'instagram' }] });
-  const stopped = worker('legacy', activeJob('running', 'tiktok'));
-  assert.equal((await stopped.message({ type: 'state' })).ok, true);
-  assert.equal(stopped.job().message, `tiktok session stopped. ${INSTAGRAM_ONLY}`);
-  const kept = worker('legacy', activeJob('running', null));
-  assert.equal((await kept.message({ type: 'state' })).ok, true);
-  assert.deepEqual(kept.job(), activeJob('running', null));
-});
-
-test('the tiktok build lists, opens and starts only tiktok, using only tiktok addresses', async () => {
-  for (const source of [panel, website]) {
-    const h = worker('tiktok');
+test('the student and tiktok builds list, open and start tiktok, using only tiktok addresses', async () => {
+  for (const [features, source] of [['real', panel], ['real', website], ['tiktok', panel], ['tiktok', website]]) {
+    const h = worker(features);
     assert.deepEqual(await h.message({ type: 'tabs', platform: 'tiktok' }, source), { ok: true, data: [{ id: 8, title: 'tiktok' }] });
     assert.deepEqual(h.queries, [{ url: ['https://www.tiktok.com/*', 'https://tiktok.com/*'] }]);
     for (const type of ['open-platform', 'open-instagram']) assert.equal((await h.message({ type, platform: 'tiktok' }, source)).ok, true);
@@ -187,10 +196,10 @@ test('the tiktok build stops saved active instagram and platform-less sessions a
   }
 });
 
-test('the tiktok build leaves active tiktok sessions running and can show their tab', async () => {
-  for (const phase of ['starting', 'running', 'stopping']) {
+test('the student and tiktok builds leave active tiktok sessions running and can show their tab', async () => {
+  for (const [features, phase] of ['real', 'tiktok'].flatMap(features => ['starting', 'running', 'stopping'].map(phase => [features, phase]))) {
     const initial = activeJob(phase, 'tiktok');
-    const h = worker('tiktok', initial);
+    const h = worker(features, initial);
     for (const type of ['hello', 'state']) assert.equal((await h.message({ type })).ok, true);
     const runner = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${initial.token}`, tab: { id: initial.runnerTabId } };
     assert.equal((await h.message({ type: 'runner-job', token: initial.token }, runner)).data.phase, phase);
@@ -201,10 +210,10 @@ test('the tiktok build leaves active tiktok sessions running and can show their 
   }
 });
 
-test('the tiktok build resumes a saved tiktok session with its targets, progress and frozen time', async () => {
-  for (const source of [panel, website]) {
+test('the student and tiktok builds resume a saved tiktok session with its targets, progress and frozen time', async () => {
+  for (const [features, source] of [['real', panel], ['real', website], ['tiktok', panel], ['tiktok', website]]) {
     const original = savedJob('tiktok');
-    const h = worker('tiktok', original);
+    const h = worker(features, original);
     const oldRunner = h.runner();
     const state = (await h.message({ type: 'state' }, source)).data;
     assert.equal(state.canResume, true);
@@ -231,7 +240,7 @@ test('the tiktok build resumes a saved tiktok session with its targets, progress
 test('each build resumes only its own saved sessions, and a platform-less session never resumes', async () => {
   const withoutPlatform = savedJob('instagram');
   delete withoutPlatform.settings.platform;
-  for (const [features, saved, tabId] of [['tiktok', savedJob('instagram'), 7], ['tiktok', withoutPlatform, 7], ['real', savedJob('tiktok'), 8], ['real', withoutPlatform, 7]]) {
+  for (const [features, saved, tabId] of [['tiktok', savedJob('instagram'), 7], ['tiktok', withoutPlatform, 7], ['legacy', savedJob('tiktok'), 8], ['instagram', savedJob('tiktok'), 8], ['legacy', withoutPlatform, 7], ['real', withoutPlatform, 7]]) {
     const h = worker(features, saved);
     assert.equal((await h.message({ type: 'state' })).data.canResume, false);
     assert.deepEqual(await h.message({ type: 'resume', sessionId: saved.sessionId, tabId }), { ok: false, error: 'this session can’t be resumed. start a new session.' });
@@ -257,18 +266,18 @@ test('guards resume and describe sessions against the enabled platform list, ins
   assert.deepEqual(plain({ ...publicState(tiktok, ['tiktok']), canResume: false }), plain(publicState(tiktok)));
 });
 
-// The real side panel and hosted page markup with the real dashboard scripts.
-async function dashboard({ hosted = false, pagePlatform = 'instagram', hello = {}, state = { running: false, phase: 'ready', message: 'ready when you are.', activity: [] }, stored = null, onFocus = null } = {}) {
+// The real side panel and hosted page markup with the real dashboard scripts. The page
+// opens on the platform saved with its last draft, instagram when there is none.
+const STUDENT = ['instagram', 'tiktok'];
+async function dashboard({ hosted = false, savedPlatform = null, hello = {}, state = { running: false, phase: 'ready', message: 'ready when you are.', activity: [] }, stored = null, onFocus = null } = {}) {
   const base = hosted ? root : extension;
-  const html = fs.readFileSync(path.join(base, hosted ? 'index.html' : 'sidepanel.html'), 'utf8');
-  const input = '<input id="platform" type="hidden" value="instagram">';
-  assert.equal(html.split(input).length, 2);
-  const dom = new JSDOM(html.replace(input, `<input id="platform" type="hidden" value="${pagePlatform}">`), {
+  const dom = new JSDOM(fs.readFileSync(path.join(base, hosted ? 'index.html' : 'sidepanel.html'), 'utf8'), {
     url: hosted ? 'https://creator-collective-warmup.vercel.app/' : 'chrome-extension://extension-id/sidepanel.html', runScripts: 'outside-only'
   });
   const { window } = dom;
   const requests = [];
-  const storage = new Map(stored ? [['cc-web-session', JSON.stringify(stored)]] : []);
+  const draft = stored || (savedPlatform ? { version: 3, platform: savedPlatform, profiles: {} } : null);
+  const storage = new Map(draft ? [['cc-web-session', JSON.stringify(draft)]] : []);
   Object.defineProperty(window, 'localStorage', { value: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } });
   window.setInterval = () => 1;
   let current = state;
@@ -292,22 +301,30 @@ async function dashboard({ hosted = false, pagePlatform = 'instagram', hello = {
   for (const name of ['plan.js', 'comment-history.js', 'session-results.js', 'dashboard.js', 'select-ui.js']) window.eval(fs.readFileSync(path.join(base, name), 'utf8'));
   const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setImmediate(resolve)); };
   await settle();
-  return { dom, window, requests: () => plain(requests), settle, $: id => window.document.getElementById(id), saved: () => JSON.parse(storage.get('cc-web-session')) };
+  const $ = id => window.document.getElementById(id);
+  const choose = async name => { $('platform').value = name; $('platform').dispatchEvent(new window.Event('change', { bubbles: true })); await settle(); };
+  return { dom, window, requests: () => plain(requests), settle, choose, $, saved: () => JSON.parse(storage.get('cc-web-session')) };
 }
 
 const TIKTOK_START = { type: 'start', settings: { platform: 'tiktok', niche: 'personal branding', minutes: 10, pace: 'auto', enableComments: true, focus: 'balanced', customLimits: {} }, tabId: 8 };
+const UPDATE = platform => `update the extension to run ${platform} sessions. the setup page has the new version.`;
 const showsTikTok = h => {
   assert.equal(h.$('platform').value, 'tiktok');
   assert.equal(h.$('tab-label').textContent, 'tiktok tab');
   assert.equal(h.$('instagram-tab').dataset.icon, 'tiktok');
   assert.equal(h.$('open-instagram').textContent, 'open tiktok ↗');
 };
+const showsInstagram = h => {
+  assert.equal(h.$('platform').value, 'instagram');
+  assert.equal(h.$('tab-label').textContent, 'instagram tab');
+  assert.equal(h.$('open-instagram').textContent, 'open instagram ↗');
+};
 
-test('a side panel takes tiktok from its own build or its own page, and sends it on every request', async t => {
+test('a side panel opens on tiktok from its saved choice or its own build, and sends it on every request', async t => {
   const variants = [
-    ['instagram page, tiktok build hello', { hello: { platforms: ['tiktok'], testTools: true } }],
-    ['tiktok page, tiktok build hello', { pagePlatform: 'tiktok', hello: { platforms: ['tiktok'], testTools: true } }],
-    ['tiktok page, hello without platforms', { pagePlatform: 'tiktok' }]
+    ['saved tiktok, student build hello', { savedPlatform: 'tiktok', hello: { platforms: STUDENT } }],
+    ['no saved choice, tiktok-only build hello', { hello: { platforms: ['tiktok'], testTools: true } }],
+    ['saved tiktok, tiktok-only build hello', { savedPlatform: 'tiktok', hello: { platforms: ['tiktok'], testTools: true } }]
   ];
   for (const [name, options] of variants) await t.test(name, async variant => {
     const h = await dashboard(options);
@@ -316,6 +333,7 @@ test('a side panel takes tiktok from its own build or its own page, and sends it
     showsTikTok(h);
     assert.equal(h.$('focus-controls').hidden, false);
     assert.equal(h.$('instagram-tab').value, '8', 'the only tiktok tab is chosen automatically');
+    assert.equal(h.$('start').disabled, false);
     assert.deepEqual(h.requests(), [{ type: 'hello' }, { type: 'tabs', platform: 'tiktok' }]);
     h.$('open-instagram').click();
     await h.settle();
@@ -328,75 +346,183 @@ test('a side panel takes tiktok from its own build or its own page, and sends it
   });
 });
 
-test('a side panel follows its own build back to instagram, while the hosted page ignores its page and replies', async t => {
+test('a side panel follows its own build back to instagram, and an unknown saved platform opens on instagram', async t => {
   const variants = [
-    ['tiktok page, instagram build hello', { pagePlatform: 'tiktok', hello: { platforms: ['instagram'] } }],
-    ['tiktok page, unknown platform hello', { pagePlatform: 'youtube', hello: { platforms: ['youtube'] } }],
-    ['hosted tiktok page, 0.6.57 hello', { hosted: true, pagePlatform: 'tiktok' }],
-    ['hosted tiktok page, tiktok hello', { hosted: true, pagePlatform: 'tiktok', hello: { platforms: ['tiktok'], testTools: true } }]
+    ['saved tiktok, instagram build hello', { savedPlatform: 'tiktok', hello: { platforms: ['instagram'] } }],
+    ['saved tiktok, hello without platforms', { savedPlatform: 'tiktok' }],
+    ['saved unknown platform, unknown platform hello', { savedPlatform: 'youtube', hello: { platforms: ['youtube'] } }],
+    ['hosted page, saved unknown platform', { hosted: true, savedPlatform: 'youtube', hello: { platforms: STUDENT } }]
   ];
   for (const [name, options] of variants) await t.test(name, async variant => {
     const h = await dashboard(options);
     variant.after(() => h.dom.window.close());
-    assert.equal(h.$('platform').value, 'instagram');
-    assert.equal(h.$('tab-label').textContent, 'instagram tab');
-    assert.equal(h.$('open-instagram').textContent, 'open instagram ↗');
+    showsInstagram(h);
+    assert.equal(h.$('start').disabled, false);
     assert.deepEqual(h.requests(), [{ type: 'hello' }, { type: 'tabs', platform: 'instagram' }]);
   });
 });
 
-test('the tiktok side panel restores and saves its own draft without touching the instagram draft', async t => {
+test('the hosted page keeps its saved platform, and asks for an update instead of listing tabs the extension cannot use', async t => {
+  const variants = [
+    ['saved tiktok, 0.6.57 hello', { savedPlatform: 'tiktok' }, 'tiktok'],
+    ['saved tiktok, instagram build hello', { savedPlatform: 'tiktok', hello: { platforms: ['instagram'] } }, 'tiktok'],
+    // The hosted page answers the first reply on its origin, so a reply never switches it.
+    ['no saved choice, foreign tiktok-only hello', { hello: { platforms: ['tiktok'], testTools: true } }, 'instagram']
+  ];
+  for (const [name, options, platform] of variants) await t.test(name, async variant => {
+    const h = await dashboard({ hosted: true, ...options });
+    variant.after(() => h.dom.window.close());
+    assert.equal(h.$('connection').textContent, 'extension connected');
+    assert.equal(h.$('platform').value, platform);
+    assert.equal(h.$('tab-label').textContent, `${platform} tab`);
+    assert.equal(h.$('form-error').textContent, UPDATE(platform));
+    assert.equal(h.$('form-error').hidden, false);
+    assert.equal(h.$('start').disabled, true);
+    assert.deepEqual(Array.from(h.$('instagram-tab').options, option => [option.textContent, option.value]), [['update the extension first', '']]);
+    assert.deepEqual(h.requests(), [{ type: 'hello' }]);
+    assert.equal(h.$('test-tools'), null);
+  });
+  await t.test('saved tiktok, student build hello', async variant => {
+    const h = await dashboard({ hosted: true, savedPlatform: 'tiktok', hello: { platforms: STUDENT } });
+    variant.after(() => h.dom.window.close());
+    showsTikTok(h);
+    assert.equal(h.$('form-error').hidden, true);
+    assert.equal(h.$('instagram-tab').value, '8');
+    assert.equal(h.$('start').disabled, false);
+    assert.deepEqual(h.requests(), [{ type: 'hello' }, { type: 'tabs', platform: 'tiktok' }]);
+    h.$('session-form').dispatchEvent(new h.window.Event('submit', { cancelable: true }));
+    await h.settle();
+    assert.deepEqual(h.requests().at(-1), TIKTOK_START);
+  });
+});
+
+test('choosing tiktok on the hosted page lists tiktok tabs, or asks for an update from an extension without it', async t => {
+  await t.test('student build hello', async variant => {
+    const h = await dashboard({ hosted: true, hello: { platforms: STUDENT } });
+    variant.after(() => h.dom.window.close());
+    showsInstagram(h);
+    assert.equal(h.$('instagram-tab').value, '7');
+    await h.choose('tiktok');
+    showsTikTok(h);
+    assert.deepEqual(h.requests().slice(2), [{ type: 'tabs', platform: 'tiktok' }]);
+    assert.equal(h.$('instagram-tab').value, '8');
+    assert.equal(h.$('start').disabled, false);
+    h.$('session-form').dispatchEvent(new h.window.Event('submit', { cancelable: true }));
+    await h.settle();
+    assert.deepEqual(h.requests().at(-1), TIKTOK_START);
+    assert.equal(h.saved().platform, 'tiktok');
+  });
+  for (const [name, hello] of [['0.6.57 hello', {}], ['instagram build hello', { platforms: ['instagram'] }]]) await t.test(name, async variant => {
+    const h = await dashboard({ hosted: true, hello });
+    variant.after(() => h.dom.window.close());
+    showsInstagram(h);
+    assert.equal(h.$('start').disabled, false);
+    await h.choose('tiktok');
+    showsTikTok(h);
+    assert.equal(h.$('form-error').textContent, UPDATE('tiktok'));
+    assert.equal(h.$('start').disabled, true);
+    assert.deepEqual(Array.from(h.$('instagram-tab').options, option => [option.textContent, option.value]), [['update the extension first', '']]);
+    assert.deepEqual(h.requests(), [{ type: 'hello' }, { type: 'tabs', platform: 'instagram' }]);
+    await h.choose('instagram');
+    showsInstagram(h);
+    assert.equal(h.$('form-error').hidden, true);
+    assert.equal(h.$('instagram-tab').value, '7');
+    assert.equal(h.$('start').disabled, false);
+    assert.deepEqual(h.requests().slice(2), [{ type: 'tabs', platform: 'instagram' }]);
+  });
+});
+
+test('a tiktok side panel restores and saves its own draft without touching the instagram draft', async t => {
   const instagram = { niche: 'instagram niche', minutes: '15', focus: 'like', customLimits: { follow: '3' } };
   const stored = { version: 3, platform: 'instagram', profiles: { instagram, tiktok: { niche: 'tiktok niche', minutes: '20', focus: 'balanced', customLimits: { comment: '4' } } } };
-  const h = await dashboard({ hello: { platforms: ['tiktok'] }, stored });
-  t.after(() => h.dom.window.close());
-  showsTikTok(h);
-  assert.equal(h.$('niche').value, 'tiktok niche');
-  assert.equal(h.$('minutes').value, '20');
-  assert.equal(h.$('limit-comment').value, '4');
-  h.$('niche').value = 'cooking';
-  h.$('niche').dispatchEvent(new h.window.Event('input'));
-  assert.equal(h.saved().platform, 'tiktok');
-  assert.equal(h.saved().profiles.tiktok.niche, 'cooking');
-  assert.deepEqual(h.saved().profiles.instagram, instagram);
-  h.$('session-form').dispatchEvent(new h.window.Event('submit', { cancelable: true }));
-  await h.settle();
-  const start = h.requests().at(-1);
-  assert.equal(start.settings.platform, 'tiktok');
-  assert.equal(start.settings.niche, 'cooking');
-  assert.equal(start.settings.minutes, 20);
-  assert.deepEqual(start.settings.customLimits, { comment: 4 });
+  for (const [name, options] of [['tiktok chosen in the student build', { hello: { platforms: STUDENT }, choose: 'tiktok' }], ['tiktok-only build', { hello: { platforms: ['tiktok'] } }]]) await t.test(name, async variant => {
+    const h = await dashboard({ hello: options.hello, stored });
+    variant.after(() => h.dom.window.close());
+    if (options.choose) {
+      assert.equal(h.$('niche').value, 'instagram niche');
+      await h.choose(options.choose);
+    }
+    showsTikTok(h);
+    assert.equal(h.requests().at(-1).platform, 'tiktok');
+    assert.equal(h.$('niche').value, 'tiktok niche');
+    assert.equal(h.$('minutes').value, '20');
+    assert.equal(h.$('limit-comment').value, '4');
+    h.$('niche').value = 'cooking';
+    h.$('niche').dispatchEvent(new h.window.Event('input'));
+    assert.equal(h.saved().platform, 'tiktok');
+    assert.equal(h.saved().profiles.tiktok.niche, 'cooking');
+    assert.deepEqual(h.saved().profiles.instagram, instagram);
+    h.$('session-form').dispatchEvent(new h.window.Event('submit', { cancelable: true }));
+    await h.settle();
+    const start = h.requests().at(-1);
+    assert.equal(start.settings.platform, 'tiktok');
+    assert.equal(start.settings.niche, 'cooking');
+    assert.equal(start.settings.minutes, 20);
+    assert.deepEqual(start.settings.customLimits, { comment: 4 });
+  });
+  await t.test('switching back restores the instagram draft', async variant => {
+    const h = await dashboard({ hello: { platforms: STUDENT }, stored });
+    variant.after(() => h.dom.window.close());
+    await h.choose('tiktok');
+    h.$('niche').value = 'cooking';
+    h.$('niche').dispatchEvent(new h.window.Event('input'));
+    await h.choose('instagram');
+    showsInstagram(h);
+    assert.equal(h.$('niche').value, 'instagram niche');
+    assert.equal(h.$('minutes').value, '15');
+    assert.equal(h.$('limit-follow').value, '3');
+    assert.equal(h.saved().platform, 'instagram');
+    assert.equal(h.saved().profiles.tiktok.niche, 'cooking');
+  });
 });
 
-test('the tiktok side panel mirrors a running tiktok session and sends focus changes', async t => {
+test('a side panel shows a running tiktok session as tiktok and sends focus changes', async t => {
   const settings = validateSettings({ platform: 'tiktok', minutes: 30, niche: 'cooking, baking', enableComments: true, customLimits: { like: 20, follow: 6, comment: 2 } });
   const state = { running: true, phase: 'running', sessionId: 'session-1', canChangeFocus: true, deadline: Date.now() + 600000, settings, tabId: 12, message: 'watching a video.', activity: [], stats: {} };
-  const h = await dashboard({ hello: { platforms: ['tiktok'] }, state, onFocus: (current, message) => ({ ...current, settings: { ...current.settings, focus: message.focus } }) });
-  t.after(() => h.dom.window.close());
-  showsTikTok(h);
-  assert.equal(h.$('niche').value, 'cooking, baking');
-  assert.equal(h.$('minutes').value, '30');
-  assert.deepEqual(['like', 'follow', 'comment'].map(action => h.$(`limit-${action}`).value), ['20', '6', '2']);
-  assert.equal(h.$('instagram-tab').value, '12');
-  assert.equal(h.$('instagram-tab').selectedOptions[0].textContent, 'active tiktok tab');
-  assert.equal(h.$('focus-controls').hidden, false);
-  assert.equal(h.$('focus').disabled, false);
-  h.$('focus').value = 'follow';
-  h.$('focus').dispatchEvent(new h.window.Event('change', { bubbles: true }));
-  await h.settle();
-  assert.deepEqual(h.requests().find(request => request.type === 'set-focus'), { type: 'set-focus', sessionId: 'session-1', focus: 'follow' });
-  assert.equal(h.$('focus-status').textContent, 'applies to remaining targets.');
-  assert.equal(h.saved().platform, 'tiktok');
-  assert.equal(h.saved().profiles.tiktok.focus, 'follow');
+  for (const [name, platforms] of [['student build', STUDENT], ['tiktok-only build', ['tiktok']]]) await t.test(name, async variant => {
+    const h = await dashboard({ hello: { platforms }, state, onFocus: (current, message) => ({ ...current, settings: { ...current.settings, focus: message.focus } }) });
+    variant.after(() => h.dom.window.close());
+    showsTikTok(h);
+    assert.equal(h.$('niche').value, 'cooking, baking');
+    assert.equal(h.$('minutes').value, '30');
+    assert.deepEqual(['like', 'follow', 'comment'].map(action => h.$(`limit-${action}`).value), ['20', '6', '2']);
+    assert.equal(h.$('instagram-tab').value, '12');
+    assert.equal(h.$('instagram-tab').selectedOptions[0].textContent, 'active tiktok tab');
+    assert.equal(h.$('focus-controls').hidden, false);
+    assert.equal(h.$('focus').disabled, false);
+    h.$('focus').value = 'follow';
+    h.$('focus').dispatchEvent(new h.window.Event('change', { bubbles: true }));
+    await h.settle();
+    assert.deepEqual(h.requests().find(request => request.type === 'set-focus'), { type: 'set-focus', sessionId: 'session-1', focus: 'follow' });
+    assert.equal(h.$('focus-status').textContent, 'applies to remaining targets.');
+    assert.equal(h.saved().platform, 'tiktok');
+    assert.equal(h.saved().profiles.tiktok.focus, 'follow');
+  });
 });
 
-test('the tiktok side panel resumes a saved tiktok session with only its id and the chosen tab', async t => {
-  const saved = plain(publicState(savedJob('tiktok'), ['tiktok']));
-  const h = await dashboard({ hello: { platforms: ['tiktok'] }, state: saved });
-  t.after(() => h.dom.window.close());
-  assert.equal(h.$('resume').hidden, false);
-  assert.equal(h.$('resume-summary').textContent, 'resume uses saved settings: branding, storytelling · 30 likes · 10 follows · 5 comments · follow focus. edits apply to new sessions.');
-  h.$('resume').click();
-  await h.settle();
-  assert.deepEqual(h.requests().at(-1), { type: 'resume', sessionId: 'saved-session', tabId: 8 });
+test('a saved tiktok session resumes from the tiktok page only, with only its id and the chosen tab', async t => {
+  const saved = plain(publicState(savedJob('tiktok'), STUDENT));
+  const SUMMARY = 'resume uses saved settings: branding, storytelling · 30 likes · 10 follows · 5 comments · follow focus. edits apply to new sessions.';
+  await t.test('instagram page, then tiktok chosen', async variant => {
+    const h = await dashboard({ hello: { platforms: STUDENT }, state: saved });
+    variant.after(() => h.dom.window.close());
+    showsInstagram(h);
+    assert.equal(h.$('resume').hidden, true);
+    assert.equal(h.$('start').textContent, 'start session');
+    await h.choose('tiktok');
+    assert.equal(h.$('resume').hidden, false);
+    assert.equal(h.$('resume-summary').textContent, SUMMARY);
+    h.$('resume').click();
+    await h.settle();
+    assert.deepEqual(h.requests().at(-1), { type: 'resume', sessionId: 'saved-session', tabId: 8 });
+  });
+  for (const [name, options] of [['saved tiktok page, student build', { savedPlatform: 'tiktok', hello: { platforms: STUDENT } }], ['tiktok-only build', { hello: { platforms: ['tiktok'] } }]]) await t.test(name, async variant => {
+    const h = await dashboard({ ...options, state: plain(publicState(savedJob('tiktok'), options.hello.platforms)) });
+    variant.after(() => h.dom.window.close());
+    assert.equal(h.$('resume').hidden, false);
+    assert.equal(h.$('resume-summary').textContent, SUMMARY);
+    h.$('resume').click();
+    await h.settle();
+    assert.deepEqual(h.requests().at(-1), { type: 'resume', sessionId: 'saved-session', tabId: 8 });
+  });
 });

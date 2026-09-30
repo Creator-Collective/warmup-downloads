@@ -24,9 +24,11 @@ const draftFields = fields.filter(field => field !== 'platform' && !field.starts
 const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
 const platformDrafts = {};
 const knownPlatforms = ['instagram', 'tiktok'];
-// The hosted page is always instagram. Only an extension side panel takes its
-// platform from its own page and, once connected, from its own extension build.
-let platform = inPanel && knownPlatforms.includes($('platform').value) ? $('platform').value : 'instagram';
+// The platform last used on this page, instagram by default.
+let platform = 'instagram';
+// What the connected extension can run. Builds before 0.6.63 send no list and
+// run instagram only.
+let supportedPlatforms = ['instagram'];
 // A saved session without a platform is an instagram session.
 const sessionPlatform = settings => settings?.platform || 'instagram';
 window.addEventListener('message', event => {
@@ -48,6 +50,7 @@ function request(type, extra = {}) {
 }
 try {
   const saved = JSON.parse(localStorage.getItem('cc-web-session') || '{}');
+  if (knownPlatforms.includes(saved.platform)) platform = saved.platform;
   if (saved.version === 3) {
     for (const platform of ['instagram', 'tiktok']) {
       if (saved.profiles?.[platform] && typeof saved.profiles[platform] === 'object') platformDrafts[platform] = saved.profiles[platform];
@@ -100,6 +103,7 @@ function plan() {
   }
   let valid = false;
   try {
+    if (connected && !supportedPlatforms.includes(platform)) throw new Error(`update the extension to run ${platform} sessions. the setup page has the new version.`);
     const automatic = sessionPlan.validateSettings({ ...input(), customLimits: {} });
     for (const action of actions) {
       if (!Object.hasOwn(limitOverrides, action) && editingLimit !== action) $(`limit-${action}`).value = String(automatic.limits[action]);
@@ -126,7 +130,8 @@ function renderLimitHint(show) {
   hint.hidden = !show;
 }
 function renderResume() {
-  const available = !running && currentState?.canResume === true;
+  // A saved session resumes on its own platform's tab only.
+  const available = !running && currentState?.canResume === true && sessionPlatform(currentState.settings) === platform;
   $('resume').hidden = !available;
   $('resume').disabled = !available || !connected || busy || !$('instagram-tab').value;
   $('start').textContent = available ? 'start new session' : 'start session';
@@ -179,6 +184,12 @@ function connection(value) {
 async function tabs({ reportError = false } = {}) {
   if (!connected || running || busy) return;
   const requested = platform;
+  // An older extension would only reject the request; plan() says to update it.
+  if (!supportedPlatforms.includes(requested)) {
+    $('instagram-tab').replaceChildren(new Option('update the extension first', ''));
+    plan();
+    return;
+  }
   const version = ++tabDiscoveryVersion;
   const isCurrent = () => connected && !running && !busy && version === tabDiscoveryVersion && requested === platform && requested === $('platform').value;
   let list;
@@ -216,6 +227,11 @@ function platformChanged() {
   $('open-instagram').textContent = `open ${platform} ↗`;
 }
 function displayPlan(state) {
+  // A running session shows its own platform, whichever one this page had open.
+  if (state.running && state.settings && sessionPlatform(state.settings) !== platform && knownPlatforms.includes(sessionPlatform(state.settings)) && !savedDraft) {
+    saveDraft();
+    usePlatform(sessionPlatform(state.settings));
+  }
   if (state.running && state.settings && sessionPlatform(state.settings) === platform) {
     if (!savedDraft) savedDraft = { values: Object.fromEntries(fields.map(field => [field, $(field).value])), limits: { ...limitOverrides }, tabId: $('instagram-tab').value };
     editingLimit = null;
@@ -292,6 +308,16 @@ for (const action of actions) {
   });
 }
 $('instagram-tab').addEventListener('change', () => { canAutoSelectTab = false; edited(); });
+$('platform').addEventListener('change', () => {
+  const name = $('platform').value;
+  if (running || busy || !knownPlatforms.includes(name) || name === platform) { $('platform').value = platform; return; }
+  saveDraft();
+  usePlatform(name);
+  $('instagram-tab').replaceChildren(new Option(connected ? `open ${name} in this chrome profile` : 'connect the extension first', ''));
+  $('instagram-tab').value = '';
+  edited();
+  if (connected && !running) tabs({ reportError: true });
+});
 $('focus').addEventListener('change', async () => {
   if (focusBusy || !supportsFocus) return;
   if (!running) { edited(); return; }
@@ -372,13 +398,11 @@ async function connect() {
   try {
     const hello = await request('hello');
     supportsFocus = hello.supportsFocus === true;
-    // Only the side panel's own extension answers here. The hosted page may hear a
-    // reply from any extension on its origin, so it ignores the platform list.
-    // Builds before the list existed send none and stay on instagram.
-    if (inPanel && Array.isArray(hello.platforms) && !hello.platforms.includes(platform)) {
-      const offered = hello.platforms.find(name => knownPlatforms.includes(name));
-      if (offered) usePlatform(offered);
-    }
+    // Builds before the list existed send none and run instagram only. A side
+    // panel opens on a platform its own extension runs.
+    const offered = Array.isArray(hello.platforms) ? hello.platforms.filter(name => knownPlatforms.includes(name)) : [];
+    supportedPlatforms = offered.length ? offered : ['instagram'];
+    if (inPanel && !supportedPlatforms.includes(platform)) usePlatform(supportedPlatforms[0]);
     if (inPanel && hello.testTools === true) showTestTools();
     error(''); connection(true); render(hello.state); await tabs({ reportError: true });
   }

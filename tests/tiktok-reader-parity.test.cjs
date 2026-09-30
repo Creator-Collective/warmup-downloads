@@ -249,3 +249,28 @@ test('submit readiness gives a fixed reason and never the editor text', () => {
   assert.deepEqual(plain(ready.inspect(commentRequest(ready, 'click-comment-submit'))), { clicked: true });
   assert.equal(ready.clicks.length, 1);
 });
+
+test('a plain read reports a top-level comment by the signed-in account on this post, and nothing else', () => {
+  const EMPTY = '<div data-e2e="comment-list" data-r="580,240,500,300"></div>';
+  const row = (author, text, index = 0, replies = '') => `<div data-e2e="comment-item" data-r="580,${250 + index * 60},480,55">` +
+    `<a href="https://www.tiktok.com/@${author}" data-r="580,${250 + index * 60},80,20">${author}</a><p data-e2e="comment-level-1" data-r="580,${270 + index * 60},400,25">${text}</p>${replies}</div>`;
+  const reply = (author, text) => `<div data-r="600,300,400,40"><a href="https://www.tiktok.com/@${author}" data-r="600,300,80,20">${author}</a><p data-e2e="comment-level-2" data-r="600,320,380,20">${text}</p></div>`;
+  for (const [name, rows, expected, account = nav()] of [
+    ['your comment', row('me', 'so useful'), true],
+    ['your comment under other people', row('someone', 'great tips') + row('me', 'so true', 1), true],
+    ['your comment with the account found from the comment bar avatar', row('me', 'so useful'), true, ''],
+    ['only other people', row('someone', 'great tips') + row('other', 'love this', 1), false],
+    ['no comments', '', false],
+    ['your reply under someone else', row('someone', 'great tips', 0, reply('me', 'thanks')), false],
+    ['a reply alone', reply('me', 'thanks'), false],
+    ['someone mentioning you', row('someone', 'hey <a href="https://www.tiktok.com/@me">@me</a>'), false],
+    ['another account signed in', row('me', 'so useful'), false, nav({ user: 'other' })],
+    ['no signed-in account', row('me', 'so useful'), false, null]
+  ]) {
+    const avatar = account === '' ? '<a href="https://www.tiktok.com/@me" data-r="585,615,40,40"><img alt="" data-r="585,615,40,40"></a>' : '';
+    const h = page((account || '') + `<main data-r="200,0,1080,800">${post({ avatar }).replace(EMPTY, `<div data-e2e="comment-list" data-r="580,240,500,300">${rows}</div>`)}</main>`);
+    const read = h.inspect();
+    assert.equal(read.post.commented, expected, name);
+    assert.equal(read.post.comment, account !== null, name);
+  }
+});

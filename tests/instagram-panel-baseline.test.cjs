@@ -18,11 +18,14 @@ const extension = path.join(root, 'browser-extension');
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); } });
 const plain = value => JSON.parse(JSON.stringify(value));
 const INSTAGRAM_ONLY = 'warm-up is instagram only for now.';
+// The 0.6.58 feature file. The student build now lists tiktok too, so the
+// instagram-only wording is pinned against a build without it.
+const INSTAGRAM_BUILD = "const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['instagram']) });";
 const website = { id: 'extension-id', url: 'https://creator-collective-warmup.vercel.app/', frameId: 0, tab: { id: 2 } };
 const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
 const NOW = 1000000;
 
-function worker(initial) {
+function worker(initial, features = null) {
   let job = structuredClone(initial);
   const created = [], queries = [], removed = [], tabCalls = [];
   const allTabs = [
@@ -47,7 +50,7 @@ function worker(initial) {
     }
   };
   const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, structuredClone, Date: Clock });
-  ctx.importScripts = (...files) => files.forEach(file => vm.runInContext(fs.readFileSync(path.join(extension, file), 'utf8'), ctx));
+  ctx.importScripts = (...files) => files.forEach(file => vm.runInContext(file === 'features.js' && features ? features : fs.readFileSync(path.join(extension, file), 'utf8'), ctx));
   vm.runInContext(fs.readFileSync(path.join(extension, 'background.js'), 'utf8'), ctx);
   const message = (request, source = panel) => new Promise(resolve => {
     if (!chrome.runtime.onMessage.listeners[0](request, source, response => resolve(plain(response)))) resolve(undefined);
@@ -66,9 +69,9 @@ function activeJob(phase, platform) {
   };
 }
 
-test('instagram-only rejections keep their exact wording and never touch browser tabs', async () => {
+test('a build without tiktok keeps its instagram-only rejections word for word and never touches browser tabs', async () => {
   for (const source of [website, panel]) {
-    const h = worker();
+    const h = worker(undefined, INSTAGRAM_BUILD);
     for (const [request, error] of [
       [{ type: 'tabs', platform: 'tiktok' }, INSTAGRAM_ONLY],
       [{ type: 'open-platform', platform: 'tiktok' }, INSTAGRAM_ONLY],
@@ -78,6 +81,19 @@ test('instagram-only rejections keep their exact wording and never touch browser
       [{ type: 'start', tabId: 8, settings: { minutes: 10, niche: 'branding' } }, 'that tab is no longer on instagram. choose it again.']
     ]) assert.deepEqual(await h.message(request, source), { ok: false, error }, JSON.stringify(request));
     assert.deepEqual(h.tabCalls, ['get'], 'only the last start looked up its chosen tab');
+    assert.equal(h.job(), undefined);
+  }
+});
+
+test('the student build keeps the unknown-platform and instagram-default wording, looking up only a chosen tab', async () => {
+  for (const source of [website, panel]) {
+    const h = worker();
+    for (const [request, error] of [
+      [{ type: 'tabs', platform: 'youtube' }, 'choose instagram or tiktok.'],
+      [{ type: 'open-platform', platform: 'youtube' }, 'choose instagram or tiktok.'],
+      [{ type: 'start', tabId: 8, settings: { minutes: 10, niche: 'branding' } }, 'that tab is no longer on instagram. choose it again.']
+    ]) assert.deepEqual(await h.message(request, source), { ok: false, error }, JSON.stringify(request));
+    assert.deepEqual(h.tabCalls, ['get'], 'only the start looked up its chosen tab');
     assert.equal(h.job(), undefined);
   }
 });
@@ -102,9 +118,9 @@ test('hello reports the version, focus support and public state, and never test 
     const h = worker(initial);
     const hello = await h.message({ type: 'hello' });
     assert.equal(hello.ok, true);
-    // The parity plan may add platforms: ['instagram'] here; nothing else may appear.
-    assert.deepEqual(Object.keys(hello.data).filter(key => key !== 'platforms').sort(), ['state', 'supportsFocus', 'version']);
-    if (Object.hasOwn(hello.data, 'platforms')) assert.deepEqual(hello.data.platforms, ['instagram']);
+    // The student build lists both platforms; nothing else may appear.
+    assert.deepEqual(Object.keys(hello.data).sort(), ['platforms', 'state', 'supportsFocus', 'version']);
+    assert.deepEqual(hello.data.platforms, ['instagram', 'tiktok']);
     assert.equal(hello.data.version, '0.6.57');
     assert.equal(hello.data.supportsFocus, true);
     assert.equal(hello.data.testTools, undefined);
@@ -118,8 +134,8 @@ test('hello reports the version, focus support and public state, and never test 
   }
 });
 
-test('worker start and panel requests leave active instagram and platform-less sessions untouched', async () => {
-  for (const platform of ['instagram', null]) {
+test('worker start and panel requests leave active instagram, tiktok and platform-less sessions untouched', async () => {
+  for (const platform of ['instagram', null, 'tiktok']) {
     for (const phase of ['starting', 'running', 'stopping']) {
       const initial = activeJob(phase, platform);
       const h = worker(initial);
@@ -132,17 +148,17 @@ test('worker start and panel requests leave active instagram and platform-less s
   }
 });
 
-test('worker start stops only active tiktok sessions, with the exact instagram-only message', async () => {
+test('in a build without tiktok, worker start stops only active tiktok sessions, with the exact instagram-only message', async () => {
   for (const phase of ['starting', 'running', 'stopping']) {
     const initial = activeJob(phase, 'tiktok');
-    const h = worker(initial);
+    const h = worker(initial, INSTAGRAM_BUILD);
     assert.equal((await h.message({ type: 'state' })).ok, true);
     assert.deepEqual(h.job(), { ...initial, phase: 'stopped', stopRequested: true, nextActionAt: null, message: `tiktok session stopped. ${INSTAGRAM_ONLY}`, remainingMs: 300000, checkpoint: null }, phase);
     assert.deepEqual(h.tabCalls, []);
   }
   for (const phase of ['complete', 'stopped', 'error']) {
     const initial = { ...activeJob(phase, 'tiktok'), stopRequested: true, nextActionAt: null };
-    const h = worker(initial);
+    const h = worker(initial, INSTAGRAM_BUILD);
     assert.equal((await h.message({ type: 'state' })).ok, true);
     assert.deepEqual(h.job(), initial, phase);
   }
@@ -232,10 +248,10 @@ test('the side panel and hosted page stay on instagram whatever hello reports ab
   const variants = [
     ['side panel, 0.6.57 hello', { hosted: false, hello: {} }],
     ['side panel, instagram build hello', { hosted: false, hello: { platforms: ['instagram'] } }],
+    ['side panel, student build hello', { hosted: false, hello: { platforms: ['instagram', 'tiktok'] } }],
     ['hosted page, 0.6.57 hello', { hosted: true, hello: {} }],
     ['hosted page, instagram build hello', { hosted: true, hello: { platforms: ['instagram'] } }],
-    // The hosted page answers the first reply on its origin, so a foreign reply must not switch it.
-    ['hosted page, foreign tiktok hello', { hosted: true, hello: { platforms: ['tiktok'], testTools: true } }]
+    ['hosted page, student build hello', { hosted: true, hello: { platforms: ['instagram', 'tiktok'] } }]
   ];
   for (const [name, options] of variants) await t.test(name, async variant => {
     const h = await dashboard(options);

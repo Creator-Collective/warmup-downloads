@@ -1,2 +1,2 @@
 'use strict';
-const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['instagram']) });
+const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['instagram', 'tiktok']) });

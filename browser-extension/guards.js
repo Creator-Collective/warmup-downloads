@@ -117,7 +117,10 @@ function normalizeCheckpoint(value, settings) {
 // shown before. Anything malformed is dropped.
 const BROWSE_HISTORY_LIMIT = 3000;
 const BROWSE_HISTORY_MS = 14 * 86400000;
-const browseIdentity = value => typeof value === 'string' && /^instagram:[\w-]{1,100}$/.test(value);
+// Post keys as the session engine writes them: instagram:<code>, or a TikTok
+// post's canonical address without a trailing slash.
+const browseIdentity = value => typeof value === 'string' && (/^instagram:[\w-]{1,100}$/.test(value) ||
+  /^https:\/\/www\.tiktok\.com\/@[\w.-]{1,40}\/(?:video|photo)\/\d{1,30}$/.test(value));
 function normalizeBrowseHistory(value, now = Date.now(), maxAgeMs = BROWSE_HISTORY_MS, limit = BROWSE_HISTORY_LIMIT) {
   if (!Array.isArray(value)) return [];
   return value.filter(entry => Array.isArray(entry) && entry.length === 2 && browseIdentity(entry[0]) &&
