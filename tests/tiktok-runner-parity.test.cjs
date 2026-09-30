@@ -140,25 +140,33 @@ test('tiktok transitions still stop on other searches, profiles, sign-in and oth
   }
 });
 
-test('only tiktok Next accepts an unpredicted post: opening or closing onto another post still stops', async () => {
+test('a tiktok open onto another post stops; a close onto another post loads the search again', async () => {
   for (const kind of ['open', 'close']) {
     let current = SEARCH;
+    const loads = [];
     const h = runner(async (settings, adapter, signal) => {
       await adapter.search('personal brand');
       if (kind === 'open') await adapter.open(FIRST);
-      else { current = FIRST; h.run(`expectedDestination = '${FIRST}'`); await adapter.leavePost({ id: FIRST, viewer: true, close: true }, signal); }
+      else { current = FIRST; h.run(`expectedDestination = '${FIRST}'`); h.left = await adapter.leavePost({ id: FIRST, viewer: true, close: true }, signal); }
     });
     const change = url => { current = url; h.chrome.tabs.onUpdated.listeners[0](7, { url }); };
     h.chrome.tabs.get = async () => ({ id: 7, url: current, status: 'complete' });
-    h.chrome.tabs.update = async (id, options) => { change(options.url); };
+    h.chrome.tabs.update = async (id, options) => { loads.push(options.url); change(options.url); };
     h.page(request => {
       if (request.files) return [{ result: null }];
       if (kindOf(request)) { change(OTHER); return [{ result: true }]; }
       return [{ result: { posts: [FIRST], sequence: [FIRST], post: isPost(current) ? { id: canonical(current), viewer: true, close: true } : null } }];
     });
     const terminal = await h.finish();
-    assert.equal(terminal.phase, 'stopped', kind);
-    assert.match(terminal.message, /tiktok page changed/, kind);
+    if (kind === 'open') {
+      assert.equal(terminal.phase, 'stopped');
+      assert.match(terminal.message, /tiktok page changed/);
+    } else {
+      assert.equal(terminal.phase, 'complete');
+      assert.equal(h.left, true);
+      assert.deepEqual(loads, [SEARCH, SEARCH], 'the search, then the same search again after the close');
+      assert.equal(current, SEARCH);
+    }
   }
 });
 

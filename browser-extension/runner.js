@@ -338,6 +338,7 @@ async function returnToResults(post, searchURL) {
   if (currentPlatform() === 'tiktok' && !post.close) return navigate(searchURL);
   // Closing the modal preserves the loaded results and scroll position. A full
   // navigation would throw that progress away and start the same batch again.
+  const tiktok = currentPlatform() === 'tiktok';
   return navigateViewer(searchURL, async () => {
   const clicked = await execute((id, deadline) => {
     if (Date.now() >= deadline) return false;
@@ -364,10 +365,13 @@ async function returnToResults(post, searchURL) {
       if (page.blocked) throw new Error(page.blocked);
       if (!page.post && !page.unavailable) return true;
     }
+    // TikTok's close can step back to an earlier post of the same viewer instead
+    // of the results. Load the search again from there rather than stopping.
+    if (tiktok && !tab.pendingUrl && tiktokPostPage(tab.url) && !sameDestination(tab.url, post.id)) return navigate(searchURL);
     await sleep(400);
   }
   return false;
-  });
+  }, { anyPost: tiktok });
 }
 async function scroll() {
   try {
