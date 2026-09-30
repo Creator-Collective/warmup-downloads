@@ -1,3 +1,7 @@
+## 0.6.63 tiktok release, september 29
+
+all automated checks pass, including 36 golden instagram runs that reproduce the pre-release engine exactly, new tiktok variety, history and own-comment tests, and the tiktok runner, reader, session and efficiency suites from pull request 68. an independent review of the release changes found no logic bugs. a hidden installed-extension run (branded chrome, this release loaded unpacked) chose tiktok in the side panel, listed the tiktok tab, started a session on a random keyword and stopped cleanly with the sign-in message on a signed-out tiktok. no signed-in tiktok session, likes, follows or comments were run for this release: the available browser profile was not signed in to tiktok. live acceptance of likes and follows on students' accounts, the viewer close after a chain of posts, and current tiktok comment delivery remain to be confirmed by the first student sessions.
+
 ## 0.6.62 no second comment on a post, September 29
 
 Reported by a student with a phone screenshot: one Instagram reel showed the same comment from her account twice, posted 1 week and 9 hours earlier. Cause: comment de-duplication lived only in the session checkpoint, so each new session started with an empty list.

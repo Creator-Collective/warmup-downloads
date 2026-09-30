@@ -735,7 +735,9 @@ test('TikTok waits on each viewer despite overdue likes and acts when a later po
   }
 });
 
-test('TikTok retries failed result opens at a measured pace before viewing another visible result', async () => {
+// Updated for TikTok parity: a failed open now costs Instagram's short transition
+// pause (0.5-1.8 s x pace) instead of the 6-10 s retry; viewing after an open keeps its 6 s minimum.
+test('TikTok retries failed result opens after the same transition pause as Instagram before viewing another visible result', async () => {
   const events = [];
   let opened = false;
   const h = harness({
@@ -750,7 +752,8 @@ test('TikTok retries failed result opens at a measured pace before viewing anoth
   const stats = await runSession(settings, h.adapter, h.controller.signal, h.options);
   assert.equal(events.length, 2);
   assert.equal(events[0].time, 0);
-  assert.ok(events[1].time - events[0].time >= 6000);
+  const gap = events[1].time - events[0].time;
+  assert.ok(gap >= 500 * settings.pauseScale && gap <= 1800 * settings.pauseScale, `failed-open pause ${gap} ms`);
   assert.ok(h.time() - events[1].time >= 6000);
   assert.equal(stats.open, 1);
   assert.equal(stats.skipped, 1);

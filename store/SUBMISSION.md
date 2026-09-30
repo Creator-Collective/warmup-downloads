@@ -3,8 +3,8 @@
 Status: package prepared; not submitted or approved. Complete browser installation and fixture verification before submitting. A developer account, registration payment, policy attestations and final submission must be completed by the account owner.
 
 Name: Creator Collective Warm-up
-Summary: Run a timed niche browsing session on Instagram, with targets and activity you control.
-Single purpose: User-started, timed niche browsing sessions in a selected Instagram tab.
+Summary: Run a timed niche browsing session on Instagram or TikTok, with targets and activity you control.
+Single purpose: User-started, timed niche browsing sessions in a selected Instagram or TikTok tab.
 Homepage: https://creator-collective-warmup.vercel.app/
 Privacy policy: https://creator-collective-warmup.vercel.app/privacy.html
 Support: https://github.com/Creator-Collective/warmup-downloads/issues
@@ -25,7 +25,7 @@ Permissions justification:
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.62.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.63.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
 Version 0.6.62 never comments twice on the same Instagram post. It keeps a six-month list of the post IDs it commented on (up to 5,000) in local extension storage, and skips any post that already shows a comment from the signed-in account. No new permissions, no change to action limits, cooldowns or confirmation.
 
@@ -50,3 +50,5 @@ Version 0.6.33 adds a separate read-only student dashboard version check, public
 Version 0.6.32 adds TikTok comment targets, native editor drafting, one-time submission, exact own-comment confirmation and retained comment history. It includes 0.6.31's active-video like/follow repairs and visible access-denial/account-check stops. Both archives are checked against source. Signed-in live DOM was inspected; actual extension-driven live engagement remains unverified.
 
 Previous releases: Version 0.6.28 adds short lowercase caption reactions, occasional emojis, and nonrepeating wording within each session. Unsupported caption details skip comments; no external generation service or new permissions. Version 0.6.27 switches account creation to user-owned SMSPool temporary numbers for recognized signup phone forms. Phone-number receipts, expiry and recovery state remain local; the provider credential is session-only. Purchase intent and code submission are recorded before action to prevent duplicates after interruption. Country/price options reflect the current provider catalog. Unknown forms, unsupported country pickers and security checkpoints pause. Existing warm-up activity and engagement behavior remain unchanged. Real paid orders and live platform completion remain unverified; fixture success must not be represented as live signup. See work_log.txt for validation and release evidence.
+
+Version 0.6.63 brings TikTok back at parity with Instagram: the same keyword search, viewing, targets, resume, end-of-session summary, browsing variety and never commenting twice on a post. It adds TikTok host access (www.tiktok.com and tiktok.com). A TikTok like or follow counts only after a fresh load of the post still shows it. Instagram behavior is unchanged.

@@ -60,6 +60,8 @@ function engagementMessage(action, post, comment, result, permanent = true) {
   if (result === 'uncertain') return `couldn't confirm ${pending}${details || '. continuing.'}`;
   if (action === 'comment' && result === 'draft-retained') return permanent ? `comment skipped for ${subject}. a draft may remain; comments are off for this session. continuing warm-up.`
     : `comment skipped for ${subject}. a draft may remain, so comments are paused until the comment box is clear. continuing warm-up.`;
+  if (action === 'comment' && result === 'not-typed') return permanent ? `comment skipped for ${subject}. the comment box stayed empty after typing again, so comments are off for this session. continuing warm-up.`
+    : `comment skipped for ${subject}. the comment box stayed empty after typing. continuing warm-up.`;
   return `${action} skipped for ${subject}. the post changed or its control wasn't available.`;
 }
 
@@ -150,7 +152,7 @@ const MAX_DRAFT_LIFTS = 1;
 const SKIP_REPEAT_MS = 180000;
 const REVISIT_GRACE_MS = 120000;
 const DISCOVERY_GRACE_MS = 30000;
-// Instagram browsing variety. Each run starts on a different keyword and a
+// Browsing variety. Each run starts on a different keyword and a
 // different tile, pages through a few posts, then jumps further down the results.
 // Posts earlier sessions already showed are passed over, and a post with nothing
 // left to do gets a quick look instead of a full watch.
@@ -176,6 +178,11 @@ const COMMENT_SKIP_COPY = Object.freeze({
 const COMMENT_BLOCKER_COPY = Object.freeze({
   account: "couldn't find your instagram account link, so comments are skipped.",
   language: "instagram isn't in english, so the comment box can't be found. switch instagram to english for comments.",
+  composer: "couldn't find one clear comment box on this post."
+});
+// TikTok reports only these two blockers; a non-English TikTok stops the session instead.
+const TIKTOK_COMMENT_BLOCKER_COPY = Object.freeze({
+  account: "couldn't find your tiktok account link, so comments are skipped.",
   composer: "couldn't find one clear comment box on this post."
 });
 const WRITER_MISSING = 'comments are unavailable in this version. reinstall the extension from the setup page.';
@@ -227,6 +234,14 @@ function shortfallSummary(settings, stats, unconfirmed, shortfall) {
   }
   return parts.length ? `why targets fell short: ${parts.join('. ')}.` : null;
 }
+const TIKTOK_ONCE_PER_SESSION_REASONS = new Set([TIKTOK_COMMENT_BLOCKER_COPY.account, WRITER_MISSING]);
+// Keyword rotation window. TikTok uses instagram's six minutes: the TikTok goals
+// simulation (tests/tiktok-efficiency*.test.cjs) keeps the same reach with fewer searches.
+const KEYWORD_WINDOW_MS = Object.freeze({ instagram: 360000, tiktok: 360000 });
+// Two typed comments in a row that never reached TikTok's editor turn comments off.
+const MAX_UNTYPED_COMMENTS = 2;
+// TikTok search terms can come back with different case, spacing or Unicode form.
+const searchTermKey = value => typeof value === 'string' ? value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase() : null;
 
 // One awaited action at a time. No action begins after cancellation or the deadline.
 async function runSession(settings, adapter, signal, options = {}) {
@@ -238,7 +253,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const sleep = options.sleep || ((ms, abortSignal) => delay(ms, undefined, { signal: abortSignal }));
   const random = options.random || Math.random;
   // Browsing variety is opt-in: without it, results are walked top to bottom.
-  const vary = platform === 'instagram' && typeof options.browseRandom === 'function' ? options.browseRandom : null;
+  const vary = ['instagram', 'tiktok'].includes(platform) && typeof options.browseRandom === 'function' ? options.browseRandom : null;
   const commentSalt = typeof options.commentSalt === 'string' ? options.commentSalt.slice(0, 64) : '';
   const checkpoint = options.checkpoint?.version === 1 ? options.checkpoint : null;
   const nonnegative = (value, fallback = 0) => Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -253,7 +268,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   ]));
   let nextEngagement = resumedAt + nonnegative(checkpoint?.cooldowns?.engagement, nextAllowed.like - resumedAt);
   let nextBreak = resumedAt + nonnegative(checkpoint?.cooldowns?.break, randomBetween(300000, 540000, random));
-  const termWindowMs = Math.max(10000, Math.min(platform === 'instagram' ? 360000 : 120000, settings.minutes * 60000 / settings.terms.length));
+  const termWindowMs = Math.max(10000, Math.min(KEYWORD_WINDOW_MS[platform] ?? KEYWORD_WINDOW_MS.tiktok, settings.minutes * 60000 / settings.terms.length));
   let nextTermAt = Infinity;
   let termIndex = checkpoint ? Math.floor(nonnegative(checkpoint.termIndex)) : vary ? randomBetween(0, settings.terms.length - 1, vary) : 0;
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
@@ -301,7 +316,11 @@ async function runSession(settings, adapter, signal, options = {}) {
   let gridProgressAt = resumedAt;
   const reportedSkips = new Set();
   const reasonReportedAt = new Map();
-  const reasonAllowed = reason => ONCE_PER_SESSION_REASONS.has(reason) ? !reasonReportedAt.has(reason) : !(now() - (reasonReportedAt.get(reason) ?? -Infinity) < SKIP_REPEAT_MS);
+  // Each platform names itself in its blocker copy, and its own account note is once per session.
+  const blockerCopy = platform === 'tiktok' ? TIKTOK_COMMENT_BLOCKER_COPY : COMMENT_BLOCKER_COPY;
+  const oncePerSession = platform === 'tiktok' ? TIKTOK_ONCE_PER_SESSION_REASONS : ONCE_PER_SESSION_REASONS;
+  const reasonAllowed = reason => oncePerSession.has(reason) ? !reasonReportedAt.has(reason) : !(now() - (reasonReportedAt.get(reason) ?? -Infinity) < SKIP_REPEAT_MS);
+  let untypedComments = 0;
   let samePost = null, samePostReadyAt = 0, samePostCount = 0;
   const engagementStarts = [];
   let currentSearchTerm = settings.terms.includes(checkpoint?.currentSearchTerm) ? checkpoint.currentSearchTerm : null;
@@ -332,12 +351,12 @@ async function runSession(settings, adapter, signal, options = {}) {
     checks: Number.isInteger(savedHold.checks) ? savedHold.checks : 0, lifts: Number.isInteger(savedHold.lifts) ? savedHold.lifts : MAX_DRAFT_LIFTS,
     reason: ['draft-retained', 'permanent', 'lifted'].includes(savedHold.reason) ? savedHold.reason : 'permanent'
   } : null;
-  // Only an instagram draft-retained result (no Post click) can later be lifted, once,
+  // Only a draft-retained result (no Post click) can later be lifted, once,
   // after two read-only checks on another post show no copy of the text.
   const pauseComments = (result, comment, postKey) => {
     pausedActions.add('comment');
     const lifts = draftHold?.lifts || 0;
-    const liftable = result === 'draft-retained' && platform === 'instagram' && typeof adapter.draftState === 'function' &&
+    const liftable = result === 'draft-retained' && ['instagram', 'tiktok'].includes(platform) && typeof adapter.draftState === 'function' &&
       lifts < MAX_DRAFT_LIFTS && typeof comment === 'string' && comment.trim().length > 0;
     draftHold = { comment: typeof comment === 'string' ? comment.slice(0, 500) : '', postId: typeof postKey === 'string' ? postKey.slice(0, 2048) : '',
       since: now(), lastCheckAt: now(), checks: 0, lifts, reason: liftable ? 'draft-retained' : 'permanent' };
@@ -423,7 +442,8 @@ async function runSession(settings, adapter, signal, options = {}) {
     if (!targetOpen(action)) return false;
     const key = action === 'follow' ? post.author : postIdentity(post.id);
     if (!key || !post[action] || done[action].has(key) || (action === 'comment' && alreadyCommented(post, key))) return false;
-    return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && searchResults.has(postIdentity(post.id)));
+    const fromSearch = searchResults.has(platform === 'tiktok' ? tiktokPostIdentity(post.id) : postIdentity(post.id));
+    return nicheMatch(typeof post.text === 'string' ? post.text : '') || (action !== 'comment' && fromSearch);
   });
   const watchVideoRemainder = async initialPost => {
     const initial = initialPost.videoPlayback;
@@ -464,8 +484,10 @@ async function runSession(settings, adapter, signal, options = {}) {
     if (!running()) return;
     const ranges = { transition: [500, 1800], browse: [1800, 5200], retry: [6000, 10000], exhausted: [10000, 15000], skim: [350, 1400], watch: [4000, 12000], fullwatch: [14000, 26000], read: [7000, 16000], like: [9000, 24000], follow: [16000, 36000], comment: [24000, 52000] };
     let [min, max] = ranges[platform === 'tiktok' && action === 'fullwatch' ? 'watch' : action] || ranges.browse;
+    // A quick look lasts the same on both platforms. TikTok only skims posts
+    // with nothing left to do, while browsing variety is on.
+    if (action === 'skim') { min = 1500; max = 4000; }
     if (platform === 'instagram') {
-      if (action === 'skim') { min = 1500; max = 4000; }
       if (action === 'watch') { min = 6000; max = 18000; }
       if (action === 'fullwatch') { min = 10000; max = 22000; }
     }
@@ -591,12 +613,19 @@ async function runSession(settings, adapter, signal, options = {}) {
       pastStreak = shownBefore(page.post.id) ? pastStreak + 1 : 0;
     }
     if (!page.post) pendingView = null;
-    if (platform === 'tiktok' && !page.post && currentSearchTerm !== null && page.search?.term === currentSearchTerm && Array.isArray(page.search.posts)) {
-      for (const id of page.search.posts) {
-        const identity = tiktokPostIdentity(id);
-        if (identity && searchResults.size < 1000) searchResults.add(identity);
+    // TikTok membership comes from this run's grid for the requested query, or
+    // that same grid still loaded behind its search viewer.
+    if (platform === 'tiktok' && currentSearchTerm !== null && page.search && Array.isArray(page.search.posts)) {
+      const sameTerm = !page.post && searchTermKey(page.search.term) === searchTermKey(currentSearchTerm);
+      if (sameTerm) searchGridOwned = true;
+      else if (page.search.behindViewer !== true) searchGridOwned = false;
+      if (sameTerm || (page.search.behindViewer === true && page.post?.viewer && searchGridOwned)) {
+        for (const id of page.search.posts) {
+          const identity = tiktokPostIdentity(id);
+          if (identity && searchResults.size < 1000) searchResults.add(identity);
+        }
       }
-    }
+    } else if (platform === 'tiktok' && !page.post && !page.search) searchGridOwned = false;
     // Instagram membership comes only from the grid of the query this run loaded.
     if (platform === 'instagram' && currentSearchTerm !== null && page.search && Array.isArray(page.search.posts)) {
       const sameTerm = typeof page.search.term === 'string' && page.search.term.normalize('NFKC').trim().toLocaleLowerCase() === currentSearchTerm.normalize('NFKC').trim().toLocaleLowerCase();
@@ -609,7 +638,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         }
       }
     } else if (platform === 'instagram' && !page.post && !page.search) searchGridOwned = false;
-    if (platform === 'instagram' && pausedActions.has('comment') && draftHold?.reason === 'draft-retained' && draftHold.lifts < MAX_DRAFT_LIFTS &&
+    if (['instagram', 'tiktok'].includes(platform) && pausedActions.has('comment') && draftHold?.reason === 'draft-retained' && draftHold.lifts < MAX_DRAFT_LIFTS &&
         typeof adapter.draftState === 'function' && page.post?.id && postIdentity(page.post.id) !== draftHold.postId &&
         now() - draftHold.since >= DRAFT_LIFT_MIN_MS * settings.pauseScale && now() - draftHold.lastCheckAt >= DRAFT_CHECK_GAP_MS) {
       const state = await adapter.draftState(draftHold.comment, signal);
@@ -664,7 +693,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         stats.skipped += 1;
         stalled += 1;
         update("couldn't open that post. trying another...");
-        await pause(platform === 'tiktok' ? 'retry' : 'transition');
+        await pause('transition');
         continue;
       }
       stats.open += 1;
@@ -699,7 +728,8 @@ async function runSession(settings, adapter, signal, options = {}) {
         const textMatches = nicheMatch(typeof post.text === 'string' ? post.text : '');
         const fromSearch = platform === 'tiktok' ? searchResults.has(tiktokPostIdentity(post.id)) : searchResults.has(postKey);
         const wantsComment = Boolean(settings.weights.comment && stats.comment + unconfirmed.comment < settings.limits.comment && !pausedActions.has('comment') && !alreadyCommented(post, postKey));
-        const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt }) : null;
+        // TikTok confirms a comment by its exact text, so it gets plain ASCII wording only.
+        const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt, plainText: platform === 'tiktok' }) : null;
         const burstFree = engagementStarts.filter(time => now() - time < BURST_WINDOW_MS * settings.pauseScale).length < MAX_ACTIONS_PER_WINDOW;
         const onSame = samePost === postKey;
         const skipReasons = new Map();
@@ -727,9 +757,9 @@ async function runSession(settings, adapter, signal, options = {}) {
             cause = 'writer';
             reason = WRITER_MISSING;
           } else if (!key || !post[action]) {
-            const blocker = action === 'comment' && typeof post.commentBlocker === 'string' && Object.hasOwn(COMMENT_BLOCKER_COPY, post.commentBlocker) ? post.commentBlocker : null;
+            const blocker = action === 'comment' && typeof post.commentBlocker === 'string' && Object.hasOwn(blockerCopy, post.commentBlocker) ? post.commentBlocker : null;
             cause = action === 'comment' ? blocker || 'composer' : 'control';
-            reason = blocker ? COMMENT_BLOCKER_COPY[blocker] : 'its control is not available on this post.';
+            reason = blocker ? blockerCopy[blocker] : 'its control is not available on this post.';
           } else if (action === 'comment' && !written?.text) {
             cause = Object.hasOwn(COMMENT_SKIP_COPY, written?.reason) ? written.reason : 'exhausted';
             reason = COMMENT_SKIP_COPY[cause];
@@ -868,7 +898,7 @@ async function runSession(settings, adapter, signal, options = {}) {
         const result = await adapter.engage(action, post, comment, signal);
         // A definitive skip guarantees no submission or remaining draft. Keep
         // its wording available for another post, but retain this post's guard.
-        if (action === 'comment' && result === 'skipped') { usedComments.delete(keyOf(comment)); if (templateKey) usedComments.delete(templateKey); }
+        if (action === 'comment' && ['skipped', 'not-typed'].includes(result)) { usedComments.delete(keyOf(comment)); if (templateKey) usedComments.delete(templateKey); }
         if (action === 'comment' && ['confirmed', 'uncertain', 'uncertain-draft'].includes(result)) {
           comments.push({ text: comment, url: post.id, author: typeof post.author === 'string' ? post.author : undefined, time: now(), status: result === 'confirmed' ? 'confirmed' : 'uncertain' });
         }
@@ -881,9 +911,14 @@ async function runSession(settings, adapter, signal, options = {}) {
         else stats.skipped += 1;
         let liftable = false;
         if (action === 'comment' && ['draft-retained', 'uncertain-draft'].includes(result)) liftable = pauseComments(result, comment, postIdentity(post.id));
+        // Text that never reached the editor is a clean skip, but not a silent
+        // one: a second in a row turns comments off. Any typed comment resets it.
+        if (action === 'comment') untypedComments = result === 'not-typed' ? untypedComments + 1 : result === 'skipped' ? untypedComments : 0;
+        const untypedStop = action === 'comment' && result === 'not-typed' && untypedComments >= MAX_UNTYPED_COMMENTS;
+        if (untypedStop) pausedActions.add('comment');
         inFlight = null;
         await saveCheckpoint();
-        update(engagementMessage(action, post, comment, result, !liftable));
+        update(engagementMessage(action, post, comment, result, result === 'not-typed' ? untypedStop : !liftable));
       }
     }
     await pause(pauseAfter);

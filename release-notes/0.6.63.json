@@ -1,5 +1,4 @@
 {
-  "version": "0.6.63",
   "releasedAt": "2026-09-29",
   "summary": "tiktok is back and works the same way as instagram",
   "changes": [
@@ -9,8 +8,5 @@
     "sign in to tiktok in the same chrome profile and keep tiktok in english before starting.",
     "instagram sessions work exactly as before.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.63.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

@@ -19,7 +19,10 @@ const ownContexts = (tabs, { tabIds = [] } = {}) => [...tabs.values()]
   .filter(tab => tabIds.includes(tab.id) && !tab.discarded && tab.url?.startsWith('chrome-extension://extension-id/'))
   .map(tab => ({ contextType: 'TAB', tabId: tab.id, frameId: 0, documentUrl: tab.url, documentOrigin: 'chrome-extension://extension-id' }));
 
-function background(initial, platform = initial?.settings?.platform || 'instagram') {
+// The 0.6.58 feature file, for updates to a build without tiktok.
+const INSTAGRAM_BUILD = "const productFeatures = Object.freeze({ accountSignup: false, platforms: Object.freeze(['instagram']) });";
+
+function background(initial, platform = initial?.settings?.platform || 'instagram', features = null) {
   let job = structuredClone(initial);
   let now = 100000;
   const tabs = new Map([[7, { id: 7, url: `https://www.${platform}.com/`, windowId: 1 }]]);
@@ -38,7 +41,7 @@ function background(initial, platform = initial?.settings?.platform || 'instagra
     }
   };
   const context = vm.createContext({ chrome, URL, console, crypto: webcrypto, Date: { now: () => now }, signupController: { suspendIfDisabled: async () => {}, read: async () => null, isActive: () => false, tabRemoved: async () => {}, tabUpdated: async () => {} } });
-  context.importScripts = (...files) => files.filter(file => !file.startsWith('signup')).forEach(file => vm.runInContext(fs.readFileSync(path.join(extension, file), 'utf8'), context));
+  context.importScripts = (...files) => files.filter(file => !file.startsWith('signup')).forEach(file => vm.runInContext(file === 'features.js' && features ? features : fs.readFileSync(path.join(extension, file), 'utf8'), context));
   vm.runInContext(fs.readFileSync(path.join(extension, 'background.js'), 'utf8'), context);
   const message = (request, sender = panel) => new Promise(resolve => chrome.runtime.onMessage.listeners[0](request, sender, resolve));
   return { chrome, tabs, removed, message, job: () => job, advance: milliseconds => { now += milliseconds; }, start: () => message({ type: 'start', tabId: 7, settings: { ...settings, platform } }) };
@@ -348,7 +351,7 @@ function historicalTikTokJob(phase = 'running') {
   };
 }
 
-test('saved TikTok results remain reviewable after updating, without accepting late runner results', async t => {
+test('saved TikTok results remain reviewable after updating, without accepting late runner results, and a new TikTok session can start', async t => {
   for (const phase of ['complete', 'stopped', 'error']) await t.test(phase, async () => {
     const saved = historicalTikTokJob(phase);
     const h = background(saved);
@@ -372,14 +375,17 @@ test('saved TikTok results remain reviewable after updating, without accepting l
     assert.deepEqual(Array.from(state.activity, item => ({ ...item })), saved.activity);
     assert.deepEqual({ ...state.unconfirmed }, saved.unconfirmed);
     assert.deepEqual(Array.from(state.pausedActions), saved.pausedActions);
-    assert.equal((await restarted.start()).ok, false, 'saved TikTok settings cannot restart a TikTok session');
+    assert.equal((await restarted.start()).ok, true, 'the student build starts a new TikTok session');
+    assert.equal(restarted.job().settings.platform, 'tiktok');
+    assert.notEqual(restarted.job().sessionId, saved.sessionId);
+    assert.deepEqual((await restarted.message({ type: 'state' })).data.comments, []);
   });
 });
 
-test('updating stops saved active TikTok sessions without tab actions and allows a new Instagram session', async t => {
+test('updating to a build without tiktok stops saved active TikTok sessions without tab actions and allows a new Instagram session', async t => {
   for (const phase of ['starting', 'running', 'stopping']) await t.test(phase, async () => {
     const saved = historicalTikTokJob(phase);
-    const h = background(saved);
+    const h = background(saved, undefined, INSTAGRAM_BUILD);
     const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${saved.token}`, tab: { id: saved.runnerTabId } };
     const tabCalls = [];
     const originals = {};
@@ -416,5 +422,20 @@ test('updating stops saved active TikTok sessions without tab actions and allows
     assert.notEqual(h.job().token, saved.token);
     assert.equal((await h.message({ type: 'runner-update', token: saved.token, patch: { phase: 'running' } }, sender)).ok, false);
     assert.deepEqual((await h.message({ type: 'state' })).data.comments, []);
+  });
+});
+
+test('updating to the student build keeps saved active TikTok sessions running', async t => {
+  for (const phase of ['starting', 'running']) await t.test(phase, async () => {
+    const saved = historicalTikTokJob(phase);
+    const h = background(saved);
+    const sender = { id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${saved.token}`, tab: { id: saved.runnerTabId } };
+    for (const type of ['hello', 'state']) assert.equal((await h.message({ type })).ok, true);
+    assert.equal((await h.message({ type: 'runner-job', token: saved.token }, sender)).data.phase, phase);
+    assert.deepEqual(h.job(), saved);
+    assert.equal((await h.message({ type: 'runner-show', token: saved.token }, sender)).ok, true);
+    await h.message({ type: 'runner-update', token: saved.token, patch: { phase: 'running', stats: { comment: 2 }, message: 'watching' } }, sender);
+    assert.equal(h.job().phase, 'running');
+    assert.equal(h.job().stats.comment, 2);
   });
 });

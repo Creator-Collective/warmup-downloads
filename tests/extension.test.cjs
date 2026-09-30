@@ -48,7 +48,8 @@ test('manifest limits permissions and contains no remote code or cookie access',
  assert.deepEqual(manifest.permissions,['storage','scripting','sidePanel']);
  assert.deepEqual(manifest.content_scripts[0].matches,[origin+'/*']);
  assert.equal(manifest.content_scripts[0].all_frames,false);
- assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns]);
+ assert.deepEqual(manifest.host_permissions,[...platforms.instagram.patterns,...platforms.tiktok.patterns]);
+ assert.match(manifest.description,/on Instagram or TikTok,/);
  for(const file of ['plan.js','comment-writer.js','session.js','guards.js'])new vm.Script(fs.readFileSync(path.join(extension,file),'utf8'));
  const ctx=vm.createContext({setTimeout,clearTimeout,AbortController});
  for(const file of ['plan.js','comment-writer.js','session.js'])vm.runInContext(fs.readFileSync(path.join(extension,file),'utf8'),ctx);
@@ -92,31 +93,43 @@ test('website and side-panel sessions create an inactive runner in the selected 
    }
  }
 });
-test('website and side panel reject TikTok listing, opening and starting without touching browser tabs',async()=>{
+test('website and side panel list, open and start TikTok with likes, follows and comments',async()=>{
+ const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
+ for (const source of [sender, panel]) {
+  const h=background();
+  const tabs=await h.message({type:'tabs',platform:'tiktok'},source);
+  assert.deepEqual(tabs.data.map(tab=>tab.id),[8]);
+  for (const type of ['open-platform','open-instagram']) assert.equal((await h.message({type,platform:'tiktok'},source)).ok,true);
+  assert.deepEqual(h.created.map(options=>options.url),[platforms.tiktok.home,platforms.tiktok.home]);
+  assert.deepEqual({...await h.message({type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}},source)},{ok:false,error:'that tab is no longer on tiktok. choose it again.'});
+  assert.equal(h.job(),undefined);
+  const response=await h.message({type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',enableComments:true,customLimits:{like:4,follow:1,comment:2}}},source);
+  assert.equal(response.ok,true);
+  assert.equal(h.job().settings.platform,'tiktok');
+  assert.equal(h.job().tabId,8);
+  assert.deepEqual(h.job().settings.limits,{like:4,follow:1,comment:2});
+ }
+});
+test('website and side panel reject unknown platforms without touching browser tabs',async()=>{
  const panel = { id: 'extension-id', url: 'chrome-extension://extension-id/sidepanel.html' };
  for (const source of [sender, panel]) {
   const h=background();
   const tabCalls=[];
-  for (const method of ['query','get','create','update','remove']) h.chrome.tabs[method]=async()=>{tabCalls.push(method);throw new Error('TikTok must not access browser tabs');};
+  for (const method of ['query','get','create','update','remove']) h.chrome.tabs[method]=async()=>{tabCalls.push(method);throw new Error('an unknown platform must not access browser tabs');};
   for (const request of [
-   {type:'tabs',platform:'tiktok'},
-   {type:'open-platform',platform:'tiktok'},
-   {type:'open-instagram',platform:'tiktok'},
-   {type:'start',tabId:8,settings:{platform:'tiktok',minutes:10,niche:'personal branding',enableComments:true,customLimits:{like:4,follow:1,comment:2}}},
-   {type:'start',tabId:7,settings:{platform:'tiktok',minutes:10,niche:'branding'}}
-  ]) {
-   const response=await h.message(request,source);
-   assert.equal(response.ok,false);
-   assert.match(response.error,/instagram only/);
-  }
+   {type:'tabs',platform:'youtube'},
+   {type:'open-platform',platform:'https://evil.example/'},
+   {type:'open-instagram',platform:'youtube'},
+   {type:'start',tabId:8,settings:{platform:'youtube',minutes:10,niche:'personal branding'}}
+  ]) assert.deepEqual({...await h.message(request,source)},{ok:false,error:'choose instagram or tiktok.'},JSON.stringify(request));
   assert.deepEqual(tabCalls,[]);
   assert.equal(h.job(),undefined);
  }
 });
-test('the public web bridge lists and opens Instagram through the real background handler', async () => {
+test('the public web bridge lists and opens the requested platform through the real background handler', async () => {
   const h = background();
   const bridge = webBridge(h);
-  for (const [platform, tabId] of [['instagram', 7]]) {
+  for (const [platform, tabId] of [['instagram', 7], ['tiktok', 8]]) {
     await bridge.request({ type: 'tabs', platform });
     assert.equal(bridge.forwarded.at(-1).platform, platform);
     assert.equal(bridge.responses.at(-1).data.ok, true);
@@ -130,28 +143,40 @@ test('the public web bridge lists and opens Instagram through the real backgroun
   assert.equal(h.created.at(-1).url, platforms.instagram.home);
   assert.equal(h.job(), undefined);
 });
-test('the public bridge rejects TikTok and malformed platforms without querying or opening another destination', async () => {
+test('the public bridge rejects malformed platforms without querying or opening another destination', async () => {
   const h = background();
   const bridge = webBridge(h);
-  for (const platform of ['tiktok', 'https://evil.example/', 'youtube', '__proto__', null, [], ['tiktok'], { platform: 'tiktok' }, 8]) {
+  for (const platform of ['https://evil.example/', 'youtube', 'TikTok', '__proto__', null, [], ['tiktok'], { platform: 'tiktok' }, 8]) {
     for (const type of ['tabs', 'open-platform']) {
       await bridge.request({ type, platform });
       assert.equal(bridge.responses.at(-1).data.ok, false);
-      assert.match(bridge.responses.at(-1).data.error, /instagram only/);
+      assert.equal(bridge.responses.at(-1).data.error, 'choose instagram or tiktok.');
     }
   }
   assert.equal(bridge.forwarded.length, 0);
   assert.equal(h.created.length, 0);
   assert.equal(h.job(), undefined);
 });
-test('the public bridge cannot start TikTok through either platform field', async () => {
+test('the public bridge starts TikTok from its settings, on a TikTok tab only', async () => {
+  for (const platform of [undefined, 'instagram', 'tiktok']) {
+    const h = background();
+    const bridge = webBridge(h);
+    await bridge.request({ type: 'start', platform, tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'branding' } });
+    assert.equal(bridge.responses.at(-1).data.ok, true, String(platform));
+    assert.equal(h.job().settings.platform, 'tiktok');
+    assert.equal(h.job().tabId, 8);
+  }
   const h = background();
   const bridge = webBridge(h);
-  for (const platform of [undefined, 'instagram', 'tiktok']) {
+  for (const platform of ['youtube', ['tiktok'], { platform: 'tiktok' }]) {
     await bridge.request({ type: 'start', platform, tabId: 8, settings: { platform: 'tiktok', minutes: 10, niche: 'branding' } });
-    assert.equal(bridge.responses.at(-1).data.ok, false);
-    assert.match(bridge.responses.at(-1).data.error, /instagram only/);
+    assert.equal(bridge.responses.at(-1).data.error, 'choose instagram or tiktok.');
   }
+  assert.equal(bridge.forwarded.length, 0);
+  await bridge.request({ type: 'start', tabId: 8, settings: { platform: 'youtube', minutes: 10, niche: 'branding' } });
+  assert.equal(bridge.responses.at(-1).data.error, 'choose instagram or tiktok.');
+  await bridge.request({ type: 'start', tabId: 7, settings: { platform: 'tiktok', minutes: 10, niche: 'branding' } });
+  assert.equal(bridge.responses.at(-1).data.error, 'that tab is no longer on tiktok. choose it again.');
   assert.equal(h.created.length, 0);
   assert.equal(h.job(), undefined);
 });
@@ -1485,11 +1510,15 @@ test('a fresh TikTok like cannot confirm or close a tab that moves during inspec
  assert.deepEqual(f.removed, []);
 });
 
+// Updated for TikTok draft-state parity: with no copy of the text anywhere the ignored
+// paste is no longer a kept draft but 'not-typed', which the session counts and caps.
 test('TikTok ignored paste is not submitted or counted and does not use native DOM editing', async () => {
  const f = await runTikTokComment(composer => { composer.state.ignorePaste = true; });
- assert.equal(f.result, 'draft-retained');
+ assert.equal(f.result, 'not-typed');
  assert.equal(f.composer.submitted, 0);
  assert.deepEqual(f.composer.inputs, []);
+ assert.equal(f.composer.field.textContent, '');
+ assert.equal(f.continued, true);
 });
 
 function instagramNavigationFixture(nextDestination) {

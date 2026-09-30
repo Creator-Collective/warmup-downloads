@@ -1,3 +1,13 @@
+# 0.6.63 tiktok is back and works the same way as instagram
+
+tiktok sessions return to the student build, at parity with instagram. the platform menu is back on the website and side panel. a tiktok session searches the student's keywords, opens results, watches, and likes, follows and comments within the same targets, caps, cooldowns and pacing rules as instagram, with the same resume, end-of-session shortfall summary and six-minute keyword windows. the tiktok engine work from the unmerged 0.6.58 test build (pull request 68) is merged in, and the test-only build and its instruments are dropped.
+
+tiktok also gets what instagram gained since then: each session starts on a random keyword and tile, pages through 3-9 posts, then closes the viewer and jumps further down the results, and prefers posts earlier sessions did not show (two weeks, up to 3,000 ids). a post the student's sessions commented on never gets another comment (six months, up to 5,000 ids), and a post that already shows a top-level comment from the signed-in account is skipped. if tiktok's close lands on an earlier post of the same viewer instead of the results, the search loads again instead of stopping.
+
+a tiktok like or follow still counts only after a fresh load of the post shows it; otherwise it is reported as not confirmed. an earlier live test found the account's ordinary manual likes and follows were also undone by tiktok, so a low confirmed count can be an account-level restriction. an older extension (0.6.62 or earlier) connected to the new website shows "update the extension to run tiktok sessions" when tiktok is chosen. instagram behavior is byte-for-byte unchanged: 36 golden 40-minute instagram runs reproduce exactly.
+
+adds tiktok host access (www.tiktok.com, tiktok.com). replace the files in your existing unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.62 never comments twice on the same post
 
 a student reported that warm-up "posts the same comments on the same reels", with a screenshot of one reel carrying the same comment from her account twice, a week apart. each session only remembered the posts it commented on itself, so a later session searching the same keywords could reach the same reel and comment on it again. 0.6.61's browsing history only prefers new tiles, it never stops an action.
