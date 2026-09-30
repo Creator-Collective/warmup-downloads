@@ -291,3 +291,30 @@ test('hidden characters cannot sneak an instruction past the suspicious check', 
 test('no reply assumes the post is a video', () => {
   for (const reply of [...pools.generic, ...families, ...shapes, ...topics]) assert.doesNotMatch(reply, /\b(?:watch|video|videos)\b/u, reply);
 });
+
+test('plainText never picks the one emoji reply, and the default still can', () => {
+  const ascii = reply => /^[\x20-\x7e]*$/.test(reply);
+  const nonAscii = [...pools.generic, ...families, ...shapes, ...topics].filter(reply => !ascii(reply));
+  assert.deepEqual(nonAscii, ['the every day part is where it gets hard 😭'], 'the emoji reply is the only non-ASCII wording');
+  for (const template of pools.templates) assert.ok(ascii(template));
+  const caption = 'Daily practice matters: a little every day adds up.';
+  const request = postId => ({ caption, text: caption, terms: ['practice'], used: new Set(), postId });
+  let postId = null;
+  for (let index = 0; index < 5000 && postId === null; index++) if (writeComment(request(`post-${index}`)).text === nonAscii[0]) postId = `post-${index}`;
+  assert.ok(postId, 'some post picks the emoji reply by default');
+  assert.equal(writeComment({ ...request(postId), plainText: false }).text, nonAscii[0]);
+  const plain = writeComment({ ...request(postId), plainText: true });
+  assert.ok(ascii(plain.text) && plain.text, plain.text);
+  assert.equal(plain.source, 'topic', 'another practice reply is picked instead');
+  for (let index = 0; index < 500; index++) assert.ok(ascii(writeComment({ ...request(`post-${index}`), plainText: true }).text || ''));
+  const onlyEmojiLeft = new Set(pools.topics.practice.filter(ascii).map(commentKey));
+  const fallback = writeComment({ ...request(postId), used: onlyEmojiLeft, plainText: true });
+  assert.ok(fallback.text && ascii(fallback.text), 'with every plain practice reply used it falls back to another tier');
+  assert.notEqual(fallback.source, 'topic');
+  // With a second recognized detail, the next topic pool is used instead.
+  const twoTopics = 'Daily practice matters, a little every day adds up. Showing your process makes the result easier to understand.';
+  const next = Array.from({ length: 500 }, (_, index) => writeComment({ caption: twoTopics, text: twoTopics, terms: ['practice'], used: onlyEmojiLeft, postId: `post-${index}`, plainText: true }))
+    .find(reply => reply.source === 'topic');
+  assert.ok(next, 'the process topic is still reachable');
+  assert.ok(pools.topics.process.includes(next.text), next.text);
+});

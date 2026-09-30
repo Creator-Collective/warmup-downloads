@@ -1,0 +1,13 @@
+{
+  "name": "Creator Collective TikTok Warm-up (test)",
+  "description": "test build: run a timed niche browsing session on tiktok, with targets and activity you control.",
+  "action": {
+    "default_title": "Open TikTok warm-up (test)"
+  },
+  "host_permissions": [
+    "https://www.tiktok.com/*",
+    "https://tiktok.com/*"
+  ],
+  "content_scripts": null,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzO+a83Fq/vr2NSC32EAxXDmi0ceA/xY1JmczXXJbLjWOiEk4jCieJH2Pw0E0SyamaNMOyCTRCuo0/mLKuS7SwRP5n7gppNvL9/NYwAHVQX6urTDU/WSIBMvoCNefoU4nGVttwVw8O/TUKAbNQf3Bcm1WH8t0JdJSDUOMJZsW+xEPXBaJH0+6l/2WHxWT3jeMOYt6W5osUhh1Le1onPNxzEnCnmuDmR60TULt7Z7FFZvwKAxlwtDk2bQpzO3hEoMQghrlM3QxexSeLQ/uhDo2UZHKqV1xMvqUHL6Y0xIUwma4JqmgHn/vROgEzxwrlQihPKT/pmXrpFIYA3gfiZVGKwIDAQAB"
+}

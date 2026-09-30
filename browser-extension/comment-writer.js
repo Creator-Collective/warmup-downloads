@@ -206,7 +206,9 @@
     if (ends.some(text => text.endsWith('?') && !NEGATION.test(text) && text.split(/\s+/).length <= 20)) return 'question';
     return null;
   }
-  function writeComment({ caption, text, terms, used, postId, salt } = {}) {
+  // plainText keeps only printable ASCII wording, for platforms that confirm a
+  // comment by its exact rendered text (an emoji can render differently).
+  function writeComment({ caption, text, terms, used, postId, salt, plainText = false } = {}) {
     const cleanCaption = caption == null ? '' : caption;
     const cleanText = text == null ? '' : text;
     if (typeof cleanCaption !== 'string' || typeof cleanText !== 'string' || cleanCaption.length > MAX_TEXT || cleanText.length > MAX_TEXT ||
@@ -221,9 +223,10 @@
       .map(value => value.startsWith('template:') ? value : commentKey(value)));
     const sentences = splitSentences(fold(cleanCaption));
     const context = `${cleanCaption} ${cleanText}`;
-    const fresh = item => !usedKeys.has(commentKey(item.text)) && !(item.templateKey && usedKeys.has(item.templateKey));
+    const allowed = reply => plainText !== true || /^[\x20-\x7e]*$/.test(reply);
+    const fresh = item => allowed(item.text) && !usedKeys.has(commentKey(item.text)) && !(item.templateKey && usedKeys.has(item.templateKey));
     const tiers = new Map();
-    const topic = topicPool(sentences, terms).find(pool => pool.some(reply => !usedKeys.has(commentKey(reply))));
+    const topic = topicPool(sentences, terms).find(pool => pool.some(reply => allowed(reply) && !usedKeys.has(commentKey(reply))));
     if (topic) tiers.set('topic', topic.map(reply => ({ text: reply })));
     const shape = detectShape(sentences);
     if (shape) tiers.set('shape', SHAPES[shape].map(reply => ({ text: reply })));
