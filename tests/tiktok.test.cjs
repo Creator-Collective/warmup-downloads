@@ -237,6 +237,69 @@ function failedPhotoViewer() {
   return h;
 }
 
+function failedEmptyViewer(withPhoto = false) {
+  const h = searchCommentViewer({ withPhoto });
+  h.header.remove(); h.caption.remove(); h.actions.remove();
+  (withPhoto ? h.photo : h.video).remove();
+  h.close.attrs['data-e2e'] = 'browse-close';
+  h.details.append(
+    h.element('h2', {}, 'Something went wrong', h.rect(400, 120, 220, 35)),
+    h.element('p', {}, 'Sorry about that! Please try again later.', h.rect(400, 170, 280, 35))
+  );
+  return h;
+}
+
+test('failed video and photo viewers can close after TikTok removes their media', () => {
+  for (const withPhoto of [false, true]) {
+    const h = failedEmptyViewer(withPhoto);
+    const page = h.context.inspectTikTok();
+    assert.equal(page.post, null);
+    assert.equal(page.unavailableViewer, h.request.id);
+    for (const action of ['click-like', 'click-follow', 'click-comment-submit']) {
+      assert.equal(h.inspect(action).clicked, false);
+    }
+    assert.equal(h.context.inspectTikTok({ ...h.request, id: 'https://www.tiktok.com/@other/video/999/', action: 'click-close' }).clicked, false);
+    assert.equal(h.inspect('click-close').clicked, true);
+    assert.deepEqual(h.clicks, [h.close]);
+  }
+});
+
+test('empty-viewer recovery does not close unrelated, ambiguous or loading dialogs', () => {
+  for (const change of [
+    h => { delete h.close.attrs['data-e2e']; },
+    h => h.body.append(h.element('div', { role: 'dialog' }, 'another dialog', h.rect(0, 0, 100, 100))),
+    h => { h.context.location.href = 'https://www.tiktok.com/search?q=personal%20brand'; },
+    h => { h.details.children.find(element => element.tagName === 'H2').ownText = 'Loading'; },
+    h => { h.details.children.find(element => element.tagName === 'P').ownText = 'Loading'; }
+  ]) {
+    const h = failedEmptyViewer(); change(h);
+    assert.equal(h.context.inspectTikTok().unavailableViewer, undefined);
+    assert.equal(h.inspect('click-close').clicked, false);
+    assert.equal(h.clicks.length, 0);
+  }
+});
+
+test('empty failed viewers retain close-control and platform-restriction safeguards', () => {
+  for (const change of [
+    h => h.main.append(h.element('button', { 'aria-label': 'Close' }, '', h.rect(620, 0, 60, 36))),
+    h => { h.close.disabled = true; },
+    h => { h.close.attrs['aria-disabled'] = 'true'; },
+    h => h.body.append(h.element('div', {}, 'overlay', h.close.bounds))
+  ]) {
+    const h = failedEmptyViewer(); change(h);
+    assert.equal(h.context.inspectTikTok().unavailableViewer, h.request.id);
+    assert.equal(h.inspect('click-close').clicked, false);
+    assert.equal(h.clicks.length, 0);
+  }
+  for (const warning of ['Too many requests', 'Verify to continue', 'Access denied']) {
+    const h = failedEmptyViewer();
+    h.details.append(h.element('p', {}, warning, h.rect(400, 220, 280, 35)));
+    assert.ok(h.context.inspectTikTok().blocked, warning);
+    assert.ok(h.inspect('click-close').blocked, warning);
+    assert.equal(h.clicks.length, 0, warning);
+  }
+});
+
 test('failed TikTok viewers remain unavailable when close is missing, ambiguous, disabled or covered', () => {
   for (const change of [
     h => h.close.remove(),
