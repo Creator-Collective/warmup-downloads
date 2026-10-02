@@ -295,15 +295,17 @@ async function advanceViewer(post, hasSeen = () => false) {
   const page = await inspect();
   if (page.blocked) throw new Error(page.blocked);
   if (!sameDestination(page.post?.id, post.id)) return false;
+  const tiktok = currentPlatform() === 'tiktok';
   if (page.sequence?.some(id => sameDestination(id, post.id))) viewerSequence = page.sequence;
-  if (viewerSequence.filter(id => sameDestination(id, post.id)).length !== 1) return false;
+  if (!tiktok && viewerSequence.filter(id => sameDestination(id, post.id)).length !== 1) return false;
   const index = viewerSequence.findIndex(id => sameDestination(id, post.id));
-  const target = index >= 0 ? viewerSequence[index + 1] : null;
-  if (!target || hasSeen(target)) return false;
+  const predicted = index >= 0 ? viewerSequence[index + 1] : null;
+  if (!tiktok && (!predicted || hasSeen(predicted))) return false;
+  const target = predicted || post.id;
   assertRunning();
   // TikTok's Next follows its own feed order, which can differ from the links on
-  // the page. Any other post it lands on becomes the current post.
-  const tiktok = currentPlatform() === 'tiktok';
+  // the page or outlive the mounted search cards. A guessed successor must not
+  // prevent a visible Next from working; confirm the actual new post instead.
   const arrived = tiktok ? id => tiktokPostPage(id) && !sameDestination(id, post.id) : undefined;
   return navigateViewer(target, async () => {
   const clicked = await execute((id, deadline) => {

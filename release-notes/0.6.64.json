@@ -1,13 +1,9 @@
 {
-  "version": "0.6.64",
   "releasedAt": "2026-10-01",
   "summary": "fixes for tiktok sessions losing their place",
   "changes": [
     "tiktok sessions keep moving through the viewer when its next post differs from the search result order.",
     "the session can leave a failed tiktok viewer even when the video or photo has disappeared.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.64.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

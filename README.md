@@ -1,3 +1,9 @@
+# 0.6.64 tiktok viewer recovery
+
+fixes two reproduced tiktok browsing failures: a next post outside the remembered search order could end the viewer chain early, and a failed viewer with no remaining video or photo could not be recognized for closing. tiktok can now continue through its own next-post order and leave a uniquely identified failed viewer. instagram's navigation and action behavior are unchanged. no new permissions.
+
+these failures were reproduced locally; the user's specific failure and a signed-in live session remain unverified. replace the files in your original unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.63 tiktok is back and works the same way as instagram
 
 tiktok sessions return to the student build, at parity with instagram. the platform menu is back on the website and side panel. a tiktok session searches the student's keywords, opens results, watches, and likes, follows and comments within the same targets, caps, cooldowns and pacing rules as instagram, with the same resume, end-of-session shortfall summary and six-minute keyword windows. the tiktok engine work from the unmerged 0.6.58 test build (pull request 68) is merged in, and the test-only build and its instruments are dropped.

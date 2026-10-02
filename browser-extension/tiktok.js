@@ -124,7 +124,8 @@ function inspectTikTok(request = {}) {
     return visible(image) && image.complete === true && image.naturalWidth >= 240 && image.naturalHeight >= 240 &&
       rect.width >= 240 && rect.height >= 240 && area(image) >= 70000 && !image.closest('a[href]') && !excluded(image);
   });
-  const dialogs = all(document, '[role="dialog"]').filter(element => visible(element) && (all(element, 'video').some(visible) || photoMedia(element).length));
+  const visibleDialogs = all(document, '[role="dialog"]').filter(visible);
+  const dialogs = visibleDialogs.filter(element => all(element, 'video').some(visible) || photoMedia(element).length);
   // Page-level structure for the page check: counts and booleans, no text or links.
   const probeFacts = () => {
     const searchPage = /^\/search(?:\/video)?\/?$/.test(location.pathname);
@@ -171,15 +172,20 @@ function inspectTikTok(request = {}) {
     });
     if (resultIds.length) search = { term: null, behindViewer: true, posts: unique(resultIds).slice(0, 500) };
   }
-  const failureText = viewer ? warningNodes.filter(element => viewer.contains(element))
+  // Failed media may disappear before the error renders. In that case only
+  // TikTok's own browse-close marker identifies the empty post viewer; a generic
+  // error dialog elsewhere on a post must never become a recovery click.
+  const failureViewer = visibleDialogs.length === 1 && (viewer || all(visibleDialogs[0], '[data-e2e="browse-close"]').some(visible))
+    ? visibleDialogs[0] : null;
+  const failureText = failureViewer ? warningNodes.filter(element => failureViewer.contains(element))
     .map(element => (element.innerText || element.textContent || '').trim().toLowerCase()) : [];
-  const failedViewer = Boolean(viewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
+  const failedViewer = Boolean(failureViewer && pageId && failureText.some(text => /^something went wrong[.!]?$/.test(text)) &&
     failureText.some(text => /^sorry about that[.!]?\s*please try again later[.!]?$/.test(text)));
   if (failedViewer) {
     const closeControls = unique([
-      ...all(viewer, '[data-e2e="browse-close"]'),
-      ...all(viewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
-    ].filter(visible).map(element => target(element, viewer)).filter(Boolean));
+      ...all(failureViewer, '[data-e2e="browse-close"]'),
+      ...all(failureViewer, 'button, [role="button"]').filter(element => /^close(?: video)?$/.test(label(element)))
+    ].filter(visible).map(element => target(element, failureViewer)).filter(Boolean));
     const closeControl = closeControls.length === 1 ? closeControls[0] : null;
     // A missing or obstructed close does not make the covered results usable.
     if (!request.action) return { posts, sequence, post: null, unavailableViewer: pageId };

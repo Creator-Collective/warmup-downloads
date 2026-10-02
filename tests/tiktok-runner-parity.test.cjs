@@ -63,14 +63,18 @@ function runner(operation) {
 const kindOf = request => typeof request.args?.[1] !== 'number' ? null : /click-close/.test(request.func) ? 'close' : /click-next/.test(request.func) ? 'next' : 'open';
 
 // A TikTok search tab with a viewer. onNext decides where TikTok's Next lands.
-function navigation(onNext) {
+function navigation(onNext, { advanceTwice = false, viewerSequence = [FIRST, SECOND], hasSeen = () => false } = {}) {
   let current = SEARCH;
   const clicks = [];
   const h = runner(async (settings, adapter, signal) => {
     h.results = [];
     h.results.push(await adapter.search('personal brand'));
     h.results.push(await adapter.open(FIRST));
-    h.moved = await adapter.advance({ id: FIRST, viewer: true, next: true }, signal);
+    h.moved = await adapter.advance({ id: FIRST, viewer: true, next: true }, signal, hasSeen);
+    if (advanceTwice && h.moved) {
+      const post = (await adapter.inspect()).post;
+      h.movedAgain = await adapter.advance(post, signal, hasSeen);
+    }
     if (!h.moved && !signal.aborted) h.left = await adapter.leavePost({ id: FIRST, viewer: true, close: true }, signal);
     h.idle = h.run('expectedDestination');
     h.active = h.run('viewerNavigation');
@@ -90,7 +94,7 @@ function navigation(onNext) {
       return [{ result: onNext({ change, h }) }];
     }
     const post = isPost(current) ? { id: canonical(current), viewer: true, next: true, close: true } : null;
-    return [{ result: { posts: [FIRST, SECOND], sequence: [FIRST, SECOND], post } }];
+    return [{ result: { posts: [FIRST, SECOND], sequence: post ? viewerSequence : [FIRST, SECOND], post } }];
   });
   return { h, change, clicks, current: () => current };
 }
@@ -105,6 +109,37 @@ test('a tiktok Next that lands on a different valid post continues from that pos
   assert.equal(f.h.idle, OTHER.replace(/\/$/, '') + '?lang=en&is_from_webapp=1');
   assert.equal(f.h.active, null);
   assert.deepEqual(f.clicks, ['open', 'next']);
+});
+
+test('tiktok can advance again after Next leaves the remembered search order', async () => {
+  let moves = 0;
+  const f = navigation(({ change }) => { change(++moves === 1 ? OTHER : SECOND); return true; }, { advanceTwice: true });
+  assert.equal((await f.h.finish()).phase, 'complete');
+  assert.equal(f.h.moved, true);
+  assert.equal(f.h.movedAgain, true);
+  assert.equal(f.h.landed, SECOND);
+  assert.equal(f.h.idle, SECOND);
+  assert.equal(f.h.active, null);
+  assert.deepEqual(f.clicks, ['open', 'next', 'next']);
+});
+
+test('tiktok Next does not depend on a mounted or unseen predicted successor', async () => {
+  for (const options of [{ viewerSequence: [] }, { viewerSequence: [FIRST] }, { hasSeen: id => id === SECOND }]) {
+    const f = navigation(({ change }) => { change(OTHER); return true; }, options);
+    assert.equal((await f.h.finish()).phase, 'complete');
+    assert.equal(f.h.moved, true);
+    assert.equal(f.h.landed, OTHER);
+    assert.deepEqual(f.clicks, ['open', 'next']);
+  }
+});
+
+test('tiktok Next with no predicted successor still requires another post to load', async () => {
+  const f = navigation(() => true, { viewerSequence: [FIRST] });
+  assert.equal((await f.h.finish()).phase, 'complete');
+  assert.equal(f.h.moved, false);
+  assert.equal(f.h.left, true);
+  assert.equal(f.h.landed, null);
+  assert.deepEqual(f.clicks, ['open', 'next', 'close']);
 });
 
 test('tiktok Next permits its own source and the same-search intermediate before the predicted target', async () => {
