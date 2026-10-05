@@ -1,5 +1,4 @@
 {
-  "version": "0.6.65",
   "releasedAt": "2026-10-05",
   "summary": "tiktok sessions keep tiktok on screen so likes, follows and comments work",
   "changes": [
@@ -8,8 +7,5 @@
     "each opened tiktok post gets a few seconds for its like, follow and comment panel to load before the session decides what to do.",
     "the double-check that a tiktok like or follow stuck now waits up to 20 seconds for tiktok to load, so real likes and follows stop showing as not confirmed.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.65.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }

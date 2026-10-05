@@ -402,7 +402,7 @@ test('a non-english tiktok page stops the session before any navigation', async 
 
 // Worst case: the in-place check never confirms and the fresh page never confirms.
 const budget = action => {
-  const match = sessionSource.match(/const confirmationBudgetMs = \{ like: platform === 'tiktok' \? (\d+) : \d+, follow: (\d+), comment: \d+ \};/);
+  const match = sessionSource.match(/const confirmationBudgetMs = \{ like: platform === 'tiktok' \? (\d+) : \d+, follow: platform === 'tiktok' \? (\d+) : \d+, comment: \d+ \};/);
   assert.ok(match, 'the session keeps its confirmation budget');
   return Number(action === 'like' ? match[1] : match[2]);
 };

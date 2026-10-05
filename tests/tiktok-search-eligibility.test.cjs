@@ -114,7 +114,8 @@ async function run(options = {}, patch = {}) {
 test("a captured personal-brand search result can be liked and followed despite a caption that doesn't use the keyword", async () => {
   assert.equal(matchesNiche(variant, ['personal brand']), false);
   assert.equal(context.commentWriter.looseNicheMatch(variant, ['personal brand']), false);
-  const h = await run();
+  // Four minutes leaves room for the second follow's 32-second confirmation.
+  const h = await run({}, { minutes: 4 });
   assert.equal(h.stats.like, 3);
   assert.equal(h.stats.follow, 2);
   assert.equal(h.stats.comment, 0, 'search membership does not grant permission to generate a comment');
@@ -232,7 +233,8 @@ test('a sixty-minute mixed TikTok search session reaches supported targets witho
   };
   const plan = { minutes: 60, customLimits: { like: 180, follow: 54, comment: 15 } };
   const h = await run(scenario, plan);
-  assert.equal(h.time, 3600000);
+  // The modelled Next takes 700 ms and may start just before the end.
+  assert.ok(h.time >= 3600000 && h.time < 3600700, `ended at ${h.time}`);
   assert.ok(h.stats.like >= 170, `likes: ${h.stats.like}`);
   assert.ok(h.stats.follow >= 50, `follows: ${h.stats.follow}`);
   assert.ok(h.stats.comment >= 12, `comments: ${h.stats.comment}`);
@@ -241,7 +243,7 @@ test('a sixty-minute mixed TikTok search session reaches supported targets witho
     assert.ok(h.stats[action] <= h.plan.limits[action]);
     const actionAttempts = h.attempts.filter(attempt => attempt.action === action);
     assert.equal(new Set(actionAttempts.map(attempt => attempt.id)).size, actionAttempts.length);
-    assert.ok(actionAttempts.every(attempt => attempt.time <= 3600000 - { like: 22000, follow: 22000, comment: 20000 }[action]));
+    assert.ok(actionAttempts.every(attempt => attempt.time <= 3600000 - { like: 32000, follow: 32000, comment: 20000 }[action]));
   }
   assert.equal(new Set(h.attempts.filter(attempt => attempt.action === 'comment').map(attempt => attempt.comment)).size, h.stats.comment);
   const captionOnly = await run({ ...scenario, metadata: false }, plan);

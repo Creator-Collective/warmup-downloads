@@ -274,7 +274,7 @@ async function runSession(settings, adapter, signal, options = {}) {
   const stats = { scroll: 0, read: 0, search: 0, open: 0, like: 0, follow: 0, comment: 0, skipped: 0 };
   for (const key of Object.keys(stats)) stats[key] = nonnegative(checkpoint?.stats?.[key]);
   // Background tabs can round sub-second timers up during confirmation.
-  const confirmationBudgetMs = { like: platform === 'tiktok' ? 22000 : 8000, follow: 22000, comment: 20000 };
+  const confirmationBudgetMs = { like: platform === 'tiktok' ? 32000 : 8000, follow: platform === 'tiktok' ? 32000 : 22000, comment: 20000 };
   const unconfirmed = { like: 0, follow: 0, comment: 0 };
   for (const key of Object.keys(unconfirmed)) unconfirmed[key] = nonnegative(checkpoint?.unconfirmed?.[key]);
   const strings = values => Array.isArray(values) ? values.filter(value => typeof value === 'string') : [];

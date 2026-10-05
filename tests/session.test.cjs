@@ -243,7 +243,7 @@ test('sessions do not start an engagement without time left for its confirmation
     let time = 0;
     h.options.now = () => time;
     h.options.sleep = async ms => { time += ms; };
-    h.adapter.search = async () => { time = 60000 - (platform === 'tiktok' && action === 'like' ? 22000 : budget) + 1; };
+    h.adapter.search = async () => { time = 60000 - (platform === 'tiktok' && action !== 'comment' ? 32000 : budget) + 1; };
     const limits = { like: 0, follow: 0, comment: 0, [action]: 1 };
     const stats = await runSession(validateSettings({ ...input, platform, minutes: 1, customLimits: limits }), h.adapter, h.controller.signal, h.options);
     assert.equal(stats[action], 0, action);

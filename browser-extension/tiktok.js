@@ -102,8 +102,11 @@ function inspectTikTok(request = {}) {
   // A like or follow check that can't find this post says so with a fixed code.
   const verifying = ['verify-like', 'verify-follow'].includes(request.action);
   // The page check names the step where post detection stopped (stage).
+  // TikTok renders post details and loads more results only while its tab is
+  // on screen. Plain reads say so, and the session waits instead of skipping.
+  const offscreen = document.visibilityState === 'hidden';
   const empty = stage => probing ? { probe: { ...probeFacts(), stage } } : request.action ? { changed: true, point: null, clicked: false, confirmed: false,
-    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : verifying ? { reason: 'no-post' } : {}) } : { posts, sequence, post: null, ...(search ? { search } : {}) };
+    ...(request.action === 'verify-comment' ? { reason: 'post-unavailable' } : verifying ? { reason: 'no-post' } : {}) } : { posts, sequence, post: null, ...(search ? { search } : {}), ...(offscreen ? { hidden: true } : {}) };
   const pageId = postURL(location.href);
   const photoId = value => Boolean(value && new URL(value).pathname.includes('/photo/'));
   const area = element => {
@@ -353,8 +356,11 @@ function inspectTikTok(request = {}) {
   // any session or device: a top-level comment row whose one author is the student.
   // Replies, the caption and other posts never count. Only read for plain page reads.
   const ownComment = Boolean(ownProfile && !request.action) && commentRows().some(row => row.author === ownProfile);
+  // details: the post's own like control has rendered, liked or not. A viewer
+  // can show its video seconds before the panel with like, follow and comments.
   const post = { id, author, videoRemainingMs, viewer: true, next: Boolean(point(next)), close: Boolean(point(close)), text: caption, caption,
-    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))), commented: ownComment };
+    like: Boolean(point(like)) && !liked, follow: Boolean(point(follow)) && !following, comment: Boolean(ownProfile && fields.length <= 1 && !replying && ((composer && submit && point(composer)) || point(commentOpen))), commented: ownComment,
+    details: Boolean(like) };
   // Why comments can't run here, as a fixed code for the session's message.
   if (!post.comment) post.commentBlocker = ownProfile ? 'composer' : 'account';
   if (probing) {
@@ -371,7 +377,7 @@ function inspectTikTok(request = {}) {
       postButton: Boolean(submit), replying, ownProfile: Boolean(ownProfile), ownAccounts: ownUsers.length,
       commentReady: post.comment, commentBlocker: post.commentBlocker || 'none' } };
   }
-  if (!request.action) return { posts, sequence, post, ...(search ? { search } : {}) };
+  if (!request.action) return { posts, sequence, post, ...(search ? { search } : {}), ...(offscreen ? { hidden: true } : {}) };
   if (request.id !== id || (request.author && request.author !== author)) return { changed: true, clicked: false, confirmed: false,
     ...(request.action === 'verify-comment' ? { reason: 'post-changed' } : verifying ? { reason: 'no-post' } : {}) };
   if (['click-comment-open', 'comment-field', 'comment-ready', 'comment-submit', 'click-comment-submit'].includes(request.action) && request.caption !== caption) {

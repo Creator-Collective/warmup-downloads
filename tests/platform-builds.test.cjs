@@ -31,7 +31,7 @@ const FEATURES = {
 function worker(features, initial) {
   let job = structuredClone(initial);
   let time = NOW;
-  const created = [], queries = [], removed = [], updated = [], tabCalls = [];
+  const created = [], queries = [], removed = [], updated = [], tabCalls = [], windowUpdates = [];
   const allTabs = [
     { id: 7, title: 'instagram', url: 'https://www.instagram.com/', windowId: 3 },
     { id: 8, title: 'tiktok', url: 'https://www.tiktok.com/', windowId: 4 },
@@ -53,7 +53,8 @@ function worker(features, initial) {
       remove: track('remove', async id => { removed.push(id); allTabs.splice(allTabs.findIndex(tab => tab.id === id), 1); }),
       update: track('update', async (...args) => { updated.push(plain(args)); return {}; }),
       onRemoved: event(), onUpdated: event()
-    }
+    },
+    windows: { update: async (...args) => { windowUpdates.push(plain(args)); return {}; } }
   };
   const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, structuredClone, Date: Clock });
   ctx.importScripts = (...files) => files.forEach(file => vm.runInContext(
@@ -63,7 +64,7 @@ function worker(features, initial) {
     if (!chrome.runtime.onMessage.listeners[0](request, source, response => resolve(plain(response)))) resolve(undefined);
   });
   const runner = () => ({ id: 'extension-id', url: `chrome-extension://extension-id/runner.html#${job.token}`, tab: { id: job.runnerTabId } });
-  return { ctx, message, runner, created, queries, removed, updated, tabCalls, job: () => job, advance: ms => { time += ms; } };
+  return { ctx, message, runner, created, queries, removed, updated, tabCalls, windowUpdates, job: () => job, advance: ms => { time += ms; } };
 }
 
 function activeJob(phase, platform) {
@@ -138,6 +139,9 @@ test('the student and tiktok builds list, open and start tiktok, using only tikt
     assert.equal(h.job().settings.platform, 'tiktok');
     assert.equal(h.job().tabId, 8);
     assert.deepEqual(h.created.at(-1), { url: `chrome-extension://extension-id/runner.html#${h.job().token}`, active: false, windowId: 4 });
+    // TikTok only loads posts on screen, so its tab comes forward in its window.
+    assert.deepEqual(h.updated, [[8, { active: true }]]);
+    assert.deepEqual(h.windowUpdates, [[4, { focused: true }]]);
     assert.equal(started.data.settings.platform, 'tiktok');
     assert.equal(started.data.running, true);
   }
@@ -525,4 +529,13 @@ test('a saved tiktok session resumes from the tiktok page only, with only its id
     await h.settle();
     assert.deepEqual(h.requests().at(-1), { type: 'resume', sessionId: 'saved-session', tabId: 8 });
   });
+});
+
+test('an instagram start leaves the chosen tab and window where they are', async () => {
+  for (const source of [panel, website]) {
+    const h = worker('real');
+    assert.equal((await h.message({ type: 'start', tabId: 7, settings: { platform: 'instagram', minutes: 10, niche: 'branding' } }, source)).ok, true);
+    assert.deepEqual(h.updated, []);
+    assert.deepEqual(h.windowUpdates, []);
+  }
 });

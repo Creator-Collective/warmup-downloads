@@ -71,11 +71,11 @@ for (const action of ['like', 'follow']) {
   }
 }
 
-test('fresh-page retries end at the original eight-second deadline', async () => {
+test('fresh-page retries end at the twenty-second tiktok deadline', async () => {
   const h = confirmation({ failures: Infinity });
   assert.equal(await h.run(), false);
-  assert.equal(h.now(), 9000);
-  assert.equal(h.injections.length, 16);
+  assert.equal(h.now(), 21000);
+  assert.equal(h.injections.length, 40);
   assert.deepEqual(h.fresh.clicks, []);
   assert.deepEqual(h.removed, [81]);
 });
