@@ -1,3 +1,11 @@
+# 0.6.65 tiktok stays on screen
+
+tiktok sessions ran in a background tab, and tiktok barely works there. a live check in a signed-in chrome found a background tiktok viewer showing its video for more than 20 seconds without ever loading the panel with the like, follow and comment buttons, so every post looked like it had nothing to do and the session just moved on. a fresh post opened in a background tab, which is how a like or follow is double-checked, took 11 to 17 seconds to show its buttons, longer than the 8 second check. and a tab left in the background for a few minutes stopped running tiktok's own code entirely, so search results stopped loading as the session scrolled.
+
+a tiktok session now brings the tiktok tab to the front of its window when it starts or resumes. if the tiktok tab goes to the background anyway, the session pauses with "tiktok is in the background, so it stopped loading posts. switch back to the tiktok tab to keep going." and carries on once tiktok is back on screen. each opened or next tiktok post gets up to 6 seconds for its like, follow and comment panel before the session judges it. the fresh-page check for a tiktok like or follow now waits up to 20 seconds (instagram keeps 8), and a tiktok like or follow is no longer started in the last 32 seconds of a session so its check can finish. instagram behavior is unchanged. no new permissions.
+
+replace the files in your original unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.64 tiktok viewer recovery
 
 fixes two reproduced tiktok browsing failures: a next post outside the remembered search order could end the viewer chain early, and a failed viewer with no remaining video or photo could not be recognized for closing. tiktok can now continue through its own next-post order and leave a uniquely identified failed viewer. instagram's navigation and action behavior are unchanged. no new permissions.

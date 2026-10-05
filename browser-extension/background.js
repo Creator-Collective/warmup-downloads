@@ -181,6 +181,14 @@ async function dashboardCommand(message) {
     await putJob(freezeJob(job, { phase: 'error', stopRequested: true, message: 'couldn’t open the session. try again.' }));
     throw error;
   }
+  // TikTok only loads posts and their like, follow and comment controls while
+  // its tab is on screen, so a TikTok session brings that tab forward.
+  if (platform === 'tiktok') {
+    try {
+      await chrome.tabs.update(tab.id, { active: true });
+      await chrome.windows.update(tab.windowId, { focused: true });
+    } catch { /* the session waits on screen visibility either way */ }
+  }
   return publicState(job, enabledPlatforms);
 }
 // Test builds only, for the packaged side panel: a read-only check of the chosen

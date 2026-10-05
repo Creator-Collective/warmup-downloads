@@ -1,3 +1,9 @@
+2026-10-05 | 0.6.65 tiktok stays on screen
+changed: founder said tiktok autoscroll only partly works and likes, follows and comments don't work at all. live checks showed tiktok in a background tab never loads a viewer's like/follow/comment panel (20s+), loads fresh-check pages in 11-17s (check was 8s), and stops running after minutes in the background. start/resume now activates the tiktok tab and focuses its window; runner pauses the engine's reads while tiktok reports hidden (message, then continue); open/next wait up to 6s for post.details (like control rendered); tiktok fresh like/follow check 20s, engine tiktok like/follow confirmation budget 32s. instagram unchanged.
+files: browser-extension/background.js, runner.js, session.js, tiktok.js; tests/tiktok-on-screen (new), platform-builds, tiktok-runner-parity, tiktok-fresh-retry, session, tiktok-search-eligibility; version/release/setup/store metadata, release-notes/0.6.65.json, both archives, README/LIVE_VERIFICATION.
+verified: full suite and package check pass. live read-only reader checks in a signed-in background chrome tab; one test like (undone by tiktok), no follows or comments, no installed-extension session, nothing brought to the front.
+follow-ups: founder or a student runs a tiktok session with the tiktok tab on screen and checks likes/follows stick; if likes still turn back on the founder's own account, test on a student account.
+
 2026-10-01 | 0.6.64 recover tiktok viewer navigation
 changed: allow next to continue when tiktok leaves the remembered search order; recognize a uniquely identified failed viewer after its video/photo disappears so the session can return to results. instagram behavior and existing action limits are unchanged.
 files: browser-extension/runner.js, tiktok.js; tiktok runner/reader regression tests; manifest/package/release/setup/store metadata, both archives, README and LIVE_VERIFICATION.

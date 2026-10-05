@@ -237,16 +237,37 @@ async function navigate(url) {
   }
   return false;
 }
+// TikTok mounts a viewer's video before its like, follow and comment panel.
+// Wait a little for that panel so a post isn't judged before it has loaded.
+const TIKTOK_DETAILS_MS = 6000;
 async function waitForPost(target, accept = id => sameDestination(id, target)) {
   const until = Math.min(Date.now() + 15000, job.deadline);
+  let arrivedAt = null;
   while (Date.now() < until) {
     assertRunning();
     const page = await inspect();
     if (page.blocked) throw new Error(page.blocked);
-    if (accept(page.post?.id) && page.post?.viewer) return true;
+    if (accept(page.post?.id) && page.post?.viewer) {
+      if (currentPlatform() !== 'tiktok' || page.post.details !== false) return true;
+      arrivedAt ??= Date.now();
+      if (Date.now() - arrivedAt >= TIKTOK_DETAILS_MS) return true;
+    }
     await sleep(400);
   }
-  return false;
+  return arrivedAt !== null;
+}
+// TikTok only loads posts, their controls and more results while its tab is on
+// screen. A hidden tab pauses the session here until it is visible again.
+async function inspectOnScreen() {
+  let page = await inspect();
+  if (currentPlatform() !== 'tiktok' || page.hidden !== true) return page;
+  update({ message: 'tiktok is in the background, so it stopped loading posts. switch back to the tiktok tab to keep going.' });
+  while (page.hidden === true) {
+    await sleep(2000);
+    page = await inspect();
+  }
+  update({ message: 'tiktok is back on screen. continuing…' });
+  return page;
 }
 async function openViewer(target) {
   const config = platformConfig();
@@ -482,7 +503,9 @@ async function verifyEngagementOnFreshPost(action, request, note = () => {}) {
   let tabId;
   let lastRead = null;
   let readFailed = false;
-  const until = Math.min(Date.now() + 8000, job.deadline);
+  // A fresh TikTok post loads in a background tab, where TikTok can take well
+  // over eight seconds to show its like and follow controls.
+  const until = Math.min(Date.now() + (config.platform === 'tiktok' ? 20000 : 8000), job.deadline);
   try {
     // TikTok can show an optimistic like/follow that is lost on a fresh load.
     // This separate post checks persisted state and never performs actions.
@@ -818,7 +841,7 @@ async function start() {
   try {
     const config = platformConfig();
     await sessionEngine.runSession(job.settings, {
-      update, inspect: () => inspect(), scroll, engage,
+      update, inspect: () => inspectOnScreen(), scroll, engage,
       checkpoint: async checkpoint => {
         await messageQueue;
         await send('runner-checkpoint', { checkpoint });
