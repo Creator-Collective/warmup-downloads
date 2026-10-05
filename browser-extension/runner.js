@@ -251,7 +251,7 @@ async function waitForPost(target, accept = id => sameDestination(id, target)) {
       if (currentPlatform() !== 'tiktok' || page.post.details !== false) return true;
       arrivedAt ??= Date.now();
       if (Date.now() - arrivedAt >= TIKTOK_DETAILS_MS) return true;
-    }
+    } else if (arrivedAt !== null) return true; // it arrived, then moved on: the next read sees where
     await sleep(400);
   }
   return arrivedAt !== null;

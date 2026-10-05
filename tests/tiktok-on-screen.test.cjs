@@ -158,3 +158,17 @@ test('instagram never waits on tab visibility', async () => {
   assert.equal(h.reads.length, 1);
   assert.equal(page.hidden, true);
 });
+
+test('a tiktok post that arrives and then leaves before its panel loads ends the wait at once', async () => {
+  let opened, openedAt, startedAt;
+  const h = runner(async (settings, adapter) => {
+    await adapter.search('personal brand');
+    startedAt = h.now();
+    opened = await adapter.open(FIRST);
+    openedAt = h.now();
+  }, count => count === 4 ? { posts: [FIRST], sequence: [FIRST], post: viewerPost(false) } : { posts: [FIRST], sequence: [FIRST], post: null });
+  assert.equal((await h.finish()).phase, 'complete');
+  assert.equal(opened, true, 'the post did open, as before this wait existed');
+  assert.equal(h.reads.length, 5);
+  assert.ok(openedAt - startedAt < 1000, `${openedAt - startedAt} ms`);
+});
