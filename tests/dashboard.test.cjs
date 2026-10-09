@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { publicState } = require('../browser-extension/guards.js');
 const { validateSettings } = require('../plan.js');
-function dashboard(panel = false, saved = null, respond = null) {
+function dashboard(panel = false, saved = null, respond = null, { latest = null, fetch = undefined } = {}) {
   const requests = [];
   const nodes = new Map();
   const intervals = new Map();
@@ -15,7 +15,7 @@ function dashboard(panel = false, saved = null, respond = null) {
     if (!nodes.has(id)) nodes.set(id,{ value:defaults[id] || '', checked:false, textContent:'', hidden:false, disabled:false, placeholder:'', dataset:{}, style:{}, options:[], listeners:{}, classList:{toggle(){}}, addEventListener(type,fn){this.listeners[type]=fn}, replaceChildren(...children){this.options=children;this.value=children[0]?.value || ''}, add(option){this.options.push(option)}, append(){} });
     return nodes.get(id);
   };
-  const context=vm.createContext({ document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);const data=message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:message.platform==='tiktok'?8:7,title:message.platform==='tiktok'?'tiktok':'instagram'}]:message.type==='state'?{running:false,message:'ready',activity:[]}:message.type==='start'?{running:true,message:'started',activity:[]}:null;return {ok:true,data:respond?await respond(message,data):data}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(callback,delay){intervals.set(delay,callback)},Option:function(text,value){this.text=text;this.value=value},console });
+  const context=vm.createContext({ ...(fetch ? { fetch } : {}), document:{getElementById:element,querySelector:selector=>selector==='main'&&latest?{dataset:{latestVersion:latest}}:null,body:{classList:{toggle(){}}},createElement:()=>element('new')}, window:{addEventListener(){},postMessage(){}}, location:panel?{protocol:'chrome-extension:',pathname:'/sidepanel.html',origin:'chrome-extension://extension-id'}:{origin:'https://creator-collective-warmup.vercel.app'}, chrome:{runtime:{sendMessage:async message=>{requests.push(message);const data=message.type==='hello'?{state:{running:false,message:'ready',activity:[]}}:message.type==='tabs'?[{id:message.platform==='tiktok'?8:7,title:message.platform==='tiktok'?'tiktok':'instagram'}]:message.type==='state'?{running:false,message:'ready',activity:[]}:message.type==='start'?{running:true,message:'started',activity:[]}:null;return {ok:true,data:respond?await respond(message,data):data}}}}, crypto:{randomUUID:()=> 'id'}, localStorage:{getItem:()=>stored,setItem(key,value){stored=value}}, setTimeout:()=>1,clearTimeout(){},setInterval(callback,delay){intervals.set(delay,callback)},Option:function(text,value){this.text=text;this.value=value},console });
   context.commentHistory = require('../comment-history.js');
   context.sessionResults = require('../session-results.js');
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../plan.js'),'utf8'),context);
@@ -475,4 +475,54 @@ test('a transient discovery failure stays connected and recovers on the next idl
   assert.equal(h.element('instagram-tab').value, '7');
   assert.equal(h.element('start').disabled, false);
   assert.equal(h.element('form-error').hidden, true);
+});
+
+// Unpacked extensions never update themselves, so the page says when a newer one is out.
+const settle = async () => { for (let i = 0; i < 10; i++) await new Promise(resolve => setImmediate(resolve)); };
+test('the website tells an older connected extension to update, using its own latest version and no network', async () => {
+ const fetched = [];
+ const h = dashboard(false, null, null, { latest: '0.6.66', fetch: async url => { fetched.push(url); throw new Error('the website never fetches'); } });
+ h.element('update').hidden = true;
+ await vm.runInContext("checkForUpdate('0.6.59')", h.context);
+ assert.equal(h.element('update').hidden, false);
+ assert.equal(h.element('update-title').textContent, 'update available: 0.6.66');
+ assert.match(h.element('update-copy').textContent, /^you're on 0\.6\.59 and chrome won't update it for you\. /);
+ assert.deepEqual(fetched, []);
+ for (const installed of ['0.6.66', '0.6.70', '0.10.0', 'not a version', undefined]) {
+  const same = dashboard(false, null, null, { latest: '0.6.66' });
+  same.element('update').hidden = true;
+  await vm.runInContext(`checkForUpdate(${JSON.stringify(installed)})`, same.context);
+  assert.equal(same.element('update').hidden, true, String(installed));
+ }
+});
+
+test('the side panel asks the warm-up site for the latest release and shows the update when it is newer', async () => {
+ const fetched = [];
+ const fetch = async (url, init) => { fetched.push([url, init.cache, init.credentials]); return { ok: true, json: async () => ({ version: '0.6.70' }) }; };
+ const h = dashboard(true, null, (message, data) => message.type === 'hello' ? { ...data, version: '0.6.66' } : data, { fetch });
+ h.element('update').hidden = true;
+ await settle();
+ assert.equal(h.element('connection').textContent, 'connected');
+ assert.deepEqual(fetched, [['https://creator-collective-warmup.vercel.app/release.json', 'no-store', 'omit']]);
+ assert.equal(h.element('update').hidden, false);
+ assert.equal(h.element('update-title').textContent, 'update available: 0.6.70');
+ assert.match(h.element('update-copy').textContent, /you're on 0\.6\.66/);
+});
+
+test('the side panel keeps quiet when it is current, the release is unreadable or the network fails', async () => {
+ const replies = [
+  async () => ({ ok: true, json: async () => ({ version: '0.6.66' }) }),
+  async () => ({ ok: true, json: async () => ({ version: '0.6.5' }) }),
+  async () => ({ ok: true, json: async () => ({ version: 'latest' }) }),
+  async () => ({ ok: false, json: async () => ({ version: '0.7.0' }) }),
+  async () => ({ ok: true, json: async () => { throw new SyntaxError('bad json'); } }),
+  async () => { throw new TypeError('offline'); }
+ ];
+ for (const [index, fetch] of replies.entries()) {
+  const h = dashboard(true, null, (message, data) => message.type === 'hello' ? { ...data, version: '0.6.66' } : data, { fetch });
+  h.element('update').hidden = true;
+  await settle();
+  assert.equal(h.element('connection').textContent, 'connected', `reply ${index}`);
+  assert.equal(h.element('update').hidden, true, `reply ${index}`);
+ }
 });

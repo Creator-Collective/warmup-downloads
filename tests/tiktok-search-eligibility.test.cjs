@@ -111,16 +111,18 @@ async function run(options = {}, patch = {}) {
   return h;
 }
 
-test("a captured personal-brand search result can be liked and followed despite a caption that doesn't use the keyword", async () => {
+test("a captured personal-brand search result can be liked, followed and commented on despite a caption that doesn't use the keyword", async () => {
   assert.equal(matchesNiche(variant, ['personal brand']), false);
   assert.equal(context.commentWriter.looseNicheMatch(variant, ['personal brand']), false);
   // Four minutes leaves room for the second follow's 32-second confirmation.
   const h = await run({}, { minutes: 4 });
   assert.equal(h.stats.like, 3);
   assert.equal(h.stats.follow, 2);
-  assert.equal(h.stats.comment, 0, 'search membership does not grant permission to generate a comment');
+  assert.equal(h.stats.comment, 1, 'search membership grants a comment');
   assert.ok(h.attempts.every(attempt => attempt.listed));
-  assert.ok(h.updates.some(update => /this post doesn't mention your keywords/.test(update.message)));
+  const comments = h.attempts.filter(attempt => attempt.action === 'comment').map(attempt => attempt.comment);
+  assert.ok(comments.every(comment => !/personal brand/i.test(comment)), 'the reply never names a keyword the caption left out');
+  assert.equal(h.updates.some(update => /mention your keywords|match your keywords/.test(update.message || '')), false);
 });
 
 test('viewer recommendations outside the captured grid never become eligible, including forged viewer metadata', async () => {

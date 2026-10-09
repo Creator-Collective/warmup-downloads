@@ -23,7 +23,7 @@ const SUMMARY = /^why targets fell short: /;
 
 // A keyword grid with a post viewer, as in the goals tests. Every post gets its
 // own author unless the post function names one.
-function world({ post = () => ({}), sticky = false, stopAt = Infinity, abortAtDeadline = false, checkpoint, start = 0 } = {}) {
+function world({ post = () => ({}), sticky = false, stopAt = Infinity, abortAtDeadline = false, checkpoint, start = 0, gridTerm = 'study tips' } = {}) {
   let time = start, mode = 'none', loaded = 0, index = -1, steps = 0, term = null;
   const controller = new AbortController();
   const items = [], updates = [], attempts = [], checkpoints = [];
@@ -42,7 +42,7 @@ function world({ post = () => ({}), sticky = false, stopAt = Infinity, abortAtDe
     search: async name => { time += 2500; term = name.replace(/\W/g, ''); mode = 'grid'; loaded = 24; index = -1; return true; },
     inspect: async () => {
       time += 150;
-      if (mode === 'grid') { const ids = gridIds(); return { post: null, posts: ids, sequence: ids, search: { term: 'study tips', posts: ids } }; }
+      if (mode === 'grid') { const ids = gridIds(); return { post: null, posts: ids, sequence: ids, search: { term: gridTerm, posts: ids } }; }
       const item = itemAt(index);
       return { post: { ...item, viewer: true, next: true, videoPlayback: null, videoRemainingMs: null }, posts: [], sequence: gridIds(), search: { term: null, behindViewer: true, posts: gridIds() } };
     },
@@ -108,14 +108,19 @@ test('more posts from an account already followed count as repeats', async () =>
   assert.ok(h.checkpoints.at(-1).shortfall.follow.repeat > 1);
 });
 
-test('comments on search posts without a keyword in the caption say so, likes and follows go ahead', async () => {
+test('search posts without a keyword in the caption still get likes, follows and comments', async () => {
   const h = world({ post: () => ({ text: OFF_NICHE, caption: OFF_NICHE }) });
   const stats = await h.run(plan({ customLimits: { like: 3, follow: 2, comment: 3 } }));
-  assert.equal(stats.like, 3);
-  assert.equal(stats.follow, 2);
-  assert.equal(stats.comment, 0);
+  assert.deepEqual([stats.like, stats.follow, stats.comment], [3, 2, 3]);
+  assert.deepEqual(h.summaries(), []);
+});
+
+test('posts outside the search that never name a keyword explain every shortfall', async () => {
+  const h = world({ gridTerm: 'another search', post: () => ({ text: OFF_NICHE, caption: OFF_NICHE }) });
+  const stats = await h.run(plan({ customLimits: { like: 3, follow: 2, comment: 3 } }));
+  assert.deepEqual([stats.like, stats.follow, stats.comment], [0, 0, 0]);
   const [summary] = h.summaries();
-  assert.match(summary, /^why targets fell short: comments 0\/3: \d+ captions didn't contain one of your keywords in full\.$/);
+  assert.match(summary, /^why targets fell short: follows 0\/2: \d+ posts weren't from your search and didn't mention your keywords\. likes 0\/3: \d+ posts weren't from your search and didn't mention your keywords\. comments 0\/3: \d+ posts weren't from your search and didn't mention your keywords\.$/);
 });
 
 test('no summary when every target is reached', async () => {

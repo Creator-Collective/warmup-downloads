@@ -134,14 +134,16 @@ function world(config = {}) {
   };
 }
 
-test('instagram posts from the current keyword grid can be liked and followed without repeating the keyword', async () => {
+test('instagram posts from the current keyword grid can be liked, followed and commented on without repeating the keyword', async () => {
   const h = world({ post: (term, index) => ({ id: igURL(`grid${index}`), text: OFF_NICHE, caption: OFF_NICHE }) });
   const stats = await h.run(plan());
   assert.ok(stats.like > 0, `likes: ${stats.like}`);
   assert.ok(stats.follow > 0, `follows: ${stats.follow}`);
-  assert.equal(stats.comment, 0, 'search membership never grants a comment');
-  assert.equal(h.attempts.filter(attempt => attempt.action === 'comment').length, 0);
-  assert.ok(messages(h).some(update => update.message.includes("comment skipped: this post doesn't mention your keywords.")));
+  assert.ok(stats.comment > 0, `comments: ${stats.comment}`);
+  // The caption never names the keyword, so the reply never does either.
+  const comments = h.attempts.filter(attempt => attempt.action === 'comment').map(attempt => attempt.comment);
+  assert.ok(comments.every(comment => typeof comment === 'string' && !/study tips/i.test(comment)), comments.join(' | '));
+  assert.equal(messages(h).some(update => / skipped: /.test(update.message)), false);
 });
 
 test('viewer metadata grants nothing before the same-term grid was seen', async () => {
@@ -501,7 +503,7 @@ test('without a draft check, a retained draft keeps comments off for the session
 test('the same skip reason is reported at most once every three minutes', async () => {
   const h = world({ post: (term, index) => ({ id: igURL(`off${index}`), text: OFF_NICHE, caption: OFF_NICHE }), gridMeta: () => undefined, viewerMeta: () => undefined });
   await h.run(plan());
-  const reasons = ["this post isn't from your search and doesn't mention your keywords.", "this post doesn't mention your keywords."];
+  const reasons = ["this post isn't from your search and doesn't mention your keywords."];
   for (const reason of reasons) {
     const times = messages(h).filter(update => update.message.includes(`skipped: ${reason}`)).map(update => update.time);
     assert.ok(times.length >= 2, `${reason} reported ${times.length} times`);

@@ -168,7 +168,7 @@ const MAX_NOTHING_SKIMS = 5;
 const MAX_BROWSE_HISTORY = 3000;
 const MAX_COMMENTED_BEFORE = 5000;
 const COMMENT_SKIP_COPY = Object.freeze({
-  'off-niche': "this post doesn't mention your keywords.",
+  'off-niche': "this post isn't from your search and doesn't mention your keywords.",
   bait: 'this post asks for a keyword reply or giveaway entry.',
   suspicious: 'this caption looks like spam.',
   sensitive: 'this post looks sensitive or heated.',
@@ -202,7 +202,7 @@ const SHORTFALL_COPY = Object.freeze({
     'off-niche': count => `${many(count, "post wasn't", "posts weren't")} from your search and didn't mention your keywords`
   },
   comment: {
-    'off-niche': count => `${many(count, 'caption', 'captions')} didn't contain one of your keywords in full`,
+    'off-niche': count => `${many(count, "post wasn't", "posts weren't")} from your search and didn't mention your keywords`,
     account: (count, platform) => `couldn't find your ${platform} account link`,
     language: (count, platform) => `${platform} isn't in english`,
     composer: count => `${many(count, 'post', 'posts')} had no clear comment box`,
@@ -435,7 +435,9 @@ async function runSession(settings, adapter, signal, options = {}) {
     return 'watch';
   };
   // Whether anything is still possible on this post, ignoring cooldowns: an unliked
-  // like, an author not yet followed, a comment box on a matching caption.
+  // like, an author not yet followed, a comment box on a matching caption. Search
+  // results can get a comment too, but comments come minutes apart, so a post with
+  // only that left still counts as used up and the browsing moves on.
   const targetOpen = action => Boolean(settings.weights[action]) && !pausedActions.has(action) && stats[action] + unconfirmed[action] < settings.limits[action];
   const targetsLeft = () => ['like', 'follow', 'comment'].some(targetOpen);
   const offersEngagement = post => ['like', 'follow', 'comment'].some(action => {
@@ -729,7 +731,9 @@ async function runSession(settings, adapter, signal, options = {}) {
         const fromSearch = platform === 'tiktok' ? searchResults.has(tiktokPostIdentity(post.id)) : searchResults.has(postKey);
         const wantsComment = Boolean(settings.weights.comment && stats.comment + unconfirmed.comment < settings.limits.comment && !pausedActions.has('comment') && !alreadyCommented(post, postKey));
         // TikTok confirms a comment by its exact text, so it gets plain ASCII wording only.
-        const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt, plainText: platform === 'tiktok' }) : null;
+        // A post from the current search gets a comment even when its caption never
+        // repeats the keyword; the writer then keeps the keyword out of the reply.
+        const written = wantsComment && writer ? writer.writeComment({ caption: post.caption, text: post.text, terms: settings.terms, used: usedComments, postId: postKey, salt: commentSalt, plainText: platform === 'tiktok', searchTerm: fromSearch ? currentSearchTerm : null }) : null;
         const burstFree = engagementStarts.filter(time => now() - time < BURST_WINDOW_MS * settings.pauseScale).length < MAX_ACTIONS_PER_WINDOW;
         const onSame = samePost === postKey;
         const skipReasons = new Map();
@@ -748,11 +752,9 @@ async function runSession(settings, adapter, signal, options = {}) {
           }
           let reason;
           let cause = null;
-          if (!textMatches && !(action !== 'comment' && fromSearch)) {
+          if (!textMatches && !fromSearch) {
             cause = 'off-niche';
-            reason = action === 'comment'
-              ? COMMENT_SKIP_COPY['off-niche'] : platform === 'tiktok'
-                ? 'this post does not match your keywords or current search results.' : "this post isn't from your search and doesn't mention your keywords.";
+            reason = platform === 'tiktok' ? 'this post does not match your keywords or current search results.' : COMMENT_SKIP_COPY['off-niche'];
           } else if (action === 'comment' && !writer) {
             cause = 'writer';
             reason = WRITER_MISSING;

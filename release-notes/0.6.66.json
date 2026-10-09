@@ -1,5 +1,4 @@
 {
-  "version": "0.6.66",
   "releasedAt": "2026-10-09",
   "summary": "comments work on far more posts, and warm-up now tells you when a newer extension is out",
   "changes": [
@@ -9,8 +8,5 @@
     "the side panel and the warm-up site show an update notice when your extension is older than the newest version. chrome never updates it for you.",
     "if follows keep falling short, update first: since 0.6.61 each session starts somewhere new in your results instead of replaying posts you already liked and accounts you already follow.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
-  ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.66.zip",
-  "appUrl": "https://creator-collective-warmup.vercel.app/",
-  "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
+  ]
 }
