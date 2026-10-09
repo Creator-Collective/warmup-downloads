@@ -1,8 +1,11 @@
-fix: tiktok sessions keep tiktok on screen so likes, follows and comments work
+fix: instagram comments on search results, and tell students when to update
 
 misc:
-- bring the tiktok tab forward when a tiktok session starts or resumes
-- pause with a clear message while the tiktok tab is in the background
-- give each tiktok post a few seconds to load its like, follow and comment panel
-- give the tiktok like/follow double-check 20 seconds, with a matching session budget
-- publish 0.6.65 extension downloads and matching update metadata
+- a post from the current keyword search can get a comment even when its caption never repeats the keyword
+- those replies never name the keyword; bait, spam-like and sensitive captions are still skipped
+- sat keywords read as the study family for comment wording
+- side panel reads the public release.json and shows an update notice when the install is older
+- warm-up site shows the same notice when the connected extension is older than the site's version
+- re-record the mixed and corpus golden instagram runs for the comment change; matching runs unchanged
+- tiktok efficiency harness treats a last read that hits the deadline as a finished session, like runner.js
+- publish 0.6.66 extension downloads and matching update metadata

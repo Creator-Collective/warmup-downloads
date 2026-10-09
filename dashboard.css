@@ -86,6 +86,7 @@ p { margin: 0; color: var(--ink); }
 .button { gap: 12px; }
 .setup-strip { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; padding: 14px; border: 1px solid var(--card-line); background: var(--surface); border-radius: 12px; box-shadow: var(--card-shadow); }
 .setup-strip h2 { margin: 0; font-weight: 500; }
+.update-strip p { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
 .workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: 24px; }
 .settings-panel, .activity-panel { min-width: 0; background: var(--surface); border: 1px solid var(--card-line); border-radius: 12px; padding: 18px; box-shadow: var(--card-shadow); }
 .settings-panel { padding: 14px; }
@@ -290,6 +291,7 @@ footer a { color: var(--muted); }
 .side-panel .run-controls .primary { grid-column: 1 / -1; }
 .side-panel .run-controls .secondary { grid-column: 1 / -1; }
 .side-panel .resume-summary { margin: 0 0 16px; }
+.side-panel .update-strip { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 16px; }
 .side-panel .run-controls .unit { width: 78px; }
 .side-panel .workspace { display: flex; flex-direction: column; gap: 14px; }
 .side-panel .workspace > section { width: 100%; padding: 16px; min-height: 0; }

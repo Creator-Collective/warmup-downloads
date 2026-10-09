@@ -394,9 +394,37 @@ function showTestTools() {
     } catch (e) { status.textContent = e.message; }
   });
 }
+// Unpacked extensions never update themselves, so a student can run an old copy
+// for weeks without knowing. The website always carries the newest version
+// number. The side panel is the installed copy itself, so it asks the warm-up
+// site which version is current.
+const RELEASE_URL = 'https://creator-collective-warmup.vercel.app/release.json';
+const versionPattern = /^\d{1,5}\.\d{1,5}\.\d{1,5}$/;
+function compareVersions(a, b) {
+  const left = a.split('.').map(Number), right = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+  return 0;
+}
+async function latestVersion() {
+  if (!inPanel) return document.querySelector('main')?.dataset.latestVersion || null;
+  const response = await fetch(RELEASE_URL, { cache: 'no-store', credentials: 'omit', redirect: 'error' });
+  if (!response.ok) return null;
+  const release = await response.json();
+  return typeof release?.version === 'string' ? release.version : null;
+}
+async function checkForUpdate(installed) {
+  try {
+    const latest = await latestVersion();
+    if (typeof installed !== 'string' || typeof latest !== 'string' || !versionPattern.test(installed) || !versionPattern.test(latest) || compareVersions(latest, installed) <= 0) return;
+    $('update-title').textContent = `update available: ${latest}`;
+    $('update-copy').textContent = `you're on ${installed} and chrome won't update it for you. download the new version, replace the files in your extension folder, then reload the extension.`;
+    $('update').hidden = false;
+  } catch { /* offline or blocked: warm-up keeps working without the notice */ }
+}
 async function connect() {
   try {
     const hello = await request('hello');
+    void checkForUpdate(hello.version);
     supportsFocus = hello.supportsFocus === true;
     // Builds before the list existed send none and run instagram only. A side
     // panel opens on a platform its own extension runs.

@@ -27,6 +27,17 @@ test('public release links and notes describe the packaged manifest version', ()
   });
 });
 
+// The website tells older connected extensions to update by this number, and the
+// setup page offers this download, so both must name the packaged version.
+test('the website and setup page name the packaged manifest version as the latest', () => {
+  const root = path.join(__dirname, '..');
+  const { version } = JSON.parse(fs.readFileSync(path.join(root, 'browser-extension/manifest.json'), 'utf8'));
+  for (const page of ['index.html', 'setup.html']) {
+    const html = fs.readFileSync(path.join(root, page), 'utf8');
+    assert.equal(html.match(/data-latest-version="([^"]+)"/)?.[1], version, page);
+  }
+});
+
 test('release generation rejects dates, versions and notes the student dashboard cannot read', async t => {
   const { releaseMetadata } = await import('../scripts/release-metadata.mjs');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-release-notes-test-'));

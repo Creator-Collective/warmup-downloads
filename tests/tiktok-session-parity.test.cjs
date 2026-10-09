@@ -134,12 +134,14 @@ test('a failed open costs the same short transition pause on instagram and tikto
   assert.ok(gaps.tiktok >= 500 && gaps.tiktok <= 1800, `pause ${gaps.tiktok} ms`);
 });
 
-test('search membership never grants a tiktok comment', async () => {
+test('a tiktok search result gets a comment that never names the keyword, like instagram', async () => {
   const h = tiktokWorld();
   const stats = await h.run(plan());
   assert.ok(stats.like > 0);
-  assert.equal(h.attempts.filter(attempt => attempt.action === 'comment').length, 0);
-  assert.ok(messages(h).some(update => update.message.includes("comment skipped: this post doesn't mention your keywords.")));
+  const comments = h.attempts.filter(attempt => attempt.action === 'comment').map(attempt => attempt.comment);
+  assert.ok(comments.length > 0, 'search membership grants a comment');
+  assert.ok(comments.every(comment => /^[\x20-\x7e]+$/.test(comment) && !/study tips/i.test(comment)), comments.join(' | '));
+  assert.equal(messages(h).some(update => /mention your keywords|match your keywords/.test(update.message)), false);
 });
 
 test('the tiktok account blocker names tiktok and is reported once per session; the composer one repeats every three minutes', async () => {

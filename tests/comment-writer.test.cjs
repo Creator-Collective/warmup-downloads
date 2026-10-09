@@ -318,3 +318,48 @@ test('plainText never picks the one emoji reply, and the default still can', () 
   assert.ok(next, 'the process topic is still reachable');
   assert.ok(pools.topics.process.includes(next.text), next.text);
 });
+
+// Posts from the student's own keyword search are on-niche even when the caption
+// never repeats the keyword. Real SAT search results mostly say "SAT" without "test".
+test('a post from the keyword search gets a reply that never names the keyword', () => {
+  const terms = ['SAT test', 'SAT test prep'];
+  const captionsWithoutKeyword = [
+    'Just do this for the SAT and you’ll get a 750 English section #sat #sattips #studytips',
+    'how to get a 1600 on the SAT',
+    'Desmos hacks for the digital SAT',
+    'this one grammar rule shows up on every SAT'
+  ];
+  const used = new Set();
+  for (const caption of captionsWithoutKeyword) {
+    assert.equal(write(caption, terms).reason, 'off-niche', `${caption}: no keyword in full`);
+    const result = writeComment({ caption, text: caption, terms, used, postId: caption, searchTerm: 'SAT test prep' });
+    assert.equal(typeof result.text, 'string', `${caption}: ${result.reason}`);
+    assert.equal(result.templateKey, null, 'no keyword template');
+    assert.ok(!/sat test/i.test(result.text), result.text);
+    assert.equal(safeReply(result.text, caption), true, result.text);
+    used.add(result.text);
+  }
+  assert.equal(used.size, captionsWithoutKeyword.length, 'each reply is new');
+});
+
+test('the search keyword only counts when it is one of the student’s keywords, and safety skips still apply', () => {
+  const caption = 'how to get a 1600 on the SAT';
+  assert.equal(writeComment({ caption, text: caption, terms: ['SAT test'], searchTerm: 'something else' }).reason, 'off-niche');
+  assert.equal(writeComment({ caption, text: caption, terms: ['SAT test'], searchTerm: 42 }).reason, 'off-niche');
+  const bait = 'comment SAT and I will send you my free study guide';
+  assert.equal(writeComment({ caption: bait, text: bait, terms: ['SAT test'], searchTerm: 'SAT test' }).reason, 'bait');
+  const sensitive = 'studying for the SAT after my grandma passed away';
+  assert.equal(writeComment({ caption: sensitive, text: sensitive, terms: ['SAT test'], searchTerm: 'SAT test' }).reason, 'sensitive');
+});
+
+test('a caption that names the keyword keeps its keyword templates, with or without a search keyword', () => {
+  const caption = 'SAT test prep: 3 things nobody tells you';
+  const results = Array.from({ length: 40 }, (_, index) => writeComment({ caption, text: caption, terms: ['SAT test prep'], postId: `post-${index}`, searchTerm: 'SAT test prep' }));
+  assert.ok(results.some(result => result.templateKey), 'templates stay available when the caption names the keyword');
+});
+
+test('SAT keywords read as the study family', () => {
+  assert.equal(writer.classifyFamily('SAT test prep'), 'study');
+  assert.equal(writer.classifyFamily('sat'), 'study');
+  assert.equal(writer.classifyFamily('saturday vibes'), null);
+});

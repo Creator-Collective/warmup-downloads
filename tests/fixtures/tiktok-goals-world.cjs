@@ -343,7 +343,12 @@ function tiktokWorld(runSession, settings, config = {}) {
     time: () => time, diagnostics: () => runnerContext.diagnostics,
     run: async () => {
       try { return { stats: plain(await runSession(settings, adapter, controller.signal, options)) }; }
-      catch (error) { return { error }; }
+      catch (error) {
+        // runner.js ends a session whose last page read ran into the deadline as
+        // complete, with the counts it already reported (finished = now >= deadline).
+        if (error?.message === 'time’s up. your session is complete.' && time >= job.deadline) return {};
+        return { error };
+      }
     }
   };
 }

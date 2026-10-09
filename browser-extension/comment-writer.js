@@ -42,7 +42,7 @@
     fashion: ['fashion', 'outfit', 'ootd', 'style', 'streetwear', 'thrift', 'wardrobe', 'clothes', 'shopping'],
     travel: ['travel', 'trip', 'vacation', 'backpacking', 'wanderlust'],
     finance: ['money', 'finance', 'investing', 'budget', 'budgeting', 'saving', 'savings', 'stocks', 'debt', 'financial', 'frugal'],
-    study: ['study', 'studying', 'student', 'exam', 'college', 'university', 'school', 'studygram'],
+    study: ['study', 'studying', 'student', 'exam', 'college', 'university', 'school', 'studygram', 'sat'],
     business: ['business', 'entrepreneur', 'hustle', 'shop', 'etsy', 'startup', 'founder', 'ecommerce', 'handmade'],
     tech: ['tech', 'gadget', 'coding', 'programming', 'developer', 'ai', 'iphone', 'android', 'software', 'apps', 'app'],
     creator: ['ugc', 'creator', 'content', 'brand', 'branding', 'influencer', 'reels', 'storytelling', 'editing', 'youtube', 'marketing'],
@@ -208,7 +208,10 @@
   }
   // plainText keeps only printable ASCII wording, for platforms that confirm a
   // comment by its exact rendered text (an emoji can render differently).
-  function writeComment({ caption, text, terms, used, postId, salt, plainText = false } = {}) {
+  // searchTerm is the student's keyword whose search results this post came from.
+  // Those posts are on-niche even when the caption never repeats the keyword, but
+  // their replies never name the keyword, since the caption may not be about it.
+  function writeComment({ caption, text, terms, used, postId, salt, plainText = false, searchTerm = null } = {}) {
     const cleanCaption = caption == null ? '' : caption;
     const cleanText = text == null ? '' : text;
     if (typeof cleanCaption !== 'string' || typeof cleanText !== 'string' || cleanCaption.length > MAX_TEXT || cleanText.length > MAX_TEXT ||
@@ -217,7 +220,8 @@
     if (INJECTION.some(pattern => pattern.test(whole))) return { text: null, reason: 'suspicious' };
     if (BAIT.some(pattern => pattern.test(whole))) return { text: null, reason: 'bait' };
     if (SENSITIVE.test(whole) || TONE.test(whole)) return { text: null, reason: 'sensitive' };
-    const term = matchedTerm(`${cleanCaption} ${cleanText}`, terms);
+    const captionTerm = matchedTerm(`${cleanCaption} ${cleanText}`, terms);
+    const term = captionTerm || (typeof searchTerm === 'string' && terms.includes(searchTerm) ? searchTerm : null);
     if (!term) return { text: null, reason: 'off-niche' };
     const usedKeys = new Set([...(used instanceof Set || Array.isArray(used) ? used : [])].filter(value => typeof value === 'string')
       .map(value => value.startsWith('template:') ? value : commentKey(value)));
@@ -232,7 +236,7 @@
     if (shape) tiers.set('shape', SHAPES[shape].map(reply => ({ text: reply })));
     const family = classifyFamily(term);
     if (family) tiers.set('family', FAMILIES[family].map(reply => ({ text: reply })));
-    const inserted = insertableTerm(term);
+    const inserted = captionTerm ? insertableTerm(term) : null;
     const templateUses = [...usedKeys].filter(key => key.startsWith('template:')).length;
     const nonTemplate = usedKeys.size - templateUses * 2;
     if (inserted && templateUses * 3 <= nonTemplate) {
