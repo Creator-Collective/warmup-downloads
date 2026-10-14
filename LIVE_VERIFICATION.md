@@ -1,3 +1,7 @@
+## 0.6.67 tiktok limited notice, october 14
+
+copy-only change, covered by the dashboard tests (notice shows for tiktok, hidden for instagram). no live site run.
+
 ## 0.6.66 comments on search results and update notice, october 9
 
 the report came from a founder call with the student (fathom recording, october 9) plus her september 27 phone screenshots of the side panel: 0.6.59-era panel (resume, focus, no shortfall line), "SAT test, SAT test prep", 20 minutes, 45/10/10, 54 scrolls, 12 likes, 2 follows, 0 comments. her tracked instagram accounts follow only a few dozen accounts, so most authors in a fresh niche would show a follow button; her sat account is not tracked. a public, signed-out sat post read in a hidden browser had the caption "Just do this for the SAT and you'll get a 750 English section #sat #sattips #stu…", which fails the old every-word comment rule for both keywords.

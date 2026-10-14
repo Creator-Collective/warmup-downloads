@@ -19,6 +19,8 @@ const actions = ['like','follow','comment'];
 let limitOverrides = {};
 let editingLimit = null;
 let savedDraft = null;
+// Tiktok sessions only scroll for now, so say so before anyone starts one.
+const tiktokNote = 'tiktok is limited for now: it scrolls your feed, but it cannot like, follow or comment yet. you can still use it to warm up the account, it just is not fully working.';
 const fields = ['platform','niche','minutes','focus','limit-like','limit-follow','limit-comment'];
 const draftFields = fields.filter(field => field !== 'platform' && !field.startsWith('limit-'));
 const draftDefaults = Object.fromEntries(draftFields.map(field => [field, $(field).value]));
@@ -225,6 +227,8 @@ function platformChanged() {
   $('tab-label').textContent = `${platform} tab`;
   $('instagram-tab').dataset.icon = platform;
   $('open-instagram').textContent = `open ${platform} ↗`;
+  $('platform-note').hidden = platform !== 'tiktok';
+  $('platform-note').textContent = platform === 'tiktok' ? tiktokNote : '';
 }
 function displayPlan(state) {
   // A running session shows its own platform, whichever one this page had open.

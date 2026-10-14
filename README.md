@@ -1,3 +1,7 @@
+# 0.6.67 tiktok says it only scrolls
+
+picking tiktok in the side panel and on the warm-up site now shows a notice: tiktok scrolls the feed but cannot like, follow or comment yet, so it is not fully working. instagram is unchanged. replace the files in your original unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.66 comments on search results, and an update notice
 
 a student reported (call with the founder, october 9) that every 20 minute instagram session follows one or two people and that warm-up has only ever commented once for her. her september 27 screenshot shows 0.6.59 or older: "SAT test, SAT test prep", 54 scrolls, 12/45 likes, 2/10 follows, 0/10 comments. two causes, both fixed here or already fixed and never installed.
