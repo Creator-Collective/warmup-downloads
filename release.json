@@ -1,16 +1,13 @@
 {
-  "version": "0.6.66",
-  "releasedAt": "2026-10-09",
-  "summary": "comments work on far more posts, and warm-up now tells you when a newer extension is out",
+  "version": "0.6.67",
+  "releasedAt": "2026-10-14",
+  "summary": "tiktok now says up front that it only scrolls",
   "changes": [
-    "a post from your keyword search can now get a comment even when its caption never repeats your keyword. before, a caption had to contain every word of a keyword, so most posts got no comment.",
-    "those comments never name your keyword, since the post may not say it. posts asking for keyword replies or giveaway entries, and sensitive or heated posts, are still skipped.",
-    "sat keywords now count as study posts, so their comments sound like study comments.",
-    "the side panel and the warm-up site show an update notice when your extension is older than the newest version. chrome never updates it for you.",
-    "if follows keep falling short, update first: since 0.6.61 each session starts somewhere new in your results instead of replaying posts you already liked and accounts you already follow.",
+    "picking tiktok shows a notice: tiktok scrolls your feed but cannot like, follow or comment yet. you can still run it to warm up the account, it is just not fully working.",
+    "instagram is unchanged: likes, follows and comments all work.",
     "replace the files in your original extension folder, reload the extension and reopen warm-up."
   ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.66.zip",
+  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.67.zip",
   "appUrl": "https://creator-collective-warmup.vercel.app/",
   "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
 }

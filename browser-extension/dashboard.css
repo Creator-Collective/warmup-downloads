@@ -331,6 +331,7 @@ footer a { color: var(--muted); }
 .select-trigger { gap: 10px; min-height: 40px; }
 .select-option { gap: 10px; min-height: 40px; }
 .focus-controls { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.platform-note { margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: #fff6e0; color: #6b4a00; font-size: 12px; line-height: 1.5; text-wrap: pretty; }
 .focus-status { margin-top: 8px; font-size: 12px; line-height: 1.5; }
 #activity time { min-width: 7.2em; }
 .comment-meta time { font-variant-numeric: tabular-nums; }

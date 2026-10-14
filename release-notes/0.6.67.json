@@ -1,0 +1,9 @@
+{
+  "releasedAt": "2026-10-14",
+  "summary": "tiktok now says up front that it only scrolls",
+  "changes": [
+    "picking tiktok shows a notice: tiktok scrolls your feed but cannot like, follow or comment yet. you can still run it to warm up the account, it is just not fully working.",
+    "instagram is unchanged: likes, follows and comments all work.",
+    "replace the files in your original extension folder, reload the extension and reopen warm-up."
+  ]
+}
