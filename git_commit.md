@@ -1,6 +1,9 @@
-fix: version check works on the new dashboard address
+feat: velocity creators look
 
 misc:
-- the dashboard moved to tryvelocitycreators.com; the read-only version script now runs there too, so the warm-up page stops saying "not detected" for installed extensions
-- old trycreatorcollective.com origins stay allowed; lookalike hosts, http and subdomains are still ignored
-- publish 0.6.68 extension downloads and matching update metadata
+- extension name, icons and header logo switch to velocity creators (grid v)
+- accent pink becomes the dashboard teal
+- download and folder are now velocity-creators-extension; old zips stay published
+- copy across the site, setup, privacy, extensions and runner pages; the update step names the warm-up card, since older installs keep the old name until reload
+- extensions page links to the new dashboard address
+- publish 0.6.69 extension downloads and matching update metadata

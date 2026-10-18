@@ -15,7 +15,7 @@ export function releaseMetadata(root, version) {
     releasedAt: notes.releasedAt,
     summary: notes.summary,
     changes: notes.changes,
-    downloadUrl: `${origin}/creator-collective-extension-${version}.zip`,
+    downloadUrl: `${origin}/velocity-creators-extension-${version}.zip`,
     appUrl: `${origin}/`,
     setupUrl: `${origin}/setup.html`
   };

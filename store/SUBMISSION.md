@@ -2,7 +2,7 @@
 
 Status: package prepared; not submitted or approved. Complete browser installation and fixture verification before submitting. A developer account, registration payment, policy attestations and final submission must be completed by the account owner.
 
-Name: Creator Collective Warm-up
+Name: Velocity Creators Warm-up
 Summary: Run a timed niche browsing session on Instagram or TikTok, with targets and activity you control.
 Single purpose: User-started, timed niche browsing sessions in a selected Instagram or TikTok tab.
 Homepage: https://creator-collective-warmup.vercel.app/
@@ -10,7 +10,7 @@ Privacy policy: https://creator-collective-warmup.vercel.app/privacy.html
 Support: https://github.com/Creator-Collective/warmup-downloads/issues
 
 Description:
-Choose niche keywords, a session duration and optional engagement limits on your Creator Collective dashboard. Select an Instagram tab and start. The toolbar icon opens a side panel with settings and live activity beside Instagram. A background session tab keeps the timer alive. Stop at any time.
+Choose niche keywords, a session duration and optional engagement limits on your Velocity Creators dashboard. Select an Instagram tab and start. The toolbar icon opens a side panel with settings and live activity beside Instagram. A background session tab keeps the timer alive. Stop at any time.
 
 The panel displays automatic like, follow and comment limits based on session length and pacing. Each amount is directly editable; 0 disables the action. Explicitly saved zero limits remain zero. Instagram comments use short, lowercase reactions to recognized details in a matching visible caption; wording varies without repeats within a session and unsupported details are skipped. The extension does not interpret video content. English Instagram controls are currently supported. Limits are maximums, not guaranteed results. No account-safety or recommendation outcome is promised.
 
@@ -19,13 +19,13 @@ Permissions justification:
 - scripting: execute packaged DOM observation and interaction functions in the platform tab selected by the user.
 - storage: retain session state locally and stop duplicate concurrent sessions; no cloud synchronization.
 - Instagram host access: inspect visible posts, scroll and operate exact visible controls in the selected tab.
-- dashboard content script: connect only the exact Creator Collective warm-up origin to the extension. Other websites and iframes cannot use the command bridge.
+- dashboard content script: connect only the exact Velocity Creators warm-up origin to the extension. Other websites and iframes cannot use the command bridge.
 - student version content script: allow only the top-level trycreatorcollective.com, www.trycreatorcollective.com, tryvelocitycreators.com and www.tryvelocitycreators.com pages to read the installed manifest version. This separate script cannot issue commands or read account/session data.
 
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.68.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.69.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
 Version 0.6.66 lets a post from the student's current keyword search get a generated comment even when its caption does not repeat the keyword; those replies never name the keyword, and bait, spam-like and sensitive captions are still skipped. The side panel reads the public release.json from the warm-up site (no cookies, no new permissions) and shows an update notice when the installed version is older. No change to action limits, cooldowns or confirmation.
 
