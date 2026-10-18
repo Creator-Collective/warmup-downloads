@@ -1,5 +1,6 @@
 (() => {
-  const origins = new Set(['https://trycreatorcollective.com', 'https://www.trycreatorcollective.com']);
+  // the dashboard moved to tryvelocitycreators.com on 2026-10-16; the old domain still serves some pages.
+  const origins = new Set(['https://trycreatorcollective.com', 'https://www.trycreatorcollective.com', 'https://tryvelocitycreators.com', 'https://www.tryvelocitycreators.com']);
   if (window !== window.top || !origins.has(location.origin)) return;
 
   window.addEventListener('message', event => {

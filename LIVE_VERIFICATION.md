@@ -1,3 +1,7 @@
+## 0.6.68 version check on the new dashboard address, october 17
+
+a student loaded 0.6.67 unpacked (developer mode on, card enabled in his chrome://extensions screenshot) and the dashboard warm-up page still said "not detected". the dashboard moved to www.tryvelocitycreators.com the night before and the old address redirects there, while version-bridge.js only matched the two trycreatorcollective.com origins. matches and the origin allowlist now include both tryvelocitycreators.com origins; covered by the version-bridge tests (new origins answer, lookalike hosts, http and subdomains still ignored). no live site run.
+
 ## 0.6.67 tiktok limited notice, october 14
 
 copy-only change, covered by the dashboard tests (notice shows for tiktok, hidden for instagram). no live site run.
