@@ -1,3 +1,7 @@
+# 0.6.68 the dashboard sees the extension on its new address
+
+the student dashboard moved from trycreatorcollective.com to www.tryvelocitycreators.com on october 16. the version check only ran on the old address, so the warm-up page said "not detected" even with the extension installed and on. the read-only version script now also runs on tryvelocitycreators.com and www.tryvelocitycreators.com. nothing else changed. replace the files in your original unpacked extension folder, reload the extension and check again on the warm-up page.
+
 # 0.6.67 tiktok says it only scrolls
 
 picking tiktok in the side panel and on the warm-up site now shows a notice: tiktok scrolls the feed but cannot like, follow or comment yet, so it is not fully working. instagram is unchanged. replace the files in your original unpacked extension folder, reload the extension and reopen warm-up.
@@ -236,7 +240,7 @@ This repairs a reproduced tab-discovery problem, independently of the older TikT
 
 # 0.6.33 student dashboard version check
 
-The student dashboard can read the installed warm-up version through a separate, read-only content script on the exact trycreatorcollective.com and www.trycreatorcollective.com origins. Requests must come from the top-level page with a valid matching nonce. Only the manifest version is returned; the existing warm-up command bridge and platform permissions are unchanged.
+The student dashboard can read the installed warm-up version through a separate, read-only content script on the exact trycreatorcollective.com, www.trycreatorcollective.com, tryvelocitycreators.com and www.tryvelocitycreators.com origins. Requests must come from the top-level page with a valid matching nonce. Only the manifest version is returned; the existing warm-up command bridge and platform permissions are unchanged.
 
 Packaging generates public release.json from release-notes/0.6.33.json, with the current version, release date, notes and production download/setup links. Both archives include the version script and are compared with source. Replace files in the existing unpacked folder, reload its Chrome card and refresh the student dashboard to enable the check. Browser verification remains pending.
 

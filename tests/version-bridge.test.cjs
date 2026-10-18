@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'browser-extension/version-bridge.js'), 'utf8');
 const nonce = '0123456789abcdef0123456789abcdef';
-const origins = ['https://trycreatorcollective.com', 'https://www.trycreatorcollective.com'];
+const origins = ['https://trycreatorcollective.com', 'https://www.trycreatorcollective.com', 'https://tryvelocitycreators.com', 'https://www.tryvelocitycreators.com'];
 
 function bridge(origin = origins[0], topFrame = true) {
   const listeners = [];
@@ -36,7 +36,7 @@ test('student version check replies only with the installed version and matching
 });
 
 test('version check registers only on the exact production student origins and top frame', () => {
-  for (const origin of ['http://trycreatorcollective.com', 'https://trycreatorcollective.com:444', 'https://trycreatorcollective.com.evil.example', 'https://other.trycreatorcollective.com', 'https://creator-collective-warmup.vercel.app', 'null']) {
+  for (const origin of ['http://trycreatorcollective.com', 'https://trycreatorcollective.com:444', 'https://trycreatorcollective.com.evil.example', 'https://other.trycreatorcollective.com', 'http://www.tryvelocitycreators.com', 'https://www.tryvelocitycreators.com.evil.example', 'https://other.tryvelocitycreators.com', 'https://creator-collective-warmup.vercel.app', 'null']) {
     assert.equal(bridge(origin).listeners.length, 0, origin);
   }
   for (const origin of origins) assert.equal(bridge(origin, false).listeners.length, 0);

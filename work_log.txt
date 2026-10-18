@@ -1,3 +1,5 @@
+2026-10-17 0.6.68: dashboard moved to www.tryvelocitycreators.com (main site #5560, oct 16) and the old address redirects there, but version-bridge.js only matched trycreatorcollective.com, so the warm-up page said "not detected" for every install (student gabe, 0.6.67 loaded and enabled). manifest matches + bridge origin allowlist add both tryvelocitycreators.com origins; version-bridge tests cover them plus lookalikes. version bump, release notes, packaged zips.
+
 2026-10-14 0.6.67: tiktok limited notice in side panel + site (dashboard.js/css, sidepanel.html, index.html), version bump + release notes + packaged zips. npm run check green (906).
 
 2026-10-09 | 0.6.66 comments on search results, update notice

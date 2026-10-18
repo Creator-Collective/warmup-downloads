@@ -20,12 +20,12 @@ Permissions justification:
 - storage: retain session state locally and stop duplicate concurrent sessions; no cloud synchronization.
 - Instagram host access: inspect visible posts, scroll and operate exact visible controls in the selected tab.
 - dashboard content script: connect only the exact Creator Collective warm-up origin to the extension. Other websites and iframes cannot use the command bridge.
-- student version content script: allow only the top-level trycreatorcollective.com and www.trycreatorcollective.com pages to read the installed manifest version. This separate script cannot issue commands or read account/session data.
+- student version content script: allow only the top-level trycreatorcollective.com, www.trycreatorcollective.com, tryvelocitycreators.com and www.tryvelocitycreators.com pages to read the installed manifest version. This separate script cannot issue commands or read account/session data.
 
 Data disclosures to review accurately in the store form:
 Website content is processed locally for matching and interaction verification. Settings and session state remain in the browser. No remote code, analytics, cookie APIs, or data-sale features. Account creation and phone setup are disabled and absent from the public website and packaged side panel. No native mailbox or SMSPool requests are available in this release. Previously saved signup emails, mailbox access and phone-order recovery remain locally for existing users; incomplete signup jobs stop and clear their temporary password. Do not claim the extension never handles website content.
 
-Upload chrome-web-store-0.6.67.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
+Upload chrome-web-store-0.6.68.zip. Add store screenshots of the actual dashboard and running session only after browser verification. Store review may require changes; do not represent this as approved.
 
 Version 0.6.66 lets a post from the student's current keyword search get a generated comment even when its caption does not repeat the keyword; those replies never name the keyword, and bait, spam-like and sensitive captions are still skipped. The side panel reads the public release.json from the warm-up site (no cookies, no new permissions) and shows an update notice when the installed version is older. No change to action limits, cooldowns or confirmation.
 
