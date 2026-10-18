@@ -21,7 +21,7 @@ test('public release links and notes describe the packaged manifest version', ()
     releasedAt: notes.releasedAt,
     summary: notes.summary,
     changes: notes.changes,
-    downloadUrl: `https://creator-collective-warmup.vercel.app/creator-collective-extension-${manifest.version}.zip`,
+    downloadUrl: `https://creator-collective-warmup.vercel.app/velocity-creators-extension-${manifest.version}.zip`,
     appUrl: 'https://creator-collective-warmup.vercel.app/',
     setupUrl: 'https://creator-collective-warmup.vercel.app/setup.html'
   });

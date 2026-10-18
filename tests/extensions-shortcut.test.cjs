@@ -288,12 +288,12 @@ test('helper assets deploy with the existing styles and all return links use the
   const dom = new JSDOM(html);
   const doc = dom.window.document;
   assert.equal(doc.querySelector('link[rel=stylesheet]').getAttribute('href'), 'dashboard.css');
-  assert.equal(doc.querySelector('.brand img').getAttribute('src'), 'cc-logo.webp');
-  for (const link of doc.querySelectorAll('a')) assert.equal(link.href, 'https://trycreatorcollective.com/dashboard/warmup-automation');
+  assert.equal(doc.querySelector('.brand img').getAttribute('src'), 'velocity-logo.png');
+  for (const link of doc.querySelectorAll('a')) assert.equal(link.href, 'https://www.tryvelocitycreators.com/dashboard/warmup-automation');
   assert.equal(doc.querySelectorAll('iframe').length, 0);
   assert.equal(doc.querySelectorAll('a[href^="chrome:"]').length, 0);
   const ignored = fs.readFileSync(path.join(root, '.vercelignore'), 'utf8');
-  for (const asset of ['extensions.html', 'extensions.js', 'dashboard.css', 'cc-logo.webp']) assert.ok(ignored.split('\n').includes(`!${asset}`));
+  for (const asset of ['extensions.html', 'extensions.js', 'dashboard.css', 'velocity-logo.png']) assert.ok(ignored.split('\n').includes(`!${asset}`));
   assert.doesNotMatch(script, /window\.opener|window\.open|location\.(?:assign|replace|reload)|clipboard/);
   dom.window.close();
 });

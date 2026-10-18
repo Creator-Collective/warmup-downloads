@@ -1,13 +1,13 @@
 {
-  "version": "0.6.68",
+  "version": "0.6.69",
   "releasedAt": "2026-10-17",
-  "summary": "the warm-up page on the new velocity creators site can see your extension again",
+  "summary": "warm-up now has the velocity creators look",
   "changes": [
-    "the dashboard moved to tryvelocitycreators.com. older versions only answered the version check on the old address, so the warm-up page said \"not detected\" even when the extension was installed and on.",
+    "the extension is now called velocity creators warm-up, with the new logo, icon and teal colors.",
     "warm-up sessions are unchanged.",
-    "replace the files in your original extension folder, reload the extension and hit check again on the warm-up page."
+    "replace the files in your original extension folder, reload the extension and reopen warm-up."
   ],
-  "downloadUrl": "https://creator-collective-warmup.vercel.app/creator-collective-extension-0.6.68.zip",
+  "downloadUrl": "https://creator-collective-warmup.vercel.app/velocity-creators-extension-0.6.69.zip",
   "appUrl": "https://creator-collective-warmup.vercel.app/",
   "setupUrl": "https://creator-collective-warmup.vercel.app/setup.html"
 }

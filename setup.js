@@ -86,7 +86,7 @@
     element('step-two-title').textContent = updating ? 'replace the old files' : 'open chrome extensions';
     element('step-two-copy').textContent = updating ? 'copy the new files into your existing extension folder. choose replace to keep your settings.' : 'turn on developer mode in the top-right corner.';
     element('step-three-title').textContent = updating ? 'reload your extension' : 'load your folder';
-    element('step-three-copy').textContent = updating ? 'click ↻ on the creator collective card, then reopen the side panel and press check again above.' : 'click “load unpacked” and select the unzipped creator-collective-extension folder.';
+    element('step-three-copy').textContent = updating ? 'click ↻ on the warm-up card, then reopen the side panel and press check again above.' : 'click “load unpacked” and select the unzipped velocity-creators-extension folder.';
     element(updating ? 'step-three' : 'step-two').append(element('manager-action'));
     element('walkthrough-manage-title').textContent = updating ? 'replace the files in your original folder' : 'turn on developer mode';
     element('walkthrough-manage-copy').textContent = updating ? 'keep the original folder. replace its contents with the files from your new download.' : 'it is in the top-right corner of chrome’s extensions page.';

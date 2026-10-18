@@ -1,0 +1,9 @@
+{
+  "releasedAt": "2026-10-17",
+  "summary": "warm-up now has the velocity creators look",
+  "changes": [
+    "the extension is now called velocity creators warm-up, with the new logo, icon and teal colors.",
+    "warm-up sessions are unchanged.",
+    "replace the files in your original extension folder, reload the extension and reopen warm-up."
+  ]
+}

@@ -1,3 +1,7 @@
+# 0.6.69 velocity creators look
+
+creator collective is now velocity creators. the extension is named velocity creators warm-up, the icons and header logo are the grid v, buttons and highlights use the dashboard's teal (#00998b, hover #008075, wash #d8faf5) instead of pink, and the download is velocity-creators-extension-<version>.zip with a velocity-creators-extension folder inside. the warm-up site keeps its creator-collective-warmup.vercel.app address, because every installed version's command bridge only matches that origin. sessions are unchanged. replace the files in your original unpacked extension folder, reload the extension and reopen warm-up.
+
 # 0.6.68 the dashboard sees the extension on its new address
 
 the student dashboard moved from trycreatorcollective.com to www.tryvelocitycreators.com on october 16. the version check only ran on the old address, so the warm-up page said "not detected" even with the extension installed and on. the read-only version script now also runs on tryvelocitycreators.com and www.tryvelocitycreators.com. nothing else changed. replace the files in your original unpacked extension folder, reload the extension and check again on the warm-up page.

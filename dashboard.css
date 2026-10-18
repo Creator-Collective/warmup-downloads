@@ -25,9 +25,10 @@
   --card-shadow: 0 1px 2px rgb(24 24 27 / .04), 0 8px 24px -16px rgb(24 24 27 / .24);
   --ink: #232326;
   --muted: #6a696e;
-  --accent: #f14bba;
-  --accent-hover: #dc3aa8;
-  --accent-soft: #fde9f7;
+  /* velocity creators teal, the same ladder as the student dashboard */
+  --accent: #00998b;
+  --accent-hover: #008075;
+  --accent-soft: #d8faf5;
   --success: #15803d;
   --warning: #8a541c;
 }

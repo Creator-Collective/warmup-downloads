@@ -1,5 +1,5 @@
 {
-  "version": "0.6.68",
+  "version": "0.6.69",
   "files": [
     "manifest.json",
     "features.js",
@@ -29,7 +29,7 @@
     "comment-history.js",
     "session-results.js",
     "inter.woff2",
-    "cc-logo.webp",
+    "velocity-logo.png",
     "platform-instagram.svg",
     "platform-tiktok.svg",
     "INTER-LICENSE.txt",
